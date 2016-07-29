@@ -1,0 +1,24 @@
+listeners:
+  amqp: 10
+
+enabled_resources:
+  - UnixAccount
+  - FTPAccount
+  - DBAccount
+  - WebAccessAccount
+
+enabled_actions:
+  - Create
+  - Update
+  - Delete
+
+amqp:
+  host: 127.1
+  user: guest
+  password: guest
+  exchange_type: topic
+  heartbeat_interval: 60
+
+rest:
+  host: 127.1
+  port: 80
