@@ -1,5 +1,4 @@
-listeners:
-  amqp: 10
+max_workers: 10
 
 enabled_resources:
   - UnixAccount
@@ -17,7 +16,8 @@ amqp:
   user: guest
   password: guest
   exchange_type: topic
-  heartbeat_interval: 60
+  heartbeat_interval: 30
+  connection_timeout: 5
 
 rest:
   host: 127.1

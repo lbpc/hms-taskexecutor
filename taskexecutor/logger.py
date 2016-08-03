@@ -4,6 +4,7 @@ import os
 import sys
 from fcntl import fcntl, F_GETFL, F_SETFL
 
+
 class StreamToLogger:
 	def __init__(self, logger, log_level=logging.DEBUG):
 		self.logger = logger
@@ -18,18 +19,22 @@ class StreamToLogger:
 		return self.fd_write
 
 	def write(self, buf):
-		self.write_from_buffer(buf)
-		self.write_from_pipe()
+		self.logger.log(
+				self.log_level,
+				self.read_from_buffer(buf) + self.read_from_pipe()
+		)
 
-	def write_from_buffer(self, buf):
+	def read_from_buffer(self, buf):
 		_msg = str()
 		for line in buf.rstrip().splitlines():
-			_msg += line.strip() + " "
-		self.logger.log(self.log_level, _msg)
+			_msg += line.strip() + "\n\t"
+		return _msg
 
-	def write_from_pipe(self):
+	def read_from_pipe(self):
+		_msg = str()
 		for line in iter(self.pipe_reader.readline, ''):
-			self.logger.log(self.log_level, line.strip())
+			_msg += line.strip() + "\n\t"
+		return _msg
 
 	def flush(self):
 		pass

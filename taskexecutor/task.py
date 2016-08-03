@@ -1,9 +1,9 @@
 class Task:
-	def __init__(self):
-		self._id = str()
-		self._res_type = str()
-		self._action = str()
-		self._params = dict()
+	def __init__(self, id, res_type, action, params):
+		self.id = id
+		self.res_type = res_type
+		self.action = action
+		self.params = params
 
 	@property
 	def id(self):
@@ -47,6 +47,8 @@ class Task:
 
 	@params.setter
 	def params(self, value):
+		if type(value) != dict:
+			raise TypeError("params must be dict")
 		self._params = value
 
 	@params.deleter

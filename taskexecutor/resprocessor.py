@@ -1,8 +1,8 @@
 import subprocess
-import sys
 from abc import ABCMeta, abstractmethod
+from logging import INFO, ERROR
 
-from taskexecutor.logger import LOGGER
+from taskexecutor.logger import LOGGER, StreamToLogger
 
 
 class ResProcessor(metaclass=ABCMeta):
@@ -52,13 +52,13 @@ class UnixAccountProcessor(ResProcessor):
 		super().__init__()
 
 	def create(self):
-		command = "adduser " \
+		command = "ls; sudo adduser " \
 		          "--force-badname " \
 		          "--disabled-password " \
 		          "--gecos 'Hosting account' " \
 		          "--uid {0.uid} " \
 		          "--home {0.homeDir} " \
-		          "{1[username]}".format(self._resource, self._params)
+		          "{1[username]}".format(self.resource, self.params)
 		LOGGER.info("Running shell command: {}".format(command))
 		self.exec_command(command)
 
@@ -66,25 +66,24 @@ class UnixAccountProcessor(ResProcessor):
 		command = "usermod " \
 		          "--move-home " \
 		          "--home {0.homeDir} " \
-		          "{1[username]}".format(self._resource, self._params)
+		          "{1[username]}".format(self.resource, self.params)
 		LOGGER.info("Running shell command: {}".format(command))
 		self.exec_command(command)
 
 	def delete(self):
-		command = "userdel " \
+		command = "sudo userdel " \
 		          "--force " \
 		          "--remove " \
-		          "{0[username]}".format(self._params)
+		          "{0[username]}".format(self.params)
 		LOGGER.info("Running shell command: {}".format(command))
 		self.exec_command(command)
 
 	def exec_command(self, command):
 		subprocess.check_call(command,
-		                        shell=True,
-		                        executable="/bin/bash",
-		                        stderr=sys.stderr)
-		sys.stdout.write("STDOUT:")
-
+		                      shell=True,
+		                      executable="/bin/bash",
+		                      stdout=StreamToLogger(LOGGER, INFO),
+		                      stderr=StreamToLogger(LOGGER, ERROR))
 
 class FTPAccountProcessor(ResProcessor):
 	def __init__(self):
@@ -128,6 +127,67 @@ class WebAccessAccountProcessor(ResProcessor):
 		pass
 
 
+class WebSiteProcessor(ResProcessor):
+	def __init__(self):
+		super().__init__()
+
+	def create(self):
+		pass
+
+	def update(self):
+		pass
+
+	def delete(self):
+		pass
+
+
+class MailboxProcessor(ResProcessor):
+	def __init__(self):
+		super().__init__()
+
+	def create(self):
+		pass
+
+	def update(self):
+		pass
+
+	def delete(self):
+		pass
+
+
+class DatabaseProcessor(ResProcessor):
+	def __init__(self):
+		super().__init__()
+
+	def create(self):
+		query = "GRANT " \
+		        "SELECT, " \
+		        "INSERT, " \
+		        "UPDATE, " \
+		        "DELETE, " \
+		        "CREATE, " \
+		        "DROP, " \
+		        "REFERENCES, " \
+		        "INDEX, " \
+		        "ALTER, " \
+		        "CREATE TEMPORARY TABLES, " \
+		        "LOCK TABLES, " \
+		        "CREATE VIEW, " \
+		        "SHOW VIEW, " \
+		        "CREATE ROUTINE, " \
+		        "ALTER ROUTINE, " \
+		        "EXECUTE" \
+		        " ON `{0.name}`.* TO `{0.user}`@`{1.addr}%` " \
+		        "IDENTIFIED BY PASSWORD " \
+		        "'{1.passHash}'".format(self.resource, self.params)
+
+	def update(self):
+		pass
+
+	def delete(self):
+		query = "DROP DATABASE {0.name}".format(self.resource)
+
+
 class ResProcessorBuilder:
 	def __new__(self, res_type):
 		if res_type == "UnixAccount":
@@ -138,5 +198,11 @@ class ResProcessorBuilder:
 			return DBAccountProcessor()
 		elif res_type == "WebAccessAccount":
 			return WebAccessAccountProcessor()
+		elif res_type == "Website":
+			return WebSiteProcessor()
+		elif res_type == "Mailbox":
+			return MailboxProcessor()
+		elif res_type == "Database":
+			return DatabaseProcessor()
 		else:
 			raise ValueError("Unknown resource type: {}".format(res_type))

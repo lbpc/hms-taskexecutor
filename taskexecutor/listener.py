@@ -1,12 +1,12 @@
 import functools
 import pika
 import json
+import time
 from abc import ABCMeta, abstractmethod
 from itertools import product
-from threading import Thread
 
 from taskexecutor.config import CONFIG
-from taskexecutor.executor import Executor
+from taskexecutor.executor import Executor, Executors
 from taskexecutor.logger import LOGGER
 from taskexecutor.task import Task
 
@@ -25,7 +25,7 @@ class Listener(metaclass=ABCMeta):
 		pass
 
 	@abstractmethod
-	def pass_task(self, task):
+	def pass_task(self, task, callback, args):
 		pass
 
 	@abstractmethod
@@ -33,9 +33,9 @@ class Listener(metaclass=ABCMeta):
 		pass
 
 
-class AMQPListener(Listener, Thread):
+class AMQPListener(Listener):
 	def __init__(self):
-		super().__init__()
+		self._futures_tags_map = dict()
 		self._exchange_iterator = product(CONFIG["enabled_resources"],
 		                                  CONFIG["enabled_actions"])
 		self._connection = None
@@ -64,7 +64,8 @@ class AMQPListener(Listener, Thread):
 		if self._closing:
 			self._connection.ioloop.stop()
 		else:
-			self._connection.add_timeout(5, self.reconnect)
+			self._connection.add_timeout(CONFIG["amqp"]["connection_timeout"],
+			                             self.reconnect)
 
 	def reconnect(self):
 		self._connection.ioloop.stop()
@@ -77,7 +78,6 @@ class AMQPListener(Listener, Thread):
 
 	def on_channel_open(self, channel):
 		self._channel = channel
-		self.set_channel_basic_qos()
 		self.add_on_channel_close_callback()
 		while True:
 			try:
@@ -86,9 +86,6 @@ class AMQPListener(Listener, Thread):
 				)
 			except StopIteration:
 				break
-
-	def set_channel_basic_qos(self):
-		self._channel.basic_qos(prefetch_count=1)
 
 	def add_on_channel_close_callback(self):
 		self._channel.add_on_close_callback(self.on_channel_closed)
@@ -148,11 +145,15 @@ class AMQPListener(Listener, Thread):
 			self._channel.close()
 
 	def on_message(self, unused_channel, basic_deliver, properties, body, exchange_name):
-		self.take_event(exchange_name, body)
-		self.acknowledge_message(basic_deliver.delivery_tag)
+		context = dict(zip(("res_type", "action"), exchange_name.split(".")))
+		context["delivery_tag"] = basic_deliver.delivery_tag
+		self.take_event(context, body)
 
 	def acknowledge_message(self, delivery_tag):
 		self._channel.basic_ack(delivery_tag)
+
+	def reject_message(self, delivery_tag):
+		self._channel.basic_nack(delivery_tag)
 
 	def stop_consuming(self):
 		if self._channel:
@@ -166,12 +167,25 @@ class AMQPListener(Listener, Thread):
 
 	def listen(self):
 		self._connection = self.connect()
-		self._connection.ioloop.start()
+		self._connection.ioloop.poller.open = True
+		while not self._connection.ioloop.poller:
+			time.sleep(1)
+		while self._connection.ioloop.poller.open:
+			for future, tag in self._futures_tags_map.copy().items():
+				if not future.running():
+					if future.exception():
+						LOGGER.error(future.exception().args)
+						self.reject_message(tag)
+					del self._futures_tags_map[future]
+			self._connection.ioloop.poller.poll()
+			self._connection.ioloop.poller.process_timeouts()
+			self._connection.ioloop.poller._manage_event_state()
+		self._connection.ioloop.poller.flush_pending_timeouts()
 
 	def stop(self):
 		self._closing = True
 		self.stop_consuming()
-		self._connection.ioloop.stop()
+		self._connection.ioloop.poller.open = False
 
 	def close_connection(self):
 		self._connection.close()
@@ -180,28 +194,25 @@ class AMQPListener(Listener, Thread):
 		message = json.loads(message.decode("UTF-8"))
 		message["params"]["objRef"] = message["objRef"]
 		message.pop("objRef")
-		self.create_task(message["opId"],
-		                 context.split(".")[0],
-		                 context.split(".")[1],
+		task = self.create_task(message["opId"],
+		                 context["res_type"],
+		                 context["action"],
 		                 message["params"])
+		future = self.pass_task(task=task,
+		                        callback=self.acknowledge_message,
+		                        args=(context["delivery_tag"],))
+		self._futures_tags_map[future] = context["delivery_tag"]
 
 	def create_task(self, id, res_type, action, params):
-		task = Task()
-		task.id = id
-		task.res_type = res_type
-		task.action = action
-		task.params = params
+		task = Task(id, res_type, action, params)
 		LOGGER.info("New task created: {}".format(task))
-		self.pass_task(task)
+		return task
 
-	def pass_task(self, task):
-		executor = Executor()
-		executor.name = task.id
-		executor.task = task
-		executor.process_task()
+	def pass_task(self, task, callback, args):
+		executors = Executors()
+		executor = Executor(task, callback, args)
+		return executors.pool.submit(executor.process_task)
 
-	def run(self):
-		self.listen()
 
 class ListenerBuilder:
 	def __new__(self, type):
