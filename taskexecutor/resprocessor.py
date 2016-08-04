@@ -3,6 +3,7 @@ from abc import ABCMeta, abstractmethod
 from logging import INFO, ERROR
 
 from taskexecutor.logger import LOGGER, StreamToLogger
+from taskexecutor.utils import MySQLClient
 
 
 class ResProcessor(metaclass=ABCMeta):
@@ -52,7 +53,7 @@ class UnixAccountProcessor(ResProcessor):
 		super().__init__()
 
 	def create(self):
-		command = "ls; sudo adduser " \
+		command = "sudo adduser " \
 		          "--force-badname " \
 		          "--disabled-password " \
 		          "--gecos 'Hosting account' " \
@@ -63,7 +64,7 @@ class UnixAccountProcessor(ResProcessor):
 		self.exec_command(command)
 
 	def update(self):
-		command = "usermod " \
+		command = "sudo usermod " \
 		          "--move-home " \
 		          "--home {0.homeDir} " \
 		          "{1[username]}".format(self.resource, self.params)
@@ -104,27 +105,22 @@ class DBAccountProcessor(ResProcessor):
 		super().__init__()
 
 	def create(self):
-		pass
+		query = "CREATE USER `{0.name}`@`{1[addr]}` " \
+		        "IDENTIFIED BY PASSWORD '{1[passHash]}'".format(self.resource,
+		                                                        self.params)
+		LOGGER.info("Executing query: {}".format(query))
+		with MySQLClient("mysql") as c:
+			c.execute(query)
+
 
 	def update(self):
 		pass
 
 	def delete(self):
-		pass
-
-
-class WebAccessAccountProcessor(ResProcessor):
-	def __init__(self):
-		super().__init__()
-
-	def create(self):
-		pass
-
-	def update(self):
-		pass
-
-	def delete(self):
-		pass
+		query = "DROP USER {0.name}".format(self.resource)
+		LOGGER.info("Executing query: {}".format(query))
+		with MySQLClient("mysql") as c:
+			c.execute(query)
 
 
 class WebSiteProcessor(ResProcessor):
@@ -160,32 +156,41 @@ class DatabaseProcessor(ResProcessor):
 		super().__init__()
 
 	def create(self):
-		query = "GRANT " \
-		        "SELECT, " \
-		        "INSERT, " \
-		        "UPDATE, " \
-		        "DELETE, " \
-		        "CREATE, " \
-		        "DROP, " \
-		        "REFERENCES, " \
-		        "INDEX, " \
-		        "ALTER, " \
-		        "CREATE TEMPORARY TABLES, " \
-		        "LOCK TABLES, " \
-		        "CREATE VIEW, " \
-		        "SHOW VIEW, " \
-		        "CREATE ROUTINE, " \
-		        "ALTER ROUTINE, " \
-		        "EXECUTE" \
-		        " ON `{0.name}`.* TO `{0.user}`@`{1.addr}%` " \
-		        "IDENTIFIED BY PASSWORD " \
-		        "'{1.passHash}'".format(self.resource, self.params)
+		grant_query = "GRANT " \
+		              "SELECT, " \
+		              "INSERT, " \
+		              "UPDATE, " \
+		              "DELETE, " \
+		              "CREATE, " \
+		              "DROP, " \
+		              "REFERENCES, " \
+		              "INDEX, " \
+		              "ALTER, " \
+		              "CREATE TEMPORARY TABLES, " \
+		              "LOCK TABLES, " \
+		              "CREATE VIEW, " \
+		              "SHOW VIEW, " \
+		              "CREATE ROUTINE, " \
+		              "ALTER ROUTINE, " \
+		              "EXECUTE" \
+		              " ON `{0.name}`.* TO `{0.user}`@`{1[addr]}%` " \
+		              "IDENTIFIED BY PASSWORD " \
+		              "'{1[passHash]}'".format(self.resource, self.params)
+		create_query = "CREATE DATABASE IF NOT EXISTS {0.name}".format(self.resource)
+		LOGGER.info("Executing queries: {0}; {1}".format(grant_query,
+		                                                 create_query))
+		with MySQLClient("mysql") as c:
+			c.execute(grant_query)
+			c.execute(create_query)
 
 	def update(self):
 		pass
 
 	def delete(self):
 		query = "DROP DATABASE {0.name}".format(self.resource)
+		LOGGER.info("Executing query: {}".format(query))
+		with MySQLClient("mysql") as c:
+			c.execute(query)
 
 
 class ResProcessorBuilder:
@@ -196,8 +201,6 @@ class ResProcessorBuilder:
 			return FTPAccountProcessor()
 		elif res_type == "DBAccount":
 			return DBAccountProcessor()
-		elif res_type == "WebAccessAccount":
-			return WebAccessAccountProcessor()
 		elif res_type == "Website":
 			return WebSiteProcessor()
 		elif res_type == "Mailbox":

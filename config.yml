@@ -4,7 +4,9 @@ enabled_resources:
   - UnixAccount
   - FTPAccount
   - DBAccount
-  - WebAccessAccount
+  - Database
+  - WebSite
+  - Mailbox
 
 enabled_actions:
   - Create
@@ -12,13 +14,20 @@ enabled_actions:
   - Delete
 
 amqp:
-  host: 127.1
+  host: '127.1'
   user: guest
   password: guest
   exchange_type: topic
+  connection_attempts: 20
+  retry_delay: 3
   heartbeat_interval: 30
   connection_timeout: 5
 
 rest:
-  host: 127.1
+  host: '127.1'
   port: 80
+
+mysql:
+  host: '127.1'
+  user: root
+  password: LsMzDpI1QFvK

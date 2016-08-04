@@ -1,6 +1,3 @@
-import http.client
-import json
-from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
 from taskexecutor.config import CONFIG
@@ -8,35 +5,7 @@ from taskexecutor.logger import LOGGER
 from taskexecutor.resprocessor import ResProcessorBuilder
 from taskexecutor.reporter import ReporterBuilder
 from taskexecutor.task import Task
-
-class RESTClient:
-	def __enter__(self):
-		self._connection = http.client.HTTPConnection(
-				"{host}:{port}".format_map(CONFIG["rest"])
-		)
-		return self
-
-	def get(self, uri, type_name="Resource"):
-		self._connection.request("GET", uri)
-		resp = self._connection.getresponse()
-		if resp.status != 200:
-			raise Exception("GET failed, REST server returned "
-			                "{0.status} {0.reason}".format(resp))
-		json_str = self.decode_response(resp.read())
-		return self.json_to_object(json_str, type_name)
-
-	def decode_response(self, bytes):
-		return bytes.decode("UTF-8")
-
-	def json_to_object(self, json_str, type_name):
-		return json.loads(
-				json_str,
-				object_hook=lambda d: namedtuple(type_name,
-				                                 d.keys())(*d.values())
-		)
-
-	def __exit__(self, exc_type, exc_val, exc_tb):
-		self._connection.close()
+from taskexecutor.utils import RESTClient
 
 
 class Executors:

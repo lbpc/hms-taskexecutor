@@ -44,7 +44,9 @@ class AMQPListener(Listener):
 		self._closing = False
 		self._consumer_tag = None
 		self._url = "amqp://{user}:{password}@{host}:5672/%2F" \
-		            "?heartbeat_interval={heartbeat_interval}".format_map(
+		            "?heartbeat_interval={heartbeat_interval}" \
+		            "&connection_attempts={connection_attempts}" \
+		            "&retry_delay={retry_delay}".format_map(
 				CONFIG["amqp"])
 
 	def connect(self):
