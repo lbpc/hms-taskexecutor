@@ -53,7 +53,7 @@ class UnixAccountProcessor(ResProcessor):
 		super().__init__()
 
 	def create(self):
-		command = "sudo adduser " \
+		command = "adduser " \
 		          "--force-badname " \
 		          "--disabled-password " \
 		          "--gecos 'Hosting account' " \
@@ -64,7 +64,7 @@ class UnixAccountProcessor(ResProcessor):
 		self.exec_command(command)
 
 	def update(self):
-		command = "sudo usermod " \
+		command = "usermod " \
 		          "--move-home " \
 		          "--home {0.homeDir} " \
 		          "{1[username]}".format(self.resource, self.params)
@@ -72,7 +72,7 @@ class UnixAccountProcessor(ResProcessor):
 		self.exec_command(command)
 
 	def delete(self):
-		command = "sudo userdel " \
+		command = "userdel " \
 		          "--force " \
 		          "--remove " \
 		          "{0[username]}".format(self.params)
