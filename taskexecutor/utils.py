@@ -1,9 +1,12 @@
 import http.client
 import mysql.connector
 import json
+import subprocess
 from collections import namedtuple
+from logging import INFO, ERROR
 
 from taskexecutor.config import CONFIG
+from taskexecutor.logger import LOGGER, StreamToLogger
 
 class RESTClient:
 	def __enter__(self):
@@ -48,3 +51,12 @@ class MySQLClient:
 		self._connection.commit()
 		self._cursor.close()
 		self._connection.close()
+
+
+def exec_command(command):
+	LOGGER.info("Running shell command: {}".format(command))
+	subprocess.check_call(command,
+	                      shell=True,
+	                      executable="/bin/bash",
+	                      stdout=StreamToLogger(LOGGER, INFO),
+	                      stderr=StreamToLogger(LOGGER, ERROR))

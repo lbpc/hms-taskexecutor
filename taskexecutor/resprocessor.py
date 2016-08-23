@@ -1,9 +1,11 @@
-import subprocess
+import os
+import re
+import shutil
 from abc import ABCMeta, abstractmethod
-from logging import INFO, ERROR
 
-from taskexecutor.logger import LOGGER, StreamToLogger
-from taskexecutor.utils import MySQLClient
+from taskexecutor.config import CONFIG
+from taskexecutor.logger import LOGGER
+from taskexecutor.utils import MySQLClient, exec_command
 
 
 class ResProcessor(metaclass=ABCMeta):
@@ -53,6 +55,21 @@ class UnixAccountProcessor(ResProcessor):
 		super().__init__()
 
 	def create(self):
+		self.adduser()
+		self.setquota()
+
+	def update(self):
+		command = "usermod " \
+		          "--move-home " \
+		          "--home {0.homeDir} " \
+		          "{1[username]}".format(self.resource, self.params)
+		exec_command(command)
+
+	def delete(self):
+		self.killprocs()
+		self.userdel()
+
+	def adduser(self):
 		command = "adduser " \
 		          "--force-badname " \
 		          "--disabled-password " \
@@ -60,31 +77,25 @@ class UnixAccountProcessor(ResProcessor):
 		          "--uid {0.uid} " \
 		          "--home {0.homeDir} " \
 		          "{1[username]}".format(self.resource, self.params)
-		LOGGER.info("Running shell command: {}".format(command))
-		self.exec_command(command)
+		exec_command(command)
 
-	def update(self):
-		command = "usermod " \
-		          "--move-home " \
-		          "--home {0.homeDir} " \
-		          "{1[username]}".format(self.resource, self.params)
-		LOGGER.info("Running shell command: {}".format(command))
-		self.exec_command(command)
+	def setquota(self):
+		command = "setquota " \
+		          "-g {0.uid} 0 {1[quota]} " \
+		          "0 0 /home".format(self.resource, self.params)
+		exec_command(command)
 
-	def delete(self):
+	def userdel(self):
 		command = "userdel " \
 		          "--force " \
 		          "--remove " \
 		          "{0[username]}".format(self.params)
-		LOGGER.info("Running shell command: {}".format(command))
-		self.exec_command(command)
+		exec_command(command)
 
-	def exec_command(self, command):
-		subprocess.check_call(command,
-		                      shell=True,
-		                      executable="/bin/bash",
-		                      stdout=StreamToLogger(LOGGER, INFO),
-		                      stderr=StreamToLogger(LOGGER, ERROR))
+	def killprocs(self):
+		command = "killall -9 -u {0[username]} || true".format(self.params)
+		exec_command(command)
+
 
 class FTPAccountProcessor(ResProcessor):
 	def __init__(self):
@@ -112,7 +123,6 @@ class DBAccountProcessor(ResProcessor):
 		with MySQLClient("mysql") as c:
 			c.execute(query)
 
-
 	def update(self):
 		pass
 
@@ -137,7 +147,58 @@ class WebSiteProcessor(ResProcessor):
 		pass
 
 
-class MailboxProcessor(ResProcessor):
+class MailboxAtPopperProcessor(ResProcessor):
+	def __init__(self):
+		super().__init__()
+
+	def create(self):
+		if not os.path.isdir(self.params["mailspool"]):
+			LOGGER.info("Creating directory {}".format(self.params["mailspool"]))
+			os.mkdir(self.params["mailspool"])
+
+		else:
+			LOGGER.info("Mail spool directory {} "
+			            "already exists".format(self.params["mailspool"]))
+		LOGGER.info("Setting owner {0[uid]} "
+		            "for {0[mailspool]}".format(self.params))
+		os.chown(self.params["mailspool"],
+		         self.params["uid"],
+		         self.params["uid"])
+
+	def update(self):
+		pass
+
+	def delete(self):
+		LOGGER.info("Removing {1[mailspool]}/{0.name} "
+		            "recursively".format(self.resource, self.params))
+		shutil.rmtree("{1[mailspool]}/{0.name}".format(self.resource, self.params))
+		if len(os.listdir(self.params["mailspool"])) == 0:
+			LOGGER.info("{1[mailspool]}/{0.name} was the last maildir, "
+			            "removing spool itself".format(self.resource, self.params))
+			os.rmdir(self.params["mailspool"])
+
+
+class MailboxAtMxProcessor(ResProcessor):
+	def __init__(self):
+		super().__init__()
+
+	def create(self):
+		relay_file = "/etc/exim4/etc/relay_domains{}".format(self.params["popId"])
+		with open(relay_file, "r") as f:
+			relay_domains = [s.rstrip("\n\r") for s in f.readlines()]
+		if not self.resource.domain in relay_domains:
+			LOGGER.info("Appending {0} to {1}".format(self.resource.domain,
+			                                          relay_file))
+			relay_domains.append(self.resource.domain)
+
+	def update(self):
+		pass
+
+	def delete(self):
+		pass
+
+
+class MailboxAtCheckerProcessor(ResProcessor):
 	def __init__(self):
 		super().__init__()
 
@@ -203,8 +264,15 @@ class ResProcessorBuilder:
 			return DBAccountProcessor()
 		elif res_type == "Website":
 			return WebSiteProcessor()
-		elif res_type == "Mailbox":
-			return MailboxProcessor()
+		elif res_type == "Mailbox" and re.match("pop\d+",
+		                                        CONFIG["hostname"]):
+			return MailboxAtPopperProcessor()
+		elif res_type == "Mailbox" and re.match("mx\d+-(mr|dh)",
+		                                        CONFIG["hostname"]):
+			return MailboxAtMxProcessor()
+		elif res_type == "Mailbox" and re.match("mail-checker\d+",
+		                                        CONFIG["hostname"]):
+			return MailboxAtCheckerProcessor()
 		elif res_type == "Database":
 			return DatabaseProcessor()
 		else:
