@@ -3,10 +3,9 @@ import mysql.connector
 import json
 import subprocess
 from collections import namedtuple
-from logging import INFO, ERROR
 
 from taskexecutor.config import CONFIG
-from taskexecutor.logger import LOGGER, StreamToLogger
+from taskexecutor.logger import LOGGER
 
 class RESTClient:
 	def __enter__(self):
@@ -52,11 +51,18 @@ class MySQLClient:
 		self._cursor.close()
 		self._connection.close()
 
-
 def exec_command(command):
 	LOGGER.info("Running shell command: {}".format(command))
-	subprocess.check_call(command,
+	with subprocess.Popen(command,
+	                      stderr=subprocess.PIPE,
 	                      shell=True,
-	                      executable="/bin/bash",
-	                      stdout=StreamToLogger(LOGGER, INFO),
-	                      stderr=StreamToLogger(LOGGER, ERROR))
+	                      executable="/bin/bash") as proc:
+		stderr = proc.stderr.read()
+		ret_code = proc.returncode
+	if ret_code != 0:
+		LOGGER.error("Command '{0}' returned {1} code".format(command, ret_code))
+		if stderr:
+			LOGGER.error("STDERR: {}".format(stderr.decode("UTF-8")))
+		raise Exception("Failed to execute command '{}'".format(command))
+
+

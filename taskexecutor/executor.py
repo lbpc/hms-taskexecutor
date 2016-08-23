@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+import threading
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
@@ -78,6 +79,7 @@ class Executor:
 		return obj
 
 	def process_task(self):
+		threading.current_thread().name = self._task.id
 		processor = ResProcessorBuilder(self._task.res_type)
 		LOGGER.info(
 				"Fetching {0} resorce by {1}".format(self._task.res_type,

@@ -174,7 +174,6 @@ class AMQPListener(Listener):
 			for future, tag in self._futures_tags_map.copy().items():
 				if not future.running():
 					if future.exception():
-						LOGGER.error(future.exception().args)
 						self.reject_message(tag)
 					del self._futures_tags_map[future]
 			self._connection.ioloop.poll()
