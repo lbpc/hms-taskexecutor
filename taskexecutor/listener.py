@@ -1,7 +1,6 @@
 import functools
 import pika
 import json
-import time
 from abc import ABCMeta, abstractmethod
 from itertools import product
 
@@ -169,25 +168,21 @@ class AMQPListener(Listener):
 
 	def listen(self):
 		self._connection = self.connect()
-		self._connection.ioloop.poller.open = True
-		while not self._connection.ioloop.poller:
-			time.sleep(1)
-		while self._connection.ioloop.poller.open:
+		self._connection.ioloop._stopping = False
+		while not self._connection.ioloop._stopping:
 			for future, tag in self._futures_tags_map.copy().items():
 				if not future.running():
 					if future.exception():
-						LOGGER.error(future.exception().args)
+						LOGGER.error(future.exception())
 						self.reject_message(tag)
 					del self._futures_tags_map[future]
-			self._connection.ioloop.poller.poll()
-			self._connection.ioloop.poller.process_timeouts()
-			self._connection.ioloop.poller._manage_event_state()
-		self._connection.ioloop.poller.flush_pending_timeouts()
+			self._connection.ioloop.poll()
+			self._connection.ioloop.process_timeouts()
 
 	def stop(self):
 		self._closing = True
 		self.stop_consuming()
-		self._connection.ioloop.poller.open = False
+		self._connection.ioloop._stopping = True
 
 	def close_connection(self):
 		self._connection.close()
