@@ -3,9 +3,13 @@ import mysql.connector
 import json
 import subprocess
 from collections import namedtuple
+from functools import wraps
+from threading import RLock
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
+
+LOCKS = {}
 
 class RESTClient:
 	def __enter__(self):
@@ -51,6 +55,7 @@ class MySQLClient:
 		self._cursor.close()
 		self._connection.close()
 
+
 def exec_command(command):
 	LOGGER.info("Running shell command: {}".format(command))
 	with subprocess.Popen(command,
@@ -58,6 +63,7 @@ def exec_command(command):
 	                      shell=True,
 	                      executable="/bin/bash") as proc:
 		stderr = proc.stderr.read()
+		proc.communicate()
 		ret_code = proc.returncode
 	if ret_code != 0:
 		LOGGER.error("Command '{0}' returned {1} code".format(command, ret_code))
@@ -65,4 +71,11 @@ def exec_command(command):
 			LOGGER.error("STDERR: {}".format(stderr.decode("UTF-8")))
 		raise Exception("Failed to execute command '{}'".format(command))
 
-
+def synchronized(f):
+	@wraps(f)
+	def wrapper(self, *args, **kwargs):
+		if not f in LOCKS.keys():
+			LOCKS[f] = RLock()
+		with LOCKS[f]:
+			return f(self, *args, **kwargs)
+	return wrapper

@@ -1,7 +1,6 @@
 import functools
 import pika
 import json
-import time
 from abc import ABCMeta, abstractmethod
 from itertools import product
 
@@ -174,6 +173,7 @@ class AMQPListener(Listener):
 			for future, tag in self._futures_tags_map.copy().items():
 				if not future.running():
 					if future.exception():
+						LOGGER.error(future.exception())
 						self.reject_message(tag)
 					del self._futures_tags_map[future]
 			self._connection.ioloop.poll()

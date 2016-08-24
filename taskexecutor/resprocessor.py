@@ -5,7 +5,7 @@ from abc import ABCMeta, abstractmethod
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-from taskexecutor.utils import MySQLClient, exec_command
+from taskexecutor.utils import MySQLClient, exec_command, synchronized
 
 
 class ResProcessor(metaclass=ABCMeta):
