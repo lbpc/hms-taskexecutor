@@ -5,6 +5,7 @@ import subprocess
 from collections import namedtuple
 from functools import wraps
 from threading import RLock
+from jinja2 import FileSystemLoader, Environment
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
@@ -18,7 +19,7 @@ class RESTClient:
 		)
 		return self
 
-	def get(self, uri, type_name="Resource"):
+	def get(self, uri, type_name="GenericResource"):
 		self._connection.request("GET", uri)
 		resp = self._connection.getresponse()
 		if resp.status != 200:
@@ -70,6 +71,18 @@ def exec_command(command):
 		if stderr:
 			LOGGER.error("STDERR: {}".format(stderr.decode("UTF-8")))
 		raise Exception("Failed to execute command '{}'".format(command))
+
+def set_apparmor_mode(mode, binary):
+	LOGGER.info("Applying {0} AppArmor mode on {1}".format(mode, binary))
+	exec_command("aa-{0} {1}".format(mode, binary))
+
+def render_template(template_name, **kwargs):
+	template_env = Environment(loader=FileSystemLoader(CONFIG["templates_path"]),
+	                           lstrip_blocks=True,
+                               trim_blocks=True)
+	template = template_env.get_template(template_name)
+
+	return template.render(**kwargs)
 
 def synchronized(f):
 	@wraps(f)

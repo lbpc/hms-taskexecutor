@@ -73,20 +73,21 @@ class Executor:
 	def agrs(self):
 		del self._args
 
-	def get_resource(self, obj_ref):
+	def get_resource(self, obj_ref, type_name):
 		with RESTClient() as c:
-			obj = c.get(obj_ref, "Resource")
+			obj = c.get(obj_ref, type_name)
 		return obj
 
 	def process_task(self):
 		threading.current_thread().name = self._task.id
-		processor = ResProcessorBuilder(self._task.res_type)
 		LOGGER.info(
 				"Fetching {0} resorce by {1}".format(self._task.res_type,
 				                                     self._task.params["objRef"])
 		)
-		processor.resource = self.get_resource(self._task.params["objRef"])
-		processor.params = self._task.params
+		_resource = self.get_resource(self._task.params["objRef"],
+		                              self._task.res_type)
+		processor = ResProcessorBuilder(self._task.res_type)(_resource,
+		                                                     self._task.params)
 		LOGGER.info(
 				"Invoking {0} {1} method on {2}".format(
 						type(processor).__name__,
@@ -102,7 +103,7 @@ class Executor:
 			processor.delete()
 		LOGGER.info("Calling back {0}{1}".format(self._callback.__name__, self._args))
 		self._callback(*self._args)
-		reporter = ReporterBuilder("amqp")
+		reporter = ReporterBuilder("amqp")()
 		report = reporter.create_report(self._task)
 		LOGGER.info("Sending report {0} using {1}".format(report,
 		                                                 type(reporter).__name__))

@@ -13,6 +13,8 @@ enabled_actions:
   - Update
   - Delete
 
+templates_path: ../templates
+
 amqp:
   host: '127.1'
   user: guest
