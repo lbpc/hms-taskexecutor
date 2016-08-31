@@ -77,7 +77,7 @@ def set_apparmor_mode(mode, binary):
 	exec_command("aa-{0} {1}".format(mode, binary))
 
 def render_template(template_name, **kwargs):
-	template_env = Environment(loader=FileSystemLoader(CONFIG["templates_path"]),
+	template_env = Environment(loader=FileSystemLoader(CONFIG["paths"]["templates"]),
 	                           lstrip_blocks=True,
                                trim_blocks=True)
 	template = template_env.get_template(template_name)

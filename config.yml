@@ -13,7 +13,9 @@ enabled_actions:
   - Update
   - Delete
 
-templates_path: ../templates
+paths:
+  templates: ../templates
+  ssl_certs: /etc/nginx/ssl.key
 
 amqp:
   host: '127.1'

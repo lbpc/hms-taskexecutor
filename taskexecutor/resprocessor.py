@@ -203,6 +203,7 @@ class WebSiteProcessor(ResProcessor):
 			"{}/anti_ddos_check_cookie_file.lua".format(_nginx_static_base)
 		self.params["subdomains_document_root"] = \
 			"/".join(self.resource.documentRoot.split("/")[:-1])
+		self.params["ssl_path"] = CONFIG["paths"]["ssl_certs"]
 
 	def save_config(self, body, file):
 		LOGGER.info("Saving {}".format(file))
@@ -214,17 +215,16 @@ class WebSiteProcessor(ResProcessor):
 class SSLCertificateProcessor(ResProcessor):
 	def __init__(self, resource, params):
 		super().__init__(resource, params)
-		self._ssl_base_path = "/etc/nginx/ssl.key"
 
 	@synchronized
 	def create(self):
 		LOGGER.info("Saving {0.name}.pem certificate "
-		            "to {1}".format(self.resource, self._ssl_base_path))
-		with open("{0}/{1.name}.pem".format(self._ssl_base_path, self.resource)) as f:
+		            "to {1}".format(self.resource, CONFIG["paths"]["ssl_certs"]))
+		with open("{0}/{1.name}.pem".format(CONFIG["paths"]["ssl_certs"], self.resource)) as f:
 			f.write(self.resource.certificate)
 		LOGGER.info("Saving {0.name}.key key "
-		            "to {1}".format(self.resource, self._ssl_base_path))
-		with open("{0}/{1.name}.key".format(self._ssl_base_path, self.resource)) as f:
+		            "to {1}".format(self.resource, CONFIG["paths"]["ssl_certs"]))
+		with open("{0}/{1.name}.key".format(CONFIG["paths"]["ssl_certs"], self.resource)) as f:
 			f.write(self.resource.key)
 
 	def update(self):
@@ -232,9 +232,9 @@ class SSLCertificateProcessor(ResProcessor):
 
 	def delete(self):
 		LOGGER.info("Removing {0}/{1.name}.pem and "
-		            "{0}/{1.name}.key".format(self._ssl_base_path, self.resource))
-		os.unlink("{0}/{1.name}.pem".format(self._ssl_base_path, self.resource))
-		os.unlink("{0}/{1.name}.key".format(self._ssl_base_path, self.resource))
+		            "{0}/{1.name}.key".format(CONFIG["paths"]["ssl_certs"], self.resource))
+		os.unlink("{0}/{1.name}.pem".format(CONFIG["paths"]["ssl_certs"], self.resource))
+		os.unlink("{0}/{1.name}.key".format(CONFIG["paths"]["ssl_certs"], self.resource))
 
 
 class MailboxProcessor(ResProcessor):
