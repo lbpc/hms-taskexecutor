@@ -1,0 +1,40 @@
+<VirtualHost {{ params["apache_socket"] }}>
+        ServerName {{ website.domainList[0].name }}
+    {% if websile.domainList|length > 1 %}
+        ServerAlias *.{{ website.domainList[0].name }}{% if websile.domainList|length > 1 %}{% for domain in website.domainList[1:] %}{{ domain.name }} *.{{ domain.name }} {% endfor %}{% endif %}
+    {% if website.Options["scriptAlias"] %}
+        ScriptAlias {{ website.Options["scriptAlias"] }}
+    {% endif %}
+    DocumentRoot {{ website.unixAccount.homeDir }}{{ website.documentRoot }}
+    {% if website.Options["autoSubDomain"] %}
+        <Directory {{ website.unixAccount.homeDir }}{{ params["subdomains_document_root"] }}>
+    {% else %}
+        <Directory {{ website.unixAccount.homeDir }}{{ website.documentRoot }}>
+    {% endif %}
+        Options +FollowSymLinks -MultiViews{% if website.Options["serverSideIncludes"] %}+{% else %}-{% endif %}Includes {% if website.Options["commonGatewayInterface"] %}+{% else %}-{% endif %}ExecCGI
+    {% if website.Options["indexFileList"] %}
+        DirectoryIndex{% for file in website.Options["indexFileList"] %} {{ file }}{% endfor %}
+    {% endif %}
+    Require all granted
+    AllowOverride all
+    </Directory>
+    {% if website.Options["charSet"] %}
+        AddDefaultCharset {{ website.Options["charSet"] }}
+    {% endif %}
+    {% if website.Options["autoSubDomain"] %}
+        RewriteEngine on
+        RewriteCond %{HTTP_HOST} ^(www.)?([a-z0-9-]+).{{ website.domainList[0].name }} [NC]
+        RewriteRule ^/(.*)$ {{ params["subdomains_document_root"] }}/%2/$1 [L]
+    {% endif %}
+    {% if website.Options["customUserConf"] %}
+        {{ website.Options["customUserConf"] }}
+    {% endif %}
+    {% if website.Options["accessLogEnabled"] %}
+    CustomLog {{ website.unixAccount.homeDir }}/logs/www.{{ website.domainList[0].name }}-access.log common-time
+    {% endif %}
+    {% if website.Options["errorLogEnabled"] %}
+    ErrorLog {{ website.unixAccount.homeDir }}/logs/www.{{ website.domainList[0].name }}-error_log
+    {% endif %}
+    MaxClientsVHost 20
+    AssignUserID "#{{ website.unixAccount.uid }}" "#{{ website.unixAccount.uid }}"
+</VirtualHost>

@@ -2,10 +2,10 @@ max_workers: 10
 
 enabled_resources:
   - UnixAccount
-  - FTPAccount
   - DBAccount
   - Database
   - WebSite
+  - SSLCertificate
   - Mailbox
 
 enabled_actions:
@@ -33,3 +33,6 @@ mysql:
   host: '127.1'
   user: root
   password: LsMzDpI1QFvK
+
+nginx:
+  ip_addr: '127.1'
