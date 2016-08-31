@@ -40,7 +40,6 @@ location ~* ((^/wp-login.php)|(^/administrator/index.php)|(^/xmlrpc.php)) {
 {% endif %}
 limit_req zone=req_to_adm burst=128;
 
-
 {% if not website.Options["accessByOldHttpVersion"] %}
     if ($server_protocol ~* "HTTP/1.0") {
     return 403;

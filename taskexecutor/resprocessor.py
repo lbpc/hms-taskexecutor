@@ -186,21 +186,25 @@ class WebSiteProcessor(ResProcessor):
 			                                                self.resource.id))
 
 	def fill_params(self):
-		_nginx_static_base = "/usr/share/nginx/html"
-		self.params["nginx_ip_addr"] = CONFIG["nginx"]["ip_addr"]
+		_php_security_idx = {"default": 0,
+		                     "unsafe": 1,
+		                     "hardened_nochmod": 2,
+		                     "hardened": 3}[self.resource.Options["phpSecurtyMode"]]
 		if self.resource.Options["phpVersion"] == "php4":
-			self.params["apache_socket"] = "127.0.0.1:8044"
+			_php_version_idx = 44
 		else:
-			self.params["apache_socket"] = \
-				"127.0.0.1:80{}".format(self.resource.Options["phpVersion"][3:])
+			_php_version_idx = self.resource.Options["phpVersion"][3:]
+		self.params["apache_socket"] = \
+			"127.0.0.1:8{0}{1}".format(_php_security_idx, _php_version_idx)
+		self.params["nginx_ip_addr"] = CONFIG["nginx"]["ip_addr"]
 		self.params["error_pages"] = (
-			(code, "{0}/http_{1}.html".format(_nginx_static_base, code))
+			(code, "{0}/http_{1}.html".format(CONFIG["nginx_static_base"], code))
 			for code in (403, 404, 502, 503, 504)
 		)
 		self.params["anti_ddos_set_cookie_file"] = \
-			"{}/anti_ddos_set_cookie_file.lua".format(_nginx_static_base)
+			"{}/anti_ddos_set_cookie_file.lua".format(CONFIG["nginx_static_base"])
 		self.params["anti_ddos_check_cookie_file"] = \
-			"{}/anti_ddos_check_cookie_file.lua".format(_nginx_static_base)
+			"{}/anti_ddos_check_cookie_file.lua".format(CONFIG["nginx_static_base"])
 		self.params["subdomains_document_root"] = \
 			"/".join(self.resource.documentRoot.split("/")[:-1])
 		self.params["ssl_path"] = CONFIG["paths"]["ssl_certs"]
