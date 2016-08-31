@@ -1,4 +1,3 @@
-from concurrent.futures import ThreadPoolExecutor
 import threading
 
 from taskexecutor.config import CONFIG
@@ -6,7 +5,7 @@ from taskexecutor.logger import LOGGER
 from taskexecutor.resprocessor import ResProcessorBuilder
 from taskexecutor.reporter import ReporterBuilder
 from taskexecutor.task import Task
-from taskexecutor.utils import RESTClient
+from taskexecutor.utils import RESTClient, ThreadPoolExecutorStackTraced
 
 
 class Executors:
@@ -17,7 +16,7 @@ class Executors:
 	def __init__(self):
 		if not Executors.instance:
 			Executors.instance = Executors.__Executors(
-					ThreadPoolExecutor(CONFIG["max_workers"])
+					ThreadPoolExecutorStackTraced(CONFIG["max_workers"])
 			)
 		else:
 			self.pool = Executors.instance.pool
@@ -73,9 +72,9 @@ class Executor:
 	def agrs(self):
 		del self._args
 
-	def get_resource(self, obj_ref, type_name):
+	def get_resource(self, obj_ref):
 		with RESTClient() as c:
-			obj = c.get(obj_ref, type_name)
+			obj = c.get(obj_ref)
 		return obj
 
 	def process_task(self):
@@ -84,8 +83,7 @@ class Executor:
 				"Fetching {0} resorce by {1}".format(self._task.res_type,
 				                                     self._task.params["objRef"])
 		)
-		_resource = self.get_resource(self._task.params["objRef"],
-		                              self._task.res_type)
+		_resource = self.get_resource(self._task.params["objRef"])
 		processor = ResProcessorBuilder(self._task.res_type)(_resource,
 		                                                     self._task.params)
 		LOGGER.info(

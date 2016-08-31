@@ -126,21 +126,25 @@ class DBAccountProcessor(ResProcessor):
 class WebSiteProcessor(ResProcessor):
 	def __init__(self, resource, params):
 		super().__init__(resource, params)
+		if self.resource.Options.phpSecurityMode != "default":
+			self._apache_id = "{0}-{1}".format(self.resource.Options.phpVersion,
+			                                   self.resource.Options.phpSecurityMode)
+		else:
+			self._apache_id = self.resource.Options.phpVersion
+
 		self._nginx = Nginx()
-		self._apache = Apache(
-				"{0}-{1}".format(self.resource.Options["phpVersion"],
-				                 self.resource.Options["phpSecurityMode"])
-		)
+		self._apache = Apache(instance_id=self._apache_id)
 		self.fill_params()
 		self.set_cfg_paths()
 
 	@synchronized
 	def create(self):
-		self._nginx.config_body = render_template("ApacheVHost.j2",
+		self.create_logs_directory()
+		self._nginx.config_body = render_template("NginxServer.j2",
 		                                          website=self.resource,
 		                                          params=self.params)
 
-		self._apache.config_body = render_template("NginxServer.j2",
+		self._apache.config_body = render_template("ApacheVHost.j2",
 		                                           website=self.resource,
 		                                           params=self.params)
 		for srv in (self._apache, self._nginx):
@@ -189,22 +193,20 @@ class WebSiteProcessor(ResProcessor):
 		_php_security_idx = {"default": 0,
 		                     "unsafe": 1,
 		                     "hardened_nochmod": 2,
-		                     "hardened": 3}[self.resource.Options["phpSecurtyMode"]]
-		if self.resource.Options["phpVersion"] == "php4":
+		                     "hardened": 3}[self.resource.Options.phpSecurityMode]
+		if self.resource.Options.phpVersion == "php4":
 			_php_version_idx = 44
 		else:
-			_php_version_idx = self.resource.Options["phpVersion"][3:]
+			_php_version_idx = self.resource.Options.phpVersion[3:]
 		self.params["apache_socket"] = \
 			"127.0.0.1:8{0}{1}".format(_php_security_idx, _php_version_idx)
 		self.params["nginx_ip_addr"] = CONFIG["nginx"]["ip_addr"]
 		self.params["error_pages"] = (
-			(code, "{0}/http_{1}.html".format(CONFIG["nginx_static_base"], code))
-			for code in (403, 404, 502, 503, 504)
+			(code, "http_{}.html".format(code)) for code in (403, 404, 502, 503, 504)
 		)
-		self.params["anti_ddos_set_cookie_file"] = \
-			"{}/anti_ddos_set_cookie_file.lua".format(CONFIG["nginx_static_base"])
-		self.params["anti_ddos_check_cookie_file"] = \
-			"{}/anti_ddos_check_cookie_file.lua".format(CONFIG["nginx_static_base"])
+		self.params["static_base"] = CONFIG["paths"]["nginx_static_base"]
+		self.params["anti_ddos_set_cookie_file"] = "anti_ddos_set_cookie_file.lua"
+		self.params["anti_ddos_check_cookie_file"] = "anti_ddos_check_cookie_file.lua"
 		self.params["subdomains_document_root"] = \
 			"/".join(self.resource.documentRoot.split("/")[:-1])
 		self.params["ssl_path"] = CONFIG["paths"]["ssl_certs"]
@@ -214,6 +216,12 @@ class WebSiteProcessor(ResProcessor):
 		with open("{}.new".format(file), "w") as f:
 			f.write(body)
 		os.rename("{}.new".format(file), file)
+
+	def create_logs_directory(self):
+		_logs_dir = "{}/logs".format(self.resource.unixAccount.homeDir)
+		if not os.path.exists(_logs_dir):
+			LOGGER.info("{} directory does not exist, creating".format(_logs_dir))
+			os.mkdir(_logs_dir, mode=0o755)
 
 
 class SSLCertificateProcessor(ResProcessor):

@@ -1,7 +1,10 @@
 import http.client
 import mysql.connector
 import json
+import sys
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
+from traceback import format_exc
 from collections import namedtuple
 from functools import wraps
 from threading import RLock
@@ -12,6 +15,17 @@ from taskexecutor.logger import LOGGER
 
 LOCKS = {}
 
+class ThreadPoolExecutorStackTraced(ThreadPoolExecutor):
+	def submit(self, f, *args, **kwargs):
+		return super(ThreadPoolExecutorStackTraced, self).submit(
+				self._function_wrapper, f, *args, **kwargs)
+
+	def _function_wrapper(self, fn, *args, **kwargs):
+		try:
+			return fn(*args, **kwargs)
+		except Exception:
+			raise sys.exc_info()[0](format_exc())
+
 class RESTClient:
 	def __enter__(self):
 		self._connection = http.client.HTTPConnection(
@@ -19,22 +33,22 @@ class RESTClient:
 		)
 		return self
 
-	def get(self, uri, type_name="GenericResource"):
+	def get(self, uri):
 		self._connection.request("GET", uri)
 		resp = self._connection.getresponse()
 		if resp.status != 200:
 			raise Exception("GET failed, REST server returned "
 			                "{0.status} {0.reason}".format(resp))
 		json_str = self.decode_response(resp.read())
-		return self.json_to_object(json_str, type_name)
+		return self.json_to_object(json_str)
 
 	def decode_response(self, bytes):
 		return bytes.decode("UTF-8")
 
-	def json_to_object(self, json_str, type_name):
+	def json_to_object(self, json_str):
 		return json.loads(
 				json_str,
-				object_hook=lambda d: namedtuple(type_name,
+				object_hook=lambda d: namedtuple("Resource",
 				                                 d.keys())(*d.values())
 		)
 

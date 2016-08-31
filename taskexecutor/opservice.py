@@ -85,23 +85,22 @@ class UpstartService(OpService):
 class SysVService(OpService):
 	def __init__(self):
 		super().__init__()
-		self._command_base = "invoke-rc.d {}".format(self.name)
 
 	def start(self):
 		LOGGER.info("starting {} service via init script".format(self.name))
-		exec_command("{} start".format(self._command_base))
+		exec_command("invoke-rc.d {} start".format(self.name))
 
 	def stop(self):
 		LOGGER.info("stopping {} service via init script".format(self.name))
-		exec_command("{} stop".format(self._command_base))
+		exec_command("invoke-rc.d {} stop".format(self.name))
 
 	def restart(self):
 		LOGGER.info("restarting {} service via init script".format(self.name))
-		exec_command("{} restart".format(self._command_base))
+		exec_command("invoke-rc.d {} restart".format(self.name))
 
 	def reload(self):
 		LOGGER.info("reloading {} service via init script".format(self.name))
-		exec_command("{} reload".format(self._command_base))
+		exec_command("invoke-rc.d {} reload".format(self.name))
 
 
 class Nginx(SysVService):
@@ -122,8 +121,8 @@ class Nginx(SysVService):
 
 
 class Apache(UpstartService):
-	def __init__(self):
-		super().__init__()
+	def __init__(self, instance_id):
+		super().__init__(instance_id)
 		self.name = "apache2-{}".format(self.instance_id)
 		self.cfg_base = "/etc/{}".format(self.name)
 		self.config_body = str()
