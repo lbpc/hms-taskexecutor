@@ -1,9 +1,9 @@
 <VirtualHost {{ params["apache_socket"] }}>
-        ServerName {{ website.domainList[0].name }}
-        ServerAlias *.{{ website.domainList[0].name }} {% if website.domainList|length > 1 %}{% for domain in website.domainList[1:] %}{{ domain.name }} *.{{ domain.name }} {% endfor %}{% endif %}
+    ServerName {{ website.domainList[0].name }}
+    ServerAlias *.{{ website.domainList[0].name }} {% if website.domainList|length > 1 %}{% for domain in website.domainList[1:] %}{{ domain.name }} *.{{ domain.name }} {% endfor %}{% endif %}
 
     {% if website.Options.scriptAlias %}
-        ScriptAlias {{ website.Options.scriptAlias }}
+    ScriptAlias /cgi-bin {{ website.unixAccount.homeDir }}{{ website.Options.scriptAlias }}
     {% endif %}
     DocumentRoot {{ website.unixAccount.homeDir }}{{ website.documentRoot }}
     {% if website.Options.autoSubDomain %}
@@ -16,16 +16,22 @@
         DirectoryIndex{% for file in website.Options.indexFileList %} {{ file }}{% endfor %}
     {% endif %}
 
-    Require all granted
-    AllowOverride all
+        Require all granted
+        AllowOverride all
     </Directory>
     {% if website.Options.charSet %}
-        AddDefaultCharset {{ website.Options.charSet }}
+    AddDefaultCharset {{ website.Options.charSet }}
     {% endif %}
     {% if website.Options.autoSubDomain %}
-        RewriteEngine on
-        RewriteCond %{HTTP_HOST} ^(www.)?([a-z0-9-]+).{{ website.domainList[0].name }} [NC]
-        RewriteRule ^/(.*)$ {{ params["subdomains_document_root"] }}/%2/$1 [L]
+    RewriteEngine on
+    RewriteCond %{HTTP_HOST} ^(www.)?([a-z0-9-]+).{{ website.domainList[0].name }} [NC]
+    RewriteRule ^/(.*)$ {{ params["subdomains_document_root"] }}/%2/$1 [L]
+    {% endif %}
+    {% if website.Options.cgiEnabled and website.Options.cgiFileExtensions %}
+        AddHandler cgi-script{% for file in website.Options.cgiFileExtensions %} .{{ file }}{% endfor %}
+    {% endif %}
+    {% if website.Options.ssiEnabled and website.Options.ssiFileExtensions %}
+        AddHandler server-parsed{% for file in website.Options.ssiFileExtensions %} .{{ file }}{% endfor %}
     {% endif %}
     {% if website.Options.customUserConf %}
         {{ website.Options.customUserConf }}
