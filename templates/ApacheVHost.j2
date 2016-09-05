@@ -1,4 +1,4 @@
-<VirtualHost {{ params["apache_socket"] }}>
+<VirtualHost {{ params["apache_socket"].address }}:{{ params["apache_socket"].port }}>
     ServerName {{ website.domainList[0].name }}
     ServerAlias *.{{ website.domainList[0].name }} {% if website.domainList|length > 1 %}{% for domain in website.domainList[1:] %}{{ domain.name }} *.{{ domain.name }} {% endfor %}{% endif %}
 
@@ -11,7 +11,7 @@
     {% else %}
     <Directory {{ website.unixAccount.homeDir }}{{ website.documentRoot }}>
     {% endif %}
-        Options +FollowSymLinks -MultiViews {% if website.Options.ssiEnabled %}+{% else %}-{% endif %}Includes {% if website.Options.cgiEnabled %}+{% else %}-{% endif %}ExecCGI
+        Options {% if website.Options.followSymLinks %}+{% else %}-{% endif %}FollowSymLinks {% if website.Options.multiViews %}+{% else %}-{% endif %}MultiViews {% if website.Options.ssiEnabled %}+{% else %}-{% endif %}Includes {% if website.Options.cgiEnabled %}+{% else %}-{% endif %}ExecCGI
     {% if website.Options.indexFileList %}
         DirectoryIndex{% for file in website.Options.indexFileList %} {{ file }}{% endfor %}
     {% endif %}

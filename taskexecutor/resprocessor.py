@@ -126,14 +126,9 @@ class DBAccountProcessor(ResProcessor):
 class WebSiteProcessor(ResProcessor):
 	def __init__(self, resource, params):
 		super().__init__(resource, params)
-		if self.resource.Options.phpSecurityMode != "default":
-			self._apache_id = "{0}-{1}".format(self.resource.Options.phpVersion,
-			                                   self.resource.Options.phpSecurityMode)
-		else:
-			self._apache_id = self.resource.Options.phpVersion
-
+		self._apache_obj = self.get_app_server_obj()
 		self._nginx = Nginx()
-		self._apache = Apache(instance_id=self._apache_id)
+		self._apache = Apache(instance_id=self._apache_obj.id)
 		self.fill_params()
 		self.set_cfg_paths()
 
@@ -181,6 +176,10 @@ class WebSiteProcessor(ResProcessor):
 			os.unlink(srv.available_cfg_path)
 			srv.reload()
 
+	def get_app_server_obj(self):
+		with RESTClient() as api:
+			return api.Service(id=self.resource.applicationServer).get()
+
 	def set_cfg_paths(self):
 		for srv, type in product((self._apache, self._nginx),
 		                         ("available", "enabled")):
@@ -190,16 +189,8 @@ class WebSiteProcessor(ResProcessor):
 			                                                self.resource.id))
 
 	def fill_params(self):
-		_php_security_idx = {"default": 0,
-		                     "unsafe": 1,
-		                     "hardened_nochmod": 2,
-		                     "hardened": 3}[self.resource.Options.phpSecurityMode]
-		if self.resource.Options.phpVersion == "php4":
-			_php_version_idx = 44
-		else:
-			_php_version_idx = self.resource.Options.phpVersion[3:]
-		self.params["apache_socket"] = \
-			"127.0.0.1:8{0}{1}".format(_php_security_idx, _php_version_idx)
+		self.params["apache_socket"] = self._apache_obj.serviceSocket[0]
+		self.params["apache_id"] = self._apache_obj.id
 		self.params["nginx_ip_addr"] = CONFIG["nginx"]["ip_addr"]
 		self.params["error_pages"] = (
 			(code, "http_{}.html".format(code)) for code in (403, 404, 502, 503, 504)
@@ -275,9 +266,9 @@ class MailboxProcessor(ResProcessor):
 
 	@synchronized
 	def delete(self):
-		with RESTClient() as c:
+		with RESTClient() as api:
 			_mailboxes_remaining = \
-				c.get("/Mailbox/?domain={}".format(self.resource.domain.name))
+				api.Mailbox(query={"domain": self.resource.domain.name}).get()
 		if len(_mailboxes_remaining) == 1:
 			LOGGER.info("{0.name}@{0.domain} is the last mailbox "
 			            "in {0.domain}".format(self.resource))
@@ -399,24 +390,24 @@ class DatabaseProcessor(ResProcessor):
 
 class ResProcessorBuilder:
 	def __new__(self, res_type):
-		if res_type == "UnixAccount":
+		if res_type == "unixaccount":
 			return UnixAccountProcessor
-		elif res_type == "DBAccount":
+		elif res_type == "dbaccount":
 			return DBAccountProcessor
-		elif res_type == "WebSite":
+		elif res_type == "website":
 			return WebSiteProcessor
-		elif res_type == "SSLCertificate":
+		elif res_type == "sslcertificate":
 			return SSLCertificateProcessor
-		elif res_type == "Mailbox" and re.match("pop\d+",
+		elif res_type == "mailbox" and re.match("pop\d+",
 		                                        CONFIG["hostname"]):
 			return MailboxAtPopperProcessor
-		elif res_type == "Mailbox" and re.match("mx\d+-(mr|dh)",
+		elif res_type == "mailbox" and re.match("mx\d+-(mr|dh)",
 		                                        CONFIG["hostname"]):
 			return MailboxAtMxProcessor
-		elif res_type == "Mailbox" and re.match("mail-checker\d+",
+		elif res_type == "mailbox" and re.match("mail-checker\d+",
 		                                        CONFIG["hostname"]):
 			return MailboxProcessor
-		elif res_type == "Database":
+		elif res_type == "database":
 			return DatabaseProcessor
 		else:
 			raise ValueError("Unknown resource type: {}".format(res_type))

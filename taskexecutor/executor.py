@@ -73,9 +73,8 @@ class Executor:
 		del self._args
 
 	def get_resource(self, obj_ref):
-		with RESTClient() as c:
-			obj = c.get(obj_ref)
-		return obj
+		with RESTClient() as api:
+			return api.get(obj_ref)
 
 	def process_task(self):
 		threading.current_thread().name = self._task.id
@@ -93,11 +92,11 @@ class Executor:
 						processor.resource
 				)
 		)
-		if self._task.action == "Create":
+		if self._task.action == "create":
 			processor.create()
-		elif self._task.action == "Update":
+		elif self._task.action == "update":
 			processor.update()
-		elif self._task.action == "Delete":
+		elif self._task.action == "delete":
 			processor.delete()
 		LOGGER.info("Calling back {0}{1}".format(self._callback.__name__, self._args))
 		self._callback(*self._args)

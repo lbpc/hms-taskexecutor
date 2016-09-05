@@ -1,17 +1,17 @@
 max_workers: 10
 
 enabled_resources:
-  - UnixAccount
-  - DBAccount
-  - Database
-  - WebSite
-  - SSLCertificate
-  - Mailbox
+  - unixaccount
+  - dbaccount
+  - database
+  - website
+  - sslcertificate
+  - mailbox
 
 enabled_actions:
-  - Create
-  - Update
-  - Delete
+  - create
+  - update
+  - delete
 
 paths:
   templates: ../templates

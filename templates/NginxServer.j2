@@ -45,11 +45,7 @@ server {
             return 403;
         }
 {% endif %}
-{% if website.Options.phpSecurityMode != "default" %}
-        proxy_pass http://apache2-{{ website.Options.phpVersion }}-{{ website.Options.phpSecurityMode }};
-{% else %}
-        proxy_pass http://apache2-{{ website.Options.phpVersion }};
-{% endif %}
+        proxy_pass http://apache2-{{ params["apache_id"] }};
         proxy_set_header Host $http_host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -61,11 +57,7 @@ server {
 {% if website.Options.ddosProtection %}
         access_by_lua_file {{ params["anti_ddos_check_cookie_file"] }};
 {% endif %}
-{% if website.Options.phpSecurityMode != "default" %}
-        proxy_pass http://apache2-{{ website.Options.phpVersion }}-{{ website.Options.phpSecurityMode }};
-{% else %}
-        proxy_pass http://apache2-{{ website.Options.phpVersion }};
-{% endif %}
+        proxy_pass http://apache2-{{ params["apache_id"] }};
         proxy_set_header Host $http_host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -127,11 +119,7 @@ server {
         return 403;
         }
     {% endif %}
-    {% if website.Options.phpSecurityMode != "default" %}
-        proxy_pass http://apache2-{{ website.Options.phpVersion }}-{{ website.Options.phpSecurityMode }};
-    {% else %}
-        proxy_pass http://apache2-{{ website.Options.phpVersion }};
-    {% endif %}
+    proxy_pass http://apache2-{{ params["apache_id"] }};
     proxy_set_header Host $http_host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -143,11 +131,7 @@ server {
     {% if website.Options.ddosProtection %}
         access_by_lua_file {{ params["anti_ddos_check_cookie_file"] }};
     {% endif %}
-    {% if website.Options.phpSecurityMode != "default" %}
-        proxy_pass http://apache2-{{ website.Options.phpVersion }}-{{ website.Options.phpSecurityMode }};
-    {% else %}
-        proxy_pass http://apache2-{{ website.Options.phpVersion }};
-    {% endif %}
+    proxy_pass http://apache2-{{ params["apache_id"] }};
     proxy_set_header Host $http_host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

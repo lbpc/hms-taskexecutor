@@ -191,10 +191,10 @@ class AMQPListener(Listener):
 		message = json.loads(message.decode("UTF-8"))
 		message["params"]["objRef"] = message["objRef"]
 		message.pop("objRef")
-		task = self.create_task(message["opId"],
-		                 context["res_type"],
-		                 context["action"],
-		                 message["params"])
+		task = self.create_task(message["operationIdentity"],
+		                        context["res_type"],
+		                        context["action"],
+		                        message["params"])
 		future = self.pass_task(task=task,
 		                        callback=self.acknowledge_message,
 		                        args=(context["delivery_tag"],))
