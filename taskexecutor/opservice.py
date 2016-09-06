@@ -4,12 +4,11 @@ from taskexecutor.utils import exec_command, set_apparmor_mode
 from taskexecutor.logger import LOGGER
 
 class OpService(metaclass=ABCMeta):
-	def __init__(self, instance_id=None):
+	def __init__(self, name=None):
 		self._name = str()
 		self._cfg_base = str()
-		self._instance_id = str()
-		if instance_id:
-			self.instance_id = instance_id
+		if name:
+			self.name = name
 
 	@property
 	def name(self):
@@ -116,14 +115,14 @@ class Nginx(SysVService):
 		LOGGER.info("Testing nginx config")
 		exec_command("nginx -t")
 		super().reload()
-		LOGGER.info("Applying enforce AppArmor mode to /usr/bin/nginx")
-		set_apparmor_mode("enforce", "/usr/bin/nginx")
+		set_apparmor_mode("enforce", "/usr/sbin/nginx")
 
 
 class Apache(UpstartService):
-	def __init__(self, instance_id):
-		super().__init__(instance_id)
-		self.name = "apache2-{}".format(self.instance_id)
+	def __init__(self, name):
+		super().__init__(name)
+		if not self.name:
+			raise Exception("Apache instance requires name keyword")
 		self.cfg_base = "/etc/{}".format(self.name)
 		self.config_body = str()
 		self.available_cfg_path = str()

@@ -1,7 +1,8 @@
+{% for vhost in vhosts %}
 server {
     listen {{ params["nginx_ip_addr"] }};
 
-    server_name {% for domain in website.domainList %} {{ domain.name }} *.{{ domain.name }}{% endfor %};
+    server_name {% for domain in vhost.domainList %} {{ domain.name }} *.{{ domain.name }}{% endfor %};
     access_log /var/log/nginx/access.log combined_host;
     reset_timedout_connection on;
 
@@ -14,50 +15,51 @@ server {
         ssi on;
         internal;
     }
+
 {% endfor %}
 
-{% if website.Options.staticFileExtensions %}
-    location ~* ^.+\.({{ website.Options.staticFileExtensions|join("|") }}) {
-    {% if website.Options.autoSubDomain %}
-        {% for domain in website.domainList %}
+{% if vhost.Options.staticFileExtensions %}
+    location ~* ^.+\.({{ vhost.Options.staticFileExtensions|join("|") }}) {
+    {% if vhost.Options.autoSubDomain %}
+        {% for domain in vhost.domainList %}
         if ( $host ~* ^(www.)?([a-z0-9-]+).{{ domain.name }} ) {
-            root {{ website.documentRoot }}/$2;
+            root {{ vhost.documentRoot }}/$2;
         }
         {% endfor %}
     {% endif %}
-    root {{ website.documentRoot }};
+        root {{ vhost.documentRoot }};
     }
 {% endif %}
-{% if website.Options.ddosProtection %}
+{% if vhost.Options.ddosProtection %}
     location {{ params["anti_ddos_location"] }} {
     content_by_lua_file {{ params["static_base"] }}/{{ params["anti_ddos_set_cookie_file"] }};
     internal;
     }
 {% endif %}
+
     location ~* ((^/wp-login.php)|(^/administrator/index.php)|(^/xmlrpc.php)) {
-{% if website.Options.ddosProtection %}
+{% if vhost.Options.ddosProtection %}
         access_by_lua_file {{ params["static_base"] }}/{{ params["anti_ddos_check_cookie_file"] }};
 {% endif %}
         limit_req zone=req_to_adm burst=128;
-
-{% if not website.Options.accessByOldHttpVersion %}
+{% if not vhost.Options.accessByOldHttpVersion %}
         if ($server_protocol ~* "HTTP/1.0") {
             return 403;
         }
 {% endif %}
-        proxy_pass http://apache2-{{ params["apache_id"] }};
+        proxy_pass http://{{ params["apache_name"] }};
         proxy_set_header Host $http_host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto http;
         proxy_set_header Range "";
-
     }
+
     location / {
-{% if website.Options.ddosProtection %}
+{% if vhost.Options.ddosProtection %}
         access_by_lua_file {{ params["anti_ddos_check_cookie_file"] }};
 {% endif %}
-        proxy_pass http://apache2-{{ params["apache_id"] }};
+        proxy_pass http://{{ params["apache_name"] }};
         proxy_set_header Host $http_host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -68,77 +70,80 @@ server {
     }
 }
 
-{% if website.SSLCertificate %}
+{% if vhost.domainList[0].sslCertificate %}
 server {
     listen {{ params["nginx_ip_addr"] }}:443 ssl;
 
-    ssl_certificate {{ params["ssl_path"] }}/{{ website.SSLCertificate.name }}.pem;
-    ssl_certificate_key {{ params["ssl_path"] }}/{{ website.SSLCertificate.name }}.key;
+    ssl_certificate {{ params["ssl_path"] }}/{{ vhost.domainList[0].sslCertificate.name }}.pem;
+    ssl_certificate_key {{ params["ssl_path"] }}/{{ vhost.domainList[0].sslCertificate.name }}.key;
 
-    server_name {% for domain in website.domainList %} {{ domain.name }} *.{{ domain.name }}{% endfor %};
+    server_name {% for domain in vhost.domainList %} {{ domain.name }} *.{{ domain.name }}{% endfor %};
     access_log /var/log/nginx/access.log combined_host;
     reset_timedout_connection on;
 
     limit_req zone=req_perhost burst=512;
 
     {% for (code, file_name) in params["error_pages"] %}
-        error_page {{ code }} /{{ file_name }};
-        location = /{{ file_name }} {
+    error_page {{ code }} /{{ file_name }};
+    location = /{{ file_name }} {
         root {{ params["static_base"] }};
         ssi on;
         internal;
-        }
+    }
+
     {% endfor %}
 
-    {% if website.Options.staticFileExtensions %}
-        location ~* ^.+\.({{ website.Options.staticFileExtensions|join("|") }}) {
-        {% if website.Options.autoSubDomain %}
-            {% for domain in website.domainList %}
-                if ( $host ~* ^(www.)?([a-z0-9-]+).{{ domain.name }} ) {
-                root {{ website.documentRoot }}/$2;
-                }
-            {% endfor %}
-        {% endif %}
-        root {{ website.documentRoot }};
+    {% if vhost.Options.staticFileExtensions %}
+    location ~* ^.+\.({{ vhost.Options.staticFileExtensions|join("|") }}) {
+    {% if vhost.Options.autoSubDomain %}
+        {% for domain in vhost.domainList %}
+        if ( $host ~* ^(www.)?([a-z0-9-]+).{{ domain.name }} ) {
+            root {{ vhost.documentRoot }}/$2;
         }
+        {% endfor %}
     {% endif %}
-    {% if website.Options.ddosProtection %}
+        root {{ vhost.documentRoot }};
+    }
+    {% endif %}
+    {% if vhost.Options.ddosProtection %}
         location {{ params["anti_ddos_location"] }} {
         content_by_lua_file {{ params["static_base"] }}/{{ params["anti_ddos_set_cookie_file"] }};
         internal;
         }
     {% endif %}
+
     location ~* ((^/wp-login.php)|(^/administrator/index.php)|(^/xmlrpc.php)) {
-    {% if website.Options.ddosProtection %}
+    {% if vhost.Options.ddosProtection %}
         access_by_lua_file {{ params["static_base"] }}/{{ params["anti_ddos_check_cookie_file"] }};
     {% endif %}
-    limit_req zone=req_to_adm burst=128;
-
-    {% if not website.Options.accessByOldHttpVersion %}
+        limit_req zone=req_to_adm burst=128;
+    {% if not vhost.Options.accessByOldHttpVersion %}
         if ($server_protocol ~* "HTTP/1.0") {
-        return 403;
+            return 403;
         }
     {% endif %}
-    proxy_pass http://apache2-{{ params["apache_id"] }};
-    proxy_set_header Host $http_host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto http;
-    proxy_set_header Range "";
-
+        proxy_pass http://{{ params["apache_name"] }};
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto http;
+        proxy_set_header Range "";
     }
+
     location / {
-    {% if website.Options.ddosProtection %}
+    {% if vhost.Options.ddosProtection %}
         access_by_lua_file {{ params["anti_ddos_check_cookie_file"] }};
     {% endif %}
-    proxy_pass http://apache2-{{ params["apache_id"] }};
-    proxy_set_header Host $http_host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto http;
-    proxy_set_header Range $http_range;
-    proxy_set_header If-Range $http_if_range;
-    proxy_cache_bypass $http_range $http_if_range;
+        proxy_pass http://{{ params["apache_name"] }};
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto http;
+        proxy_set_header Range $http_range;
+        proxy_set_header If-Range $http_if_range;
+        proxy_cache_bypass $http_range $http_if_range;
     }
 }
+
 {% endif %}
+{% endfor %}

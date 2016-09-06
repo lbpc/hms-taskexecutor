@@ -1,47 +1,51 @@
+{% for vhost in vhosts %}
 <VirtualHost {{ params["apache_socket"].address }}:{{ params["apache_socket"].port }}>
-    ServerName {{ website.domainList[0].name }}
-    ServerAlias *.{{ website.domainList[0].name }} {% if website.domainList|length > 1 %}{% for domain in website.domainList[1:] %}{{ domain.name }} *.{{ domain.name }} {% endfor %}{% endif %}
+    ServerName {{ vhost.domainList[0].name }}
+    ServerAlias *.{{ vhost.domainList[0].name }} {% if vhost.domainList|length > 1 %}{% for domain in vhost.domainList[1:] %}{{ domain.name }} *.{{ domain.name }} {% endfor %}{% endif %}
 
-    {% if website.Options.scriptAlias %}
-    ScriptAlias /cgi-bin {{ website.unixAccount.homeDir }}{{ website.Options.scriptAlias }}
+    {% if vhost.Options.scriptAlias %}
+    ScriptAlias /cgi-bin {{ vhost.unixAccount.homeDir }}{{ vhost.Options.scriptAlias }}
     {% endif %}
-    DocumentRoot {{ website.unixAccount.homeDir }}{{ website.documentRoot }}
-    {% if website.Options.autoSubDomain %}
-    <Directory {{ website.unixAccount.homeDir }}{{ params["subdomains_document_root"] }}>
+    DocumentRoot {{ vhost.unixAccount.homeDir }}{{ vhost.documentRoot }}
+    {% if vhost.Options.autoSubDomain %}
+    <Directory {{ vhost.unixAccount.homeDir }}{{ params["subdomains_document_root"] }}>
     {% else %}
-    <Directory {{ website.unixAccount.homeDir }}{{ website.documentRoot }}>
+    <Directory {{ vhost.unixAccount.homeDir }}{{ vhost.documentRoot }}>
     {% endif %}
-        Options {% if website.Options.followSymLinks %}+{% else %}-{% endif %}FollowSymLinks {% if website.Options.multiViews %}+{% else %}-{% endif %}MultiViews {% if website.Options.ssiEnabled %}+{% else %}-{% endif %}Includes {% if website.Options.cgiEnabled %}+{% else %}-{% endif %}ExecCGI
-    {% if website.Options.indexFileList %}
-        DirectoryIndex{% for file in website.Options.indexFileList %} {{ file }}{% endfor %}
+        Options {% if vhost.Options.followSymLinks %}+{% else %}-{% endif %}FollowSymLinks {% if vhost.Options.multiViews %}+{% else %}-{% endif %}MultiViews {% if vhost.Options.ssiEnabled %}+{% else %}-{% endif %}Includes {% if vhost.Options.cgiEnabled %}+{% else %}-{% endif %}ExecCGI
+    {% if vhost.Options.indexFileList %}
+        DirectoryIndex{% for file in vhost.Options.indexFileList %} {{ file }}{% endfor %}
     {% endif %}
 
         Require all granted
         AllowOverride all
     </Directory>
-    {% if website.Options.charSet %}
-    AddDefaultCharset {{ website.Options.charSet }}
+    {% if vhost.Options.charSet %}
+    AddDefaultCharset {{ vhost.Options.charSet }}
     {% endif %}
-    {% if website.Options.autoSubDomain %}
+    {% if vhost.Options.autoSubDomain %}
     RewriteEngine on
-    RewriteCond %{HTTP_HOST} ^(www.)?([a-z0-9-]+).{{ website.domainList[0].name }} [NC]
+    {% for domain in vhost.domainList %}
+    RewriteCond %{HTTP_HOST} ^(www.)?([a-z0-9-]+).{{ domain.name }} [NC{% if not loop.last %},OR{% endif %}]
+    {% endfor %}
     RewriteRule ^/(.*)$ {{ params["subdomains_document_root"] }}/%2/$1 [L]
     {% endif %}
-    {% if website.Options.cgiEnabled and website.Options.cgiFileExtensions %}
-        AddHandler cgi-script{% for file in website.Options.cgiFileExtensions %} .{{ file }}{% endfor %}
+    {% if vhost.Options.cgiEnabled and vhost.Options.cgiFileExtensions %}
+        AddHandler cgi-script{% for file in vhost.Options.cgiFileExtensions %} .{{ file }}{% endfor %}
     {% endif %}
-    {% if website.Options.ssiEnabled and website.Options.ssiFileExtensions %}
-        AddHandler server-parsed{% for file in website.Options.ssiFileExtensions %} .{{ file }}{% endfor %}
+    {% if vhost.Options.ssiEnabled and vhost.Options.ssiFileExtensions %}
+        AddHandler server-parsed{% for file in vhost.Options.ssiFileExtensions %} .{{ file }}{% endfor %}
     {% endif %}
-    {% if website.Options.customUserConf %}
-        {{ website.Options.customUserConf }}
+    {% if vhost.Options.customUserConf %}
+        {{ vhost.Options.customUserConf }}
     {% endif %}
-    {% if website.Options.accessLogEnabled %}
-    CustomLog {{ website.unixAccount.homeDir }}/logs/www.{{ website.domainList[0].name }}-access.log common-time
+    {% if vhost.Options.accessLogEnabled %}
+    CustomLog {{ vhost.unixAccount.homeDir }}/logs/www.{{ vhost.domainList[0].name }}-access.log common-time
     {% endif %}
-    {% if website.Options.errorLogEnabled %}
-    ErrorLog {{ website.unixAccount.homeDir }}/logs/www.{{ website.domainList[0].name }}-error_log
+    {% if vhost.Options.errorLogEnabled %}
+    ErrorLog {{ vhost.unixAccount.homeDir }}/logs/www.{{ vhost.domainList[0].name }}-error_log
     {% endif %}
     MaxClientsVHost 20
-    AssignUserID "#{{ website.unixAccount.uid }}" "#{{ website.unixAccount.uid }}"
+    AssignUserID "#{{ vhost.unixAccount.uid }}" "#{{ vhost.unixAccount.uid }}"
 </VirtualHost>
+{% endfor %}

@@ -29,7 +29,8 @@ class AMQPReporter(Reporter):
 		self._routing_key = "REPORT"
 
 	def create_report(self, task):
-		self._report["opId"] = task.id
+		self._report["operationIdentity"] = task.opid
+		self._report["actionIdentity"] = task.actid
 		self._report["objRef"] = task.params["objRef"]
 		return self._report
 

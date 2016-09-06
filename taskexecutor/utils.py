@@ -2,9 +2,9 @@ import http.client
 import urllib.parse
 import mysql.connector
 import json
-import sys
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
+from threading import current_thread
 from traceback import format_exc
 from collections import namedtuple
 from functools import wraps
@@ -25,7 +25,7 @@ class ThreadPoolExecutorStackTraced(ThreadPoolExecutor):
 		try:
 			return fn(*args, **kwargs)
 		except Exception:
-			raise sys.exc_info()[0](format_exc())
+			raise Exception(format_exc())
 
 
 class RESTClient:
@@ -126,6 +126,9 @@ def render_template(template_name, **kwargs):
 	template = template_env.get_template(template_name)
 
 	return template.render(**kwargs)
+
+def set_thread_name(name):
+	current_thread().name = name
 
 def synchronized(f):
 	@wraps(f)

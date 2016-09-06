@@ -18,7 +18,7 @@ def receive_signal(signum, stack):
 
 signal(SIGINT, receive_signal)
 amqp_listener = ListenerBuilder("amqp")()
-amqp_listener_thread = Thread(target=amqp_listener.listen, name="AMQPListener")
+amqp_listener_thread = Thread(target=amqp_listener.listen)
 amqp_listener_thread.start()
 LOGGER.info("AMQP listener thread started")
 while True:

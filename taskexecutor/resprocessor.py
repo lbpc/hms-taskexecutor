@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 from itertools import product
+from collections import namedtuple
 from abc import ABCMeta, abstractmethod
 
 from taskexecutor.config import CONFIG
@@ -128,19 +129,21 @@ class WebSiteProcessor(ResProcessor):
 		super().__init__(resource, params)
 		self._apache_obj = self.get_app_server_obj()
 		self._nginx = Nginx()
-		self._apache = Apache(instance_id=self._apache_obj.id)
+		self._apache = Apache(name=self._apache_obj.name)
 		self.fill_params()
 		self.set_cfg_paths()
 
 	@synchronized
 	def create(self):
+		_vhosts_list = self.build_vhost_obj_list()
 		self.create_logs_directory()
+		self.create_document_root()
 		self._nginx.config_body = render_template("NginxServer.j2",
-		                                          website=self.resource,
+		                                          vhosts=_vhosts_list,
 		                                          params=self.params)
 
 		self._apache.config_body = render_template("ApacheVHost.j2",
-		                                           website=self.resource,
+		                                           vhosts=_vhosts_list,
 		                                           params=self.params)
 		for srv in (self._apache, self._nginx):
 			self.save_config(srv.config_body, srv.available_cfg_path)
@@ -168,7 +171,7 @@ class WebSiteProcessor(ResProcessor):
 
 	@synchronized
 	def delete(self):
-		for srv in (self._apache, self._nginx):
+		for srv in (self._nginx, self._apache):
 			if os.path.exists(srv.enabled_cfg_path):
 				LOGGER.info("Removing {} symlink".format(srv.enabled_cfg_path))
 				os.unlink(srv.enabled_cfg_path)
@@ -188,13 +191,29 @@ class WebSiteProcessor(ResProcessor):
 			                                                type,
 			                                                self.resource.id))
 
+	def build_vhost_obj_list(self):
+		_vhosts = list()
+		_non_ssl_domains = list()
+		_res_dict = self.resource._asdict()
+		for domain in self.resource.domainList:
+			if domain.sslCertificate:
+				_res_dict["domainList"] = [domain,]
+				_vhosts.append(namedtuple("VHost",
+				                          _res_dict.keys())(*_res_dict.values()))
+			else:
+				_non_ssl_domains.append(domain)
+		_res_dict["domainList"] = _non_ssl_domains
+		_vhosts.append(namedtuple("VHost", _res_dict.keys())(*_res_dict.values()))
+		return _vhosts
+
+
 	def fill_params(self):
 		self.params["apache_socket"] = self._apache_obj.serviceSocket[0]
-		self.params["apache_id"] = self._apache_obj.id
+		self.params["apache_name"] = self._apache_obj.name
 		self.params["nginx_ip_addr"] = CONFIG["nginx"]["ip_addr"]
-		self.params["error_pages"] = (
+		self.params["error_pages"] = [
 			(code, "http_{}.html".format(code)) for code in (403, 404, 502, 503, 504)
-		)
+		]
 		self.params["static_base"] = CONFIG["paths"]["nginx_static_base"]
 		self.params["anti_ddos_set_cookie_file"] = "anti_ddos_set_cookie_file.lua"
 		self.params["anti_ddos_check_cookie_file"] = "anti_ddos_check_cookie_file.lua"
@@ -213,6 +232,17 @@ class WebSiteProcessor(ResProcessor):
 		if not os.path.exists(_logs_dir):
 			LOGGER.info("{} directory does not exist, creating".format(_logs_dir))
 			os.mkdir(_logs_dir, mode=0o755)
+
+	def create_document_root(self):
+		_docroot_dir = "{0}{1}".format(self.resource.unixAccount.homeDir,
+		                               self.resource.documentRoot)
+		if not os.path.exists(_docroot_dir):
+			LOGGER.info("{} directory does not exist, "
+			            "creating".format(_docroot_dir))
+			os.makedirs(_docroot_dir, mode=0o755)
+			os.chown(_docroot_dir,
+			         self.resource.unixAccount.uid,
+			         self.resource.unixAccount.uid)
 
 
 class SSLCertificateProcessor(ResProcessor):

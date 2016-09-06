@@ -8,6 +8,7 @@ from taskexecutor.config import CONFIG
 from taskexecutor.executor import Executor, Executors
 from taskexecutor.logger import LOGGER
 from taskexecutor.task import Task
+from taskexecutor.utils import set_thread_name
 
 
 class Listener(metaclass=ABCMeta):
@@ -20,7 +21,7 @@ class Listener(metaclass=ABCMeta):
 		pass
 
 	@abstractmethod
-	def create_task(self, id, res_type, action, params):
+	def create_task(self, opid, actid, res_type, action, params):
 		pass
 
 	@abstractmethod
@@ -167,6 +168,7 @@ class AMQPListener(Listener):
 		self._channel.close()
 
 	def listen(self):
+		set_thread_name("AMQPListener")
 		self._connection = self.connect()
 		self._connection.ioloop._stopping = False
 		while not self._connection.ioloop._stopping:
@@ -192,6 +194,7 @@ class AMQPListener(Listener):
 		message["params"]["objRef"] = message["objRef"]
 		message.pop("objRef")
 		task = self.create_task(message["operationIdentity"],
+		                        message["actionIdentity"],
 		                        context["res_type"],
 		                        context["action"],
 		                        message["params"])
@@ -200,9 +203,12 @@ class AMQPListener(Listener):
 		                        args=(context["delivery_tag"],))
 		self._futures_tags_map[future] = context["delivery_tag"]
 
-	def create_task(self, id, res_type, action, params):
-		task = Task(id, res_type, action, params)
+	def create_task(self, opid, actid, res_type, action, params):
+		set_thread_name("OPERATION IDENTITY: {0} "
+		                "ACTION IDENTITY: {1}".format(opid, actid))
+		task = Task(opid, actid, res_type, action, params)
 		LOGGER.info("New task created: {}".format(task))
+		set_thread_name("AMQPListener")
 		return task
 
 	def pass_task(self, task, callback, args):

@@ -1,21 +1,34 @@
 class Task:
-	def __init__(self, id, res_type, action, params):
-		self.id = id
+	def __init__(self, opid, actid, res_type, action, params):
+		self.opid = opid
+		self.actid = actid
 		self.res_type = res_type
 		self.action = action
 		self.params = params
 
 	@property
-	def id(self):
-		return self._id
+	def opid(self):
+		return self._opid
 
-	@id.setter
-	def id(self, value):
-		self._id = value
+	@opid.setter
+	def opid(self, value):
+		self._opid = value
 
-	@id.deleter
-	def id(self):
-		del self._id
+	@opid.deleter
+	def opid(self):
+		del self._opid
+
+	@property
+	def actid(self):
+		return self._actid
+
+	@actid.setter
+	def actid(self, value):
+		self._actid = value
+
+	@actid.deleter
+	def actid(self):
+		del self._actid
 
 	@property
 	def res_type(self):
@@ -56,7 +69,8 @@ class Task:
 		del self._params
 
 	def __str__(self):
-		return "Task(id='{0.id}', " \
+		return "Task(opid='{0.opid}', " \
+		       "actid='{0.actid}', " \
 		       "res_type='{0.res_type}', " \
 		       "action='{0.action}', " \
 		       "params={0.params})".format(self)

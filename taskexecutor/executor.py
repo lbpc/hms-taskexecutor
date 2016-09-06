@@ -1,11 +1,12 @@
-import threading
+from threading import current_thread
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 from taskexecutor.resprocessor import ResProcessorBuilder
 from taskexecutor.reporter import ReporterBuilder
 from taskexecutor.task import Task
-from taskexecutor.utils import RESTClient, ThreadPoolExecutorStackTraced
+from taskexecutor.utils import RESTClient, ThreadPoolExecutorStackTraced, \
+	set_thread_name
 
 
 class Executors:
@@ -77,7 +78,8 @@ class Executor:
 			return api.get(obj_ref)
 
 	def process_task(self):
-		threading.current_thread().name = self._task.id
+		set_thread_name("OPERATION IDENTITY: {0.opid} "
+		                "ACTION IDENTITY: {0.actid}".format(self._task))
 		LOGGER.info(
 				"Fetching {0} resorce by {1}".format(self._task.res_type,
 				                                     self._task.params["objRef"])
@@ -105,4 +107,4 @@ class Executor:
 		LOGGER.info("Sending report {0} using {1}".format(report,
 		                                                 type(reporter).__name__))
 		reporter.send_report()
-		LOGGER.info("Done with task {}".format(self._task.id))
+		LOGGER.info("Done with task {}".format(self._task.opid))
