@@ -16,7 +16,7 @@ class StreamToLogger:
 
 
 logging.basicConfig(
-		format="<%(levelname)s> %(threadName)s: "
+		format="%(threadName)s LOG LEVEL: %(levelname)s "
 		       "(%(module)s:%(lineno)d %(funcName)s) %(message)s",
 		stream=sys.stdout
 )

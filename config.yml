@@ -1,17 +1,22 @@
 max_workers: 10
 
 enabled_resources:
-  - UnixAccount
-  - FTPAccount
-  - DBAccount
-  - Database
-  - WebSite
-  - Mailbox
+  - unixaccount
+  - dbaccount
+  - database
+  - website
+  - sslcertificate
+  - mailbox
 
 enabled_actions:
-  - Create
-  - Update
-  - Delete
+  - create
+  - update
+  - delete
+
+paths:
+  templates: ../templates
+  ssl_certs: /etc/nginx/ssl.key
+  nginx_static_base: /usr/share/nginx/html
 
 amqp:
   host: '127.1'
@@ -31,3 +36,6 @@ mysql:
   host: '127.1'
   user: root
   password: LsMzDpI1QFvK
+
+nginx:
+  ip_addr: '127.1'

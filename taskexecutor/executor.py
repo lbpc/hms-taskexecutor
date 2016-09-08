@@ -1,12 +1,10 @@
-from concurrent.futures import ThreadPoolExecutor
-import threading
-
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 from taskexecutor.resprocessor import ResProcessorBuilder
 from taskexecutor.reporter import ReporterBuilder
 from taskexecutor.task import Task
-from taskexecutor.utils import RESTClient
+from taskexecutor.utils import RESTClient, ThreadPoolExecutorStackTraced, \
+	set_thread_name
 
 
 class Executors:
@@ -17,7 +15,7 @@ class Executors:
 	def __init__(self):
 		if not Executors.instance:
 			Executors.instance = Executors.__Executors(
-					ThreadPoolExecutor(CONFIG["max_workers"])
+					ThreadPoolExecutorStackTraced(CONFIG["max_workers"])
 			)
 		else:
 			self.pool = Executors.instance.pool
@@ -73,20 +71,20 @@ class Executor:
 	def agrs(self):
 		del self._args
 
-	def get_resource(self, obj_ref):
-		with RESTClient() as c:
-			obj = c.get(obj_ref, "Resource")
-		return obj
+	def _get_resource(self, obj_ref):
+		with RESTClient() as api:
+			return api.get("/rc{}".format(obj_ref))
 
 	def process_task(self):
-		threading.current_thread().name = self._task.id
-		processor = ResProcessorBuilder(self._task.res_type)
+		set_thread_name("OPERATION IDENTITY: {0.opid} "
+		                "ACTION IDENTITY: {0.actid}".format(self._task))
 		LOGGER.info(
 				"Fetching {0} resorce by {1}".format(self._task.res_type,
 				                                     self._task.params["objRef"])
 		)
-		processor.resource = self.get_resource(self._task.params["objRef"])
-		processor.params = self._task.params
+		_resource = self._get_resource(self._task.params["objRef"])
+		processor = ResProcessorBuilder(self._task.res_type)(_resource,
+		                                                     self._task.params)
 		LOGGER.info(
 				"Invoking {0} {1} method on {2}".format(
 						type(processor).__name__,
@@ -94,17 +92,17 @@ class Executor:
 						processor.resource
 				)
 		)
-		if self._task.action == "Create":
+		if self._task.action == "create":
 			processor.create()
-		elif self._task.action == "Update":
+		elif self._task.action == "update":
 			processor.update()
-		elif self._task.action == "Delete":
+		elif self._task.action == "delete":
 			processor.delete()
 		LOGGER.info("Calling back {0}{1}".format(self._callback.__name__, self._args))
 		self._callback(*self._args)
-		reporter = ReporterBuilder("amqp")
+		reporter = ReporterBuilder("amqp")()
 		report = reporter.create_report(self._task)
 		LOGGER.info("Sending report {0} using {1}".format(report,
 		                                                 type(reporter).__name__))
 		reporter.send_report()
-		LOGGER.info("Done with task {}".format(self._task.id))
+		LOGGER.info("Done with task {}".format(self._task.opid))
