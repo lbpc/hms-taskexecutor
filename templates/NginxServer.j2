@@ -2,7 +2,7 @@
 server {
     listen {{ params["nginx_ip_addr"] }};
 
-    server_name {% for domain in vhost.domainList %} {{ domain.name }} *.{{ domain.name }}{% endfor %};
+    server_name {% for domain in vhost.domains %} {{ domain.name }} *.{{ domain.name }}{% endfor %};
     access_log /var/log/nginx/access.log combined_host;
     reset_timedout_connection on;
 
@@ -18,19 +18,19 @@ server {
 
 {% endfor %}
 
-{% if vhost.Options.staticFileExtensions %}
-    location ~* ^.+\.({{ vhost.Options.staticFileExtensions|join("|") }}) {
-    {% if vhost.Options.autoSubDomain %}
-        {% for domain in vhost.domainList %}
+{% if vhost.staticFileExtensions %}
+    location ~* ^.+\.({{ vhost.staticFileExtensions|join("|") }}) {
+    {% if vhost.autoSubDomain %}
+        {% for domain in vhost.domains %}
         if ( $host ~* ^(www.)?([a-z0-9-]+).{{ domain.name }} ) {
-            root {{ vhost.documentRoot }}/$2;
+            root {{ vhost.unixAccount.homeDir }}{{ vhost.documentRoot }}/$2;
         }
         {% endfor %}
     {% endif %}
-        root {{ vhost.documentRoot }};
+        root {{ vhost.unixAccount.homeDir }}{{ vhost.documentRoot }};
     }
 {% endif %}
-{% if vhost.Options.ddosProtection %}
+{% if vhost.ddosProtection %}
     location {{ params["anti_ddos_location"] }} {
     content_by_lua_file {{ params["static_base"] }}/{{ params["anti_ddos_set_cookie_file"] }};
     internal;
@@ -38,11 +38,11 @@ server {
 {% endif %}
 
     location ~* ((^/wp-login.php)|(^/administrator/index.php)|(^/xmlrpc.php)) {
-{% if vhost.Options.ddosProtection %}
+{% if vhost.ddosProtection %}
         access_by_lua_file {{ params["static_base"] }}/{{ params["anti_ddos_check_cookie_file"] }};
 {% endif %}
         limit_req zone=req_to_adm burst=128;
-{% if not vhost.Options.accessByOldHttpVersion %}
+{% if not vhost.accessByOldHttpVersion %}
         if ($server_protocol ~* "HTTP/1.0") {
             return 403;
         }
@@ -56,7 +56,7 @@ server {
     }
 
     location / {
-{% if vhost.Options.ddosProtection %}
+{% if vhost.ddosProtection %}
         access_by_lua_file {{ params["anti_ddos_check_cookie_file"] }};
 {% endif %}
         proxy_pass http://{{ params["apache_name"] }};
@@ -70,14 +70,14 @@ server {
     }
 }
 
-{% if vhost.domainList[0].sslCertificate %}
+{% if vhost.domains[0].sslCertificate %}
 server {
     listen {{ params["nginx_ip_addr"] }}:443 ssl;
 
-    ssl_certificate {{ params["ssl_path"] }}/{{ vhost.domainList[0].sslCertificate.name }}.pem;
-    ssl_certificate_key {{ params["ssl_path"] }}/{{ vhost.domainList[0].sslCertificate.name }}.key;
+    ssl_certificate {{ params["ssl_path"] }}/{{ vhost.domains[0].sslCertificate.name }}.pem;
+    ssl_certificate_key {{ params["ssl_path"] }}/{{ vhost.domains[0].sslCertificate.name }}.key;
 
-    server_name {% for domain in vhost.domainList %} {{ domain.name }} *.{{ domain.name }}{% endfor %};
+    server_name {% for domain in vhost.domains %} {{ domain.name }} *.{{ domain.name }}{% endfor %};
     access_log /var/log/nginx/access.log combined_host;
     reset_timedout_connection on;
 
@@ -93,19 +93,19 @@ server {
 
     {% endfor %}
 
-    {% if vhost.Options.staticFileExtensions %}
-    location ~* ^.+\.({{ vhost.Options.staticFileExtensions|join("|") }}) {
-    {% if vhost.Options.autoSubDomain %}
-        {% for domain in vhost.domainList %}
+    {% if vhost.staticFileExtensions %}
+    location ~* ^.+\.({{ vhost.staticFileExtensions|join("|") }}) {
+    {% if vhost.autoSubDomain %}
+        {% for domain in vhost.domains %}
         if ( $host ~* ^(www.)?([a-z0-9-]+).{{ domain.name }} ) {
-            root {{ vhost.documentRoot }}/$2;
+            root {{ vhost.unixAccount.homeDir }}{{ vhost.documentRoot }}/$2;
         }
         {% endfor %}
     {% endif %}
-        root {{ vhost.documentRoot }};
+        root {{ vhost.unixAccount.homeDir }}{{ vhost.documentRoot }};
     }
     {% endif %}
-    {% if vhost.Options.ddosProtection %}
+    {% if vhost.ddosProtection %}
         location {{ params["anti_ddos_location"] }} {
         content_by_lua_file {{ params["static_base"] }}/{{ params["anti_ddos_set_cookie_file"] }};
         internal;
@@ -113,11 +113,11 @@ server {
     {% endif %}
 
     location ~* ((^/wp-login.php)|(^/administrator/index.php)|(^/xmlrpc.php)) {
-    {% if vhost.Options.ddosProtection %}
+    {% if vhost.ddosProtection %}
         access_by_lua_file {{ params["static_base"] }}/{{ params["anti_ddos_check_cookie_file"] }};
     {% endif %}
         limit_req zone=req_to_adm burst=128;
-    {% if not vhost.Options.accessByOldHttpVersion %}
+    {% if not vhost.accessByOldHttpVersion %}
         if ($server_protocol ~* "HTTP/1.0") {
             return 403;
         }
@@ -131,7 +131,7 @@ server {
     }
 
     location / {
-    {% if vhost.Options.ddosProtection %}
+    {% if vhost.ddosProtection %}
         access_by_lua_file {{ params["anti_ddos_check_cookie_file"] }};
     {% endif %}
         proxy_pass http://{{ params["apache_name"] }};

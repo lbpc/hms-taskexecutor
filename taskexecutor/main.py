@@ -21,6 +21,7 @@ amqp_listener = ListenerBuilder("amqp")()
 amqp_listener_thread = Thread(target=amqp_listener.listen)
 amqp_listener_thread.start()
 LOGGER.info("AMQP listener thread started")
+
 while True:
 	if not amqp_listener_thread.is_alive():
 		LOGGER.error("AMQP Listener is dead, exiting")

@@ -25,43 +25,44 @@ class AMQPReporter(Reporter):
 				CONFIG["amqp"])
 		self._connection = None
 		self._channel = None
-		self._exchange = "REPORT"
-		self._routing_key = "REPORT"
+		self._exchange = "service.rc"
+		self._routing_key = "service.rc"
+
+	def _connnect(self):
+		return pika.BlockingConnection(pika.URLParameters(self._url))
+
+	def _open_channel(self):
+		return self._connection.channel()
+
+	def _close_channel(self):
+		self._channel.close()
+
+	def _declare_exchange(self, exchange, type):
+		self._channel.exchange_declare(exchange=exchange,
+		                               type=type,
+		                               auto_delete=False)
+
+	def _publish_message(self, message):
+		self._channel.basic_publish(exchange=self._exchange,
+		                            routing_key=self._routing_key,
+		                            body=message)
+
+	def _report_to_json(self):
+		return json.dumps(self._report)
 
 	def create_report(self, task):
 		self._report["operationIdentity"] = task.opid
 		self._report["actionIdentity"] = task.actid
 		self._report["objRef"] = task.params["objRef"]
+		self._report["params"] = {"success": True}
 		return self._report
 
-	def connnect(self):
-		return pika.BlockingConnection(pika.URLParameters(self._url))
-
-	def open_channel(self):
-		return self._connection.channel()
-
-	def close_channel(self):
-		self._channel.close()
-
-	def declare_exchange(self, exchange, type):
-		self._channel.exchange_declare(exchange=exchange,
-		                               type=type,
-		                               auto_delete=False)
-
-	def publish_message(self, message):
-		self._channel.basic_publish(exchange=self._exchange,
-		                            routing_key=self._routing_key,
-		                            body=message)
-
-	def report_to_json(self):
-		return json.dumps(self._report)
-
 	def send_report(self):
-		self._connection = self.connnect()
-		self._channel = self.open_channel()
-		self.declare_exchange(self._exchange, CONFIG["amqp"]["exchange_type"])
-		self.publish_message(self.report_to_json())
-		self.close_channel()
+		self._connection = self._connnect()
+		self._channel = self._open_channel()
+		self._declare_exchange(self._exchange, CONFIG["amqp"]["exchange_type"])
+		self._publish_message(self._report_to_json())
+		self._close_channel()
 
 
 class ReporterBuilder:

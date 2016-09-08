@@ -38,27 +38,16 @@ class RESTClient:
 		)
 		return self
 
-	def get(self, uri=None):
-		if not uri:
-			uri = self._uri
-		self._connection.request("GET", uri)
-		resp = self._connection.getresponse()
-		if resp.status != 200:
-			raise Exception("GET failed, REST server returned "
-			                "{0.status} {0.reason}".format(resp))
-		json_str = self._decode_response(resp.read())
-		return self._json_to_object(json_str)
-
 	def _build_resource_uri(self, res_name, id):
-		self._uri = "/{0}/{1}".format(res_name, id)
+		self._uri = "/rc/{0}/{1}".format(res_name, id)
 		return self
 
 	def _build_collection_uri(self, res_name, query=None):
 		if query:
-			self._uri = "/{0}?{1}".format(res_name,
+			self._uri = "/rc/{0}?{1}".format(res_name,
 			                              urllib.parse.urlencode(query))
 		else:
-			self._uri = "/{}".format(res_name)
+			self._uri = "/rc/{}".format(res_name)
 		return self
 
 	def _decode_response(self, bytes):
@@ -70,6 +59,19 @@ class RESTClient:
 				object_hook=lambda d: namedtuple("Resource",
 				                                 d.keys())(*d.values())
 		)
+
+	def get(self, uri=None):
+		if not uri:
+			uri = self._uri
+		self._connection.request("GET", uri)
+		_resp = self._connection.getresponse()
+		if _resp.status != 200:
+			raise Exception("GET failed, REST server returned "
+			                "{0.status} {0.reason}".format(_resp))
+		_json_str = self._decode_response(_resp.read())
+		if len(_json_str) == 0:
+			raise Exception("GET failed, REST server returned empty response")
+		return self._json_to_object(_json_str)
 
 	def __getattr__(self, name):
 		def wrapper(id=None, query=None):

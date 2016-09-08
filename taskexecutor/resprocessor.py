@@ -59,22 +59,7 @@ class UnixAccountProcessor(ResProcessor):
 	def __init__(self, resource, params):
 		super().__init__(resource, params)
 
-	def create(self):
-		self.adduser()
-		self.setquota()
-
-	def update(self):
-		command = "usermod " \
-		          "--move-home " \
-		          "--home {0.homeDir} " \
-		          "{0.name}".format(self.resource)
-		exec_command(command)
-
-	def delete(self):
-		self.killprocs()
-		self.userdel()
-
-	def adduser(self):
+	def _adduser(self):
 		command = "adduser " \
 		          "--force-badname " \
 		          "--disabled-password " \
@@ -84,22 +69,37 @@ class UnixAccountProcessor(ResProcessor):
 		          "{0.name}".format(self.resource)
 		exec_command(command)
 
-	def setquota(self):
+	def _setquota(self):
 		command = "setquota " \
 		          "-g {0.uid} 0 {0.quota} " \
 		          "0 0 /home".format(self.resource)
 		exec_command(command)
 
-	def userdel(self):
+	def _userdel(self):
 		command = "userdel " \
 		          "--force " \
 		          "--remove " \
 		          "{0.name}".format(self.resource)
 		exec_command(command)
 
-	def killprocs(self):
+	def _killprocs(self):
 		command = "killall -9 -u {0.name} || true".format(self.resource)
 		exec_command(command)
+
+	def create(self):
+		self._adduser()
+		self._setquota()
+
+	def update(self):
+		command = "usermod " \
+		          "--move-home " \
+		          "--home {0.homeDir} " \
+		          "{0.name}".format(self.resource)
+		exec_command(command)
+
+	def delete(self):
+		self._killprocs()
+		self._userdel()
 
 
 class DBAccountProcessor(ResProcessor):
@@ -127,17 +127,103 @@ class DBAccountProcessor(ResProcessor):
 class WebSiteProcessor(ResProcessor):
 	def __init__(self, resource, params):
 		super().__init__(resource, params)
-		self._apache_obj = self.get_app_server_obj()
+		self._apache_obj = self._get_app_server_obj()
 		self._nginx = Nginx()
 		self._apache = Apache(name=self._apache_obj.name)
-		self.fill_params()
-		self.set_cfg_paths()
+		self._fill_params()
+		self._set_cfg_paths()
+
+	def _get_app_server_obj(self):
+		with RESTClient() as api:
+			return api.service(id=self.resource.applicationServer).get()
+
+	def _build_vhost_obj_list(self):
+		_vhosts = list()
+		_non_ssl_domains = list()
+		_res_dict = self.resource._asdict()
+		for domain in self.resource.domains:
+			if domain.sslCertificate:
+				_res_dict["domains"] = [domain,]
+				_vhosts.append(namedtuple("VHost",
+				                          _res_dict.keys())(*_res_dict.values()))
+			else:
+				_non_ssl_domains.append(domain)
+		_res_dict["domains"] = _non_ssl_domains
+		_vhosts.append(namedtuple("VHost", _res_dict.keys())(*_res_dict.values()))
+		return _vhosts
+
+	def _set_cfg_paths(self):
+		for srv, type in product((self._apache, self._nginx),
+		                         ("available", "enabled")):
+			srv.__setattr__("{}_cfg_path".format(type),
+			                "{0}/sites-{1}/{2}.conf".format(srv.cfg_base,
+			                                                type,
+			                                                self.resource.id))
+
+	def _fill_params(self):
+		self.params["apache_socket"] = self._apache_obj.serviceSocket[0]
+		self.params["apache_name"] = self._apache_obj.name
+		self.params["nginx_ip_addr"] = CONFIG["nginx"]["ip_addr"]
+		self.params["error_pages"] = [
+			(code, "http_{}.html".format(code)) for code in (403, 404, 502, 503, 504)
+		]
+		self.params["static_base"] = CONFIG["paths"]["nginx_static_base"]
+		self.params["anti_ddos_set_cookie_file"] = "anti_ddos_set_cookie_file.lua"
+		self.params["anti_ddos_check_cookie_file"] = "anti_ddos_check_cookie_file.lua"
+		self.params["subdomains_document_root"] = \
+			"/".join(self.resource.documentRoot.split("/")[:-1])
+		self.params["ssl_path"] = CONFIG["paths"]["ssl_certs"]
+
+	def _save_config(self, body, file_path):
+		LOGGER.info("Saving {}".format(file_path))
+		with open("{}.new".format(file_path), "w") as f:
+			f.write(body)
+		if os.path.exists(file_path):
+			os.rename(file_path, "{}.old".format(file_path))
+		os.rename("{}.new".format(file_path), file_path)
+
+	def _enable_config(self, available_path, enabled_path):
+		LOGGER.info("Linking {0} to {1}".format(available_path, enabled_path))
+		try:
+			os.symlink(available_path, enabled_path)
+		except FileExistsError:
+			if os.path.islink(enabled_path) and \
+							os.readlink(enabled_path) == available_path:
+				LOGGER.info("Symlink {} already exists".format(enabled_path))
+			else:
+				raise
+
+	def _revert_config(self, file_path):
+		LOGGER.warning("Reverting {0} from {0}.old, {0} will be saved as "
+		               "/tmp/te_{1}_error".format(file_path, file_path.replace("/", "_")))
+		os.rename(file_path, "/tmp/te_{}_error".format(file_path.replace("/", "_")))
+		os.rename("{}.old".format(file_path), file_path)
+
+	def _create_logs_directory(self):
+		_logs_dir = "{}/logs".format(self.resource.unixAccount.homeDir)
+		if not os.path.exists(_logs_dir):
+			LOGGER.info("{} directory does not exist, creating".format(_logs_dir))
+			os.mkdir(_logs_dir, mode=0o755)
+
+	def _create_document_root(self):
+		_docroot_abs = "{0}{1}".format(self.resource.unixAccount.homeDir,
+		                               self.resource.documentRoot)
+		if not os.path.exists(_docroot_abs):
+			LOGGER.info("{} directory does not exist, "
+			            "creating".format(_docroot_abs))
+			os.makedirs(_docroot_abs, mode=0o755)
+			_chown_path = self.resource.unixAccount.homeDir
+			for dir in self.resource.documentRoot.split("/")[1:]:
+				_chown_path += "/{}".format(dir)
+				os.chown(_chown_path,
+				         self.resource.unixAccount.uid,
+				         self.resource.unixAccount.uid)
 
 	@synchronized
 	def create(self):
-		_vhosts_list = self.build_vhost_obj_list()
-		self.create_logs_directory()
-		self.create_document_root()
+		_vhosts_list = self._build_vhost_obj_list()
+		self._create_logs_directory()
+		self._create_document_root()
 		self._nginx.config_body = render_template("NginxServer.j2",
 		                                          vhosts=_vhosts_list,
 		                                          params=self.params)
@@ -146,22 +232,16 @@ class WebSiteProcessor(ResProcessor):
 		                                           vhosts=_vhosts_list,
 		                                           params=self.params)
 		for srv in (self._apache, self._nginx):
-			self.save_config(srv.config_body, srv.available_cfg_path)
-			LOGGER.info("Linking {0} to {1}".format(srv.available_cfg_path,
-			                                        srv.enabled_cfg_path))
+			self._save_config(srv.config_body, srv.available_cfg_path)
+			self._enable_config(srv.available_cfg_path, srv.enabled_cfg_path)
 			try:
-				os.symlink(srv.available_cfg_path, srv.enabled_cfg_path)
-			except FileExistsError:
-				if os.path.islink(srv.enabled_cfg_path) and \
-					os.readlink(srv.enabled_cfg_path) == srv.available_cfg_path:
-					LOGGER.info("Symlink {} "
-					            "already exists".format(srv.enabled_cfg_path))
-				else:
-					raise
-			srv.reload()
+				srv.reload()
+			except:
+				self._revert_config(srv.available_cfg_path)
+				raise
 
 	def update(self):
-		if self.resource.switchedOff:
+		if not self.resource.switchedOn:
 			for srv in (self._apache, self._nginx):
 				LOGGER.info("Removing {} symlink".format(srv.enabled_cfg_path))
 				os.unlink(srv.enabled_cfg_path)
@@ -178,71 +258,6 @@ class WebSiteProcessor(ResProcessor):
 			LOGGER.info("Removing {} file".format(srv.available_cfg_path))
 			os.unlink(srv.available_cfg_path)
 			srv.reload()
-
-	def get_app_server_obj(self):
-		with RESTClient() as api:
-			return api.Service(id=self.resource.applicationServer).get()
-
-	def set_cfg_paths(self):
-		for srv, type in product((self._apache, self._nginx),
-		                         ("available", "enabled")):
-			srv.__setattr__("{}_cfg_path".format(type),
-			                "{0}/sites-{1}/{2}.conf".format(srv.cfg_base,
-			                                                type,
-			                                                self.resource.id))
-
-	def build_vhost_obj_list(self):
-		_vhosts = list()
-		_non_ssl_domains = list()
-		_res_dict = self.resource._asdict()
-		for domain in self.resource.domainList:
-			if domain.sslCertificate:
-				_res_dict["domainList"] = [domain,]
-				_vhosts.append(namedtuple("VHost",
-				                          _res_dict.keys())(*_res_dict.values()))
-			else:
-				_non_ssl_domains.append(domain)
-		_res_dict["domainList"] = _non_ssl_domains
-		_vhosts.append(namedtuple("VHost", _res_dict.keys())(*_res_dict.values()))
-		return _vhosts
-
-
-	def fill_params(self):
-		self.params["apache_socket"] = self._apache_obj.serviceSocket[0]
-		self.params["apache_name"] = self._apache_obj.name
-		self.params["nginx_ip_addr"] = CONFIG["nginx"]["ip_addr"]
-		self.params["error_pages"] = [
-			(code, "http_{}.html".format(code)) for code in (403, 404, 502, 503, 504)
-		]
-		self.params["static_base"] = CONFIG["paths"]["nginx_static_base"]
-		self.params["anti_ddos_set_cookie_file"] = "anti_ddos_set_cookie_file.lua"
-		self.params["anti_ddos_check_cookie_file"] = "anti_ddos_check_cookie_file.lua"
-		self.params["subdomains_document_root"] = \
-			"/".join(self.resource.documentRoot.split("/")[:-1])
-		self.params["ssl_path"] = CONFIG["paths"]["ssl_certs"]
-
-	def save_config(self, body, file):
-		LOGGER.info("Saving {}".format(file))
-		with open("{}.new".format(file), "w") as f:
-			f.write(body)
-		os.rename("{}.new".format(file), file)
-
-	def create_logs_directory(self):
-		_logs_dir = "{}/logs".format(self.resource.unixAccount.homeDir)
-		if not os.path.exists(_logs_dir):
-			LOGGER.info("{} directory does not exist, creating".format(_logs_dir))
-			os.mkdir(_logs_dir, mode=0o755)
-
-	def create_document_root(self):
-		_docroot_dir = "{0}{1}".format(self.resource.unixAccount.homeDir,
-		                               self.resource.documentRoot)
-		if not os.path.exists(_docroot_dir):
-			LOGGER.info("{} directory does not exist, "
-			            "creating".format(_docroot_dir))
-			os.makedirs(_docroot_dir, mode=0o755)
-			os.chown(_docroot_dir,
-			         self.resource.unixAccount.uid,
-			         self.resource.unixAccount.uid)
 
 
 class SSLCertificateProcessor(ResProcessor):
@@ -277,7 +292,17 @@ class MailboxProcessor(ResProcessor):
 		if self.resource.antiSpamEnabled:
 			self._avp_file = "/etc/exim4/etc/" \
 			                 "avp_domains{}".format(self.resource.popServer.id)
-			self._avp_domains = self.get_domain_list(self._avp_file)
+			self._avp_domains = self._get_domain_list(self._avp_file)
+
+	def _get_domain_list(self, file):
+		with open(file, "r") as f:
+			return [s.rstrip("\n\r") for s in f.readlines()]
+
+	def _save_domain_list(self, list, file):
+		with open("{}.new".format(file), "w") as f:
+			for domain in list:
+				f.writelines("{}\n".format(domain))
+		os.rename("{}.new".format(file), file)
 
 	@synchronized
 	def create(self):
@@ -286,7 +311,7 @@ class MailboxProcessor(ResProcessor):
 			LOGGER.info("Appending {0} to {1}".format(self.resource.domain.name,
 			                                          self._avp_file))
 			self._avp_domains.append(self.resource.domain.name)
-			self.save_domain_list(self._avp_domains, self._avp_file)
+			self._save_domain_list(self._avp_domains, self._avp_file)
 		else:
 			LOGGER.info("{0.name}@{0.domain.name} "
 			            "is not spam protected".format(self.resource))
@@ -307,17 +332,7 @@ class MailboxProcessor(ResProcessor):
 			LOGGER.info("Removing {0.domain.name}"
 			            " from {1}".format(self.resource, self._avp_file))
 			self._avp_domains.remove(self.resource.domain.name)
-			self.save_domain_list(self._avp_domains, self._avp_file)
-
-	def get_domain_list(self, file):
-		with open(file, "r") as f:
-			return [s.rstrip("\n\r") for s in f.readlines()]
-
-	def save_domain_list(self, list, file):
-		with open("{}.new".format(file), "w") as f:
-			for domain in list:
-				f.writelines("{}\n".format(domain))
-		os.rename("{}.new".format(file), file)
+			self._save_domain_list(self._avp_domains, self._avp_file)
 
 
 class MailboxAtPopperProcessor(MailboxProcessor):

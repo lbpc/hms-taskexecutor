@@ -1,5 +1,3 @@
-from threading import current_thread
-
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 from taskexecutor.resprocessor import ResProcessorBuilder
@@ -73,9 +71,9 @@ class Executor:
 	def agrs(self):
 		del self._args
 
-	def get_resource(self, obj_ref):
+	def _get_resource(self, obj_ref):
 		with RESTClient() as api:
-			return api.get(obj_ref)
+			return api.get("/rc{}".format(obj_ref))
 
 	def process_task(self):
 		set_thread_name("OPERATION IDENTITY: {0.opid} "
@@ -84,7 +82,7 @@ class Executor:
 				"Fetching {0} resorce by {1}".format(self._task.res_type,
 				                                     self._task.params["objRef"])
 		)
-		_resource = self.get_resource(self._task.params["objRef"])
+		_resource = self._get_resource(self._task.params["objRef"])
 		processor = ResProcessorBuilder(self._task.res_type)(_resource,
 		                                                     self._task.params)
 		LOGGER.info(
