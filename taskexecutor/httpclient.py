@@ -54,7 +54,7 @@ class HttpClient:
         raise NotImplementedError
 
     def process_response(self, method, response, **kwargs):
-        if response.status//100 == 5:
+        if response.status // 100 == 5:
             raise Exception("{0} failed, HTTP server returned "
                             "{1.status} {1.reason}".format(method, response))
         return HttpClient.decode_response(response.read())
@@ -86,7 +86,8 @@ class ApiClient(HttpClient):
                                 "{0.status} {0.reason}".format(response))
             _json_str = self.decode_response(response.read())
             if len(_json_str) == 0:
-                raise Exception("GET failed, REST server returned empty response")
+                raise Exception(
+                    "GET failed, REST server returned empty response")
             _resource = ApiObjectTranslator(_json_str)
             if as_object:
                 return _resource.as_object(extra_attrs=extra_attrs)
@@ -161,8 +162,8 @@ class ApiObjectTranslator:
             for key in dct.keys():
                 ApiObjectTranslator.dict_merge(_new_dct,
                                                reduce(lambda x, y: {y: x},
-                                              reversed(key.split(".")),
-                                              dct[key]))
+                                                      reversed(key.split(".")),
+                                                      dct[key]))
             if extra and all(k in _new_dct.keys() for k in extra.keys()):
                 ApiObjectTranslator.dict_merge(_new_dct, extra)
             return ApiObjectTranslator.to_namedtuple(_new_dct)
@@ -172,9 +173,9 @@ class ApiObjectTranslator:
             return ApiObjectTranslator.namedtuple_from_mapping(dct)
 
     def as_object(self, extra_attrs=None, expand_dot_separated=True):
-        return json.loads(self._json_string, object_hook=lambda
-            d: ApiObjectTranslator.object_hook(d, extra_attrs,
-                                               expand_dot_separated))
+        return json.loads(self._json_string,
+                          object_hook=lambda d: ApiObjectTranslator.object_hook(
+                              d, extra_attrs, expand_dot_separated))
 
     def as_dict(self):
         return self.cast_numeric_recursively(json.loads(self._json_string))

@@ -415,7 +415,7 @@ class MailboxAtMxProcessor(MailboxProcessor):
         super().__init__(resource, params)
         self._relay_file = "/etc/exim4/etc/" \
                            "relay_domains{}".format(self.resource.popServer.id)
-        self._relay_domains = self.get_domain_list(self._relay_file)
+        self._relay_domains = self._get_domain_list(self._relay_file)
 
     def create(self):
         super().create()
@@ -423,7 +423,7 @@ class MailboxAtMxProcessor(MailboxProcessor):
             LOGGER.info("Appending {0} to {1}".format(self.resource.domain.name,
                                                       self._relay_file))
             self._relay_domains.append(self.resource.domain.name)
-            self.save_domain_list(self._relay_domains, self._relay_file)
+            self._save_domain_list(self._relay_domains, self._relay_file)
         else:
             LOGGER.info("{0} already exists in {1}, nothing to do".format(
                     self.resource.domain.name, self._relay_file
@@ -435,7 +435,7 @@ class MailboxAtMxProcessor(MailboxProcessor):
             LOGGER.info("Removing {0.domain.name}"
                         " from {1}".format(self.resource, self._relay_file))
             self._relay_domains.remove(self.resource.domain.name)
-            self.save_domain_list(self._relay_domains, self._relay_file)
+            self._save_domain_list(self._relay_domains, self._relay_file)
 
 
 class DatabaseProcessor(ResProcessor):
