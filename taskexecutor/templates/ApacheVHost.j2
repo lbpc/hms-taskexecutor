@@ -31,10 +31,12 @@
     RewriteRule ^/(.*)$ {{ vhost.unixAccount.homeDir }}{{ params["subdomains_document_root"] }}/%2/$1 [L]
     {% endif %}
     {% if vhost.cgiEnabled and vhost.cgiFileExtensions %}
-        AddHandler cgi-script{% for file in vhost.cgiFileExtensions %} .{{ file }}{% endfor %}
+    AddHandler cgi-script{% for file in vhost.cgiFileExtensions %} .{{ file }}{% endfor %}
+
     {% endif %}
     {% if vhost.ssiEnabled and vhost.ssiFileExtensions %}
-        AddHandler server-parsed{% for file in vhost.ssiFileExtensions %} .{{ file }}{% endfor %}
+    AddHandler server-parsed{% for file in vhost.ssiFileExtensions %} .{{ file }}{% endfor %}
+
     {% endif %}
     php_admin_flag allow_url_fopen {% if vhost.allowUrlFopen %}on{% else %}off{% endif %}
 

@@ -14,7 +14,7 @@ enabled_actions:
   - delete
 
 paths:
-  templates: ../templates
+  templates: ./templates
   ssl_certs: /etc/nginx/ssl.key
   nginx_static_base: /usr/share/nginx/html
 
