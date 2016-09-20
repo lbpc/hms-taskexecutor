@@ -1,10 +1,26 @@
+from concurrent.futures import ThreadPoolExecutor
+from traceback import format_exc
+
 from taskexecutor.config import Config
 from taskexecutor.reporter import ReporterBuilder
 from taskexecutor.resprocessor import ResProcessorBuilder
 from taskexecutor.task import Task
 from taskexecutor.httpclient import ApiClient
-from taskexecutor.utils import ThreadPoolExecutorStackTraced, set_thread_name
+from taskexecutor.utils import set_thread_name
 from taskexecutor.logger import LOGGER
+
+
+class ThreadPoolExecutorStackTraced(ThreadPoolExecutor):
+    def submit(self, f, *args, **kwargs):
+        return super(ThreadPoolExecutorStackTraced, self).submit(
+                self._function_wrapper, f, *args, **kwargs)
+
+    @staticmethod
+    def _function_wrapper(fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception:
+            raise Exception(format_exc())
 
 
 class Executors:

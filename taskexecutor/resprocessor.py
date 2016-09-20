@@ -3,12 +3,12 @@ import re
 import shutil
 from abc import ABCMeta, abstractmethod
 from collections import namedtuple
-from itertools import product
 from taskexecutor.config import Config
 from taskexecutor.opservice import Apache, Nginx
 from taskexecutor.httpclient import ApiClient
 from taskexecutor.dbclient import MySQLClient
-from taskexecutor.utils import exec_command, render_template, synchronized
+from taskexecutor.utils import ConfigFile, exec_command, render_template, \
+    synchronized
 from taskexecutor.logger import LOGGER
 
 
@@ -62,35 +62,42 @@ class UnixAccountProcessor(ResProcessor):
 
     def _adduser(self):
         LOGGER.info("Adding user {0.name} to system".format(self.resource))
-        command = "adduser " \
-                  "--force-badname " \
-                  "--disabled-password " \
-                  "--gecos 'Hosting account' " \
-                  "--uid {0.uid} " \
-                  "--home {0.homeDir} " \
-                  "{0.name}".format(self.resource)
-        exec_command(command)
+        exec_command("adduser "
+                     "--force-badname "
+                     "--disabled-password "
+                     "--gecos 'Hosting account' "
+                     "--uid {0.uid} "
+                     "--home {0.homeDir} "
+                     "{0.name}".format(self.resource))
 
     def _setquota(self):
         LOGGER.info("Setting quota for user {0.name}".format(self.resource))
-        command = "setquota " \
-                  "-g {0.uid} 0 {0.quota} " \
-                  "0 0 /home".format(self.resource)
-        exec_command(command)
+        exec_command("setquota "
+                     "-g {0.uid} 0 {0.quota} "
+                     "0 0 /home".format(self.resource))
 
     def _userdel(self):
         LOGGER.info("Deleting user {0.name}".format(self.resource))
-        command = "userdel " \
-                  "--force " \
-                  "--remove " \
-                  "{0.name}".format(self.resource)
-        exec_command(command)
+        exec_command("userdel "
+                     "--force "
+                     "--remove "
+                     "{0.name}".format(self.resource))
 
     def _killprocs(self):
         LOGGER.info("Killing user {0.name}'s processes, "
                     "if any".format(self.resource))
-        command = "killall -9 -u {0.name} || true".format(self.resource)
-        exec_command(command)
+        exec_command("killall -9 -u {0.name} || true".format(self.resource))
+
+    def _create_authorized_keys(self):
+        if not os.path.exists("{0.homeDir}/.ssh".format(self.resource)):
+            os.mkdir("{0.homeDir}/.ssh".format(self.resource), mode=0o700)
+        _authorized_keys = ConfigFile(
+            "{0.homeDir}/.ssh/authorized_keys".format(self.resource),
+            owner_uid=self.resource.uid,
+            mode=0o400
+        )
+        _authorized_keys.body = self.params["sshPublicKey"]
+        _authorized_keys.save()
 
     def create(self):
         self._adduser()
@@ -101,18 +108,79 @@ class UnixAccountProcessor(ResProcessor):
                          "for user {0.name}".format(self.resource))
             self._userdel()
             raise
+        if "sshPublicKey" in self.params.keys() and self.params["sshPublicKey"]:
+            self._create_authorized_keys()
 
     def update(self):
         LOGGER.info("Modifying user {0.name}".format(self.resource))
-        command = "usermod " \
-                  "--move-home " \
-                  "--home {0.homeDir} " \
-                  "{0.name}".format(self.resource)
-        exec_command(command)
+        exec_command("usermod "
+                     "--move-home "
+                     "--home {0.homeDir} "
+                     "--uid {0.uid} "
+                     "{0.name}".format(self.resource))
+        if "sshPublicKey" in self.params.keys() and self.params["sshPublicKey"]:
+            self._create_authorized_keys()
 
     def delete(self):
         self._killprocs()
         self._userdel()
+
+class UnixAccountProcessorAtFreeBsd(UnixAccountProcessor):
+    def _update_jailed_ssh(self, action):
+        _jailed_ssh_config = ConfigFile(
+                "/usr/jail/usr/local/etc/ssh/sshd_clients_config")
+        _allow_users = _jailed_ssh_config.get_lines("^AllowUsers",
+                                                    count=1).split(' ')
+        getattr(_allow_users, action)(self.resource.name)
+        _jailed_ssh_config.replace_line("^AllowUsers", " ".join(_allow_users))
+        _jailed_ssh_config.save()
+        exec_command("jexec "
+                     "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
+                     "pgrep sshd | xargs kill -HUP")
+
+    def _adduser(self):
+        LOGGER.info("Adding user {0.name} to system".format(self.resource))
+        exec_command("jexec "
+                     "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
+                     "pw useradd {0.name} "
+                     "-u {0.uid} "
+                     "-d {0.homdir} "
+                     "-h - "
+                     "-s /usr/local/bin/bash "
+                     "-c 'Hosting account'".format(self.resource, Config))
+        self._update_jailed_ssh("append")
+
+    def _setquota(self):
+        LOGGER.info("Setting quota for user {0.name}".format(self.resource))
+        exec_command("jexec "
+                     "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
+                     "edquota "
+                     "-g "
+                     "-e /home:0:{0.quota} "
+                     "{0.uid}".format(self.resource, Config))
+
+    def _userdel(self):
+        LOGGER.info("Deleting user {0.name}".format(self.resource))
+        exec_command("jexec "
+                     "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
+                     "pw userdel {0.name} -r".format(self.resource, Config))
+        self._update_jailed_ssh("remove")
+
+    def _killprocs(self):
+        LOGGER.info("Killing user {0.name}'s processes, "
+                    "if any".format(self.resource))
+        exec_command("killall -9 -u {0.uid} || true".format(self.resource))
+
+    def update(self):
+        LOGGER.info("Modifying user {0.name}".format(self.resource))
+        exec_command("jexec "
+                     "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
+                     "pw usermod {0.name}"
+                     "-u {0.uid} "
+                     "-g {0.uid} "
+                     "-d {0.homeDir}".format(self.resource, Config))
+        if "sshPublicKey" in self.params.keys() and self.params["sshPublicKey"]:
+            self._create_authorized_keys()
 
 
 class DBAccountProcessor(ResProcessor):
@@ -148,8 +216,11 @@ class WebSiteProcessor(ResProcessor):
         self._apache_obj = self._get_app_server_obj()
         self._nginx = Nginx()
         self._apache = Apache(name=self._apache_obj.name)
+        self._apache.config = ConfigFile("{0}/sites-available/{1}.conf".format(
+                self._apache.cfg_base, self.resource.id))
+        self._nginx.config = ConfigFile("{0}/sites-available/{1}.conf".format(
+                self._nginx.cfg_base, self.resource.id))
         self._fill_params()
-        self._set_cfg_paths()
 
     def _get_app_server_obj(self):
         with ApiClient(Config.apigw.host, Config.apigw.port) as api:
@@ -163,32 +234,25 @@ class WebSiteProcessor(ResProcessor):
             if domain.sslCertificate:
                 _res_dict["domains"] = [domain, ]
                 _vhosts.append(
-                    namedtuple("VHost", _res_dict.keys())(*_res_dict.values())
+                        namedtuple("VHost", _res_dict.keys())(
+                                *_res_dict.values())
                 )
             else:
                 _non_ssl_domains.append(domain)
         _res_dict["domains"] = _non_ssl_domains
         _vhosts.append(
-            namedtuple("VHost", _res_dict.keys())(*_res_dict.values())
+                namedtuple("VHost", _res_dict.keys())(*_res_dict.values())
         )
         return _vhosts
-
-    def _set_cfg_paths(self):
-        for srv, srv_type in product((self._apache, self._nginx),
-                                     ("available", "enabled")):
-            srv.__setattr__("{}_cfg_path".format(srv_type),
-                            "{0}/sites-{1}/{2}.conf".format(srv.cfg_base,
-                                                            srv_type,
-                                                            self.resource.id))
 
     def _fill_params(self):
         self.params["apache_socket"] = self._apache_obj.serviceSocket[0]
         self.params["apache_name"] = self._apache_obj.name
         self.params["nginx_ip_addr"] = Config.nginx.ip_addr
         self.params["error_pages"] = [
-                (code, "http_{}.html".format(code)) for code in
-                (403, 404, 502, 503, 504)
-        ]
+            (code, "http_{}.html".format(code)) for code in
+            (403, 404, 502, 503, 504)
+            ]
         self.params["static_base"] = Config.paths.nginx_static_base
         self.params[
             "anti_ddos_set_cookie_file"] = "anti_ddos_set_cookie_file.lua"
@@ -198,47 +262,11 @@ class WebSiteProcessor(ResProcessor):
             "/".join(self.resource.documentRoot.split("/")[:-1])
         self.params["ssl_path"] = Config.paths.ssl_certs
 
-    @staticmethod
-    def _save_config(body, file_path):
-        LOGGER.info("Saving {}".format(file_path))
-        with open("{}.new".format(file_path), "w") as f:
-            f.write(body)
-        if os.path.exists(file_path):
-            os.rename(file_path, "{}.old".format(file_path))
-        os.rename("{}.new".format(file_path), file_path)
-
-    @staticmethod
-    def _enable_config(available_path, enabled_path):
-        LOGGER.info("Linking {0} to {1}".format(available_path, enabled_path))
-        try:
-            os.symlink(available_path, enabled_path)
-        except FileExistsError:
-            if os.path.islink(enabled_path) and \
-                            os.readlink(enabled_path) == available_path:
-                LOGGER.info("Symlink {} already exists".format(enabled_path))
-            else:
-                raise
-
-    @staticmethod
-    def _revert_config(file_path):
-        LOGGER.warning("Reverting {0} from {0}.old, {0} will be saved as "
-                       "/tmp/te_{1}_error".format(file_path,
-                                                  file_path.replace("/", "_")))
-        os.rename(file_path,
-                  "/tmp/te_{}_error".format(file_path.replace("/", "_")))
-        os.rename("{}.old".format(file_path), file_path)
-
-    @staticmethod
-    def _drop_backup_config(file_path):
-        if os.path.exists("{}.old".format(file_path)):
-            LOGGER.info("Removing {}.old".format(file_path))
-            os.unlink("{}.old".format(file_path))
-
     def _create_logs_directory(self):
         _logs_dir = "{}/logs".format(self.resource.unixAccount.homeDir)
         if not os.path.exists(_logs_dir):
             LOGGER.info(
-                "{} directory does not exist, creating".format(_logs_dir)
+                    "{} directory does not exist, creating".format(_logs_dir)
             )
             os.mkdir(_logs_dir, mode=0o755)
 
@@ -261,28 +289,27 @@ class WebSiteProcessor(ResProcessor):
         _vhosts_list = self._build_vhost_obj_list()
         self._create_logs_directory()
         self._create_document_root()
-        self._nginx.config_body = render_template("NginxServer.j2",
+        self._nginx.config.body = render_template("NginxServer.j2",
                                                   vhosts=_vhosts_list,
                                                   params=self.params)
 
-        self._apache.config_body = render_template("ApacheVHost.j2",
+        self._apache.config.body = render_template("ApacheVHost.j2",
                                                    vhosts=_vhosts_list,
                                                    params=self.params)
         for srv in (self._apache, self._nginx):
-            self._save_config(srv.config_body, srv.available_cfg_path)
-            self._enable_config(srv.available_cfg_path, srv.enabled_cfg_path)
+            srv.config.write()
+            srv.config.enable()
             try:
                 srv.reload()
             except:
-                self._revert_config(srv.available_cfg_path)
+                srv.config.revert()
                 raise
-            self._drop_backup_config(srv.available_cfg_path)
+            srv.config.confirm()
 
     def update(self):
         if not self.resource.switchedOn:
             for srv in (self._apache, self._nginx):
-                LOGGER.info("Removing {} symlink".format(srv.enabled_cfg_path))
-                os.unlink(srv.enabled_cfg_path)
+                srv.config.disable()
                 srv.reload()
         else:
             self.create()
@@ -290,44 +317,33 @@ class WebSiteProcessor(ResProcessor):
     @synchronized
     def delete(self):
         for srv in (self._nginx, self._apache):
-            if os.path.exists(srv.enabled_cfg_path):
-                LOGGER.info("Removing {} symlink".format(srv.enabled_cfg_path))
-                os.unlink(srv.enabled_cfg_path)
-            LOGGER.info("Removing {} file".format(srv.available_cfg_path))
-            os.unlink(srv.available_cfg_path)
+            if os.path.exists(srv.config.enabled_path):
+                srv.config.disable()
+            srv.config.delete()
             srv.reload()
 
 
 class SSLCertificateProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
+        self._cert_file = ConfigFile(
+                "{0}/{1.name}.pem".format(Config.paths.ssl_certs, self.resource))
+        self._key_file = ConfigFile(
+                "{0}/{1.name}.key".format(Config.paths.ssl_certs, self.resource))
 
     @synchronized
     def create(self):
-        LOGGER.info("Saving {0.name}.pem certificate "
-                    "to {1}".format(self.resource,
-                                    Config.paths.ssl_certs))
-        with open("{0}/{1.name}.pem".format(Config.paths.ssl_certs,
-                                            self.resource)) as f:
-            f.write(self.resource.certificate)
-        LOGGER.info("Saving {0.name}.key key "
-                    "to {1}".format(self.resource,
-                                    Config.paths.ssl_certs))
-        with open("{0}/{1.name}.key".format(Config.paths.ssl_certs,
-                                            self.resource)) as f:
-            f.write(self.resource.key)
+        self._cert_file.body = self.resource.certificate
+        self._key_file.body = self.resource.key
+        self._cert_file.save()
+        self._key_file.save()
 
     def update(self):
         self.create(self)
 
     def delete(self):
-        LOGGER.info("Removing {0}/{1.name}.pem and "
-                    "{0}/{1.name}.key".format(Config.paths.ssl_certs,
-                                              self.resource))
-        os.unlink("{0}/{1.name}.pem".format(Config.paths.ssl_certs,
-                                            self.resource))
-        os.unlink("{0}/{1.name}.key".format(Config.paths.ssl_certs,
-                                            self.resource))
+        self._cert_file.delete()
+        self._key_file.delete()
 
 
 class MailboxProcessor(ResProcessor):
@@ -335,30 +351,16 @@ class MailboxProcessor(ResProcessor):
         super().__init__(resource, params)
         self._is_last = False
         if self.resource.antiSpamEnabled:
-            self._avp_file = "/etc/exim4/etc/" \
-                             "avp_domains{}".format(self.resource.popServer.id)
-            self._avp_domains = self._get_domain_list(self._avp_file)
-
-    @staticmethod
-    def _get_domain_list(file):
-        with open(file, "r") as f:
-            return [s.rstrip("\n\r") for s in f.readlines()]
-
-    @staticmethod
-    def _save_domain_list(domains_list, file):
-        with open("{}.new".format(file), "w") as f:
-            for domain in domains_list:
-                f.writelines("{}\n".format(domain))
-        os.rename("{}.new".format(file), file)
+            self._avp_domains = ConfigFile(
+                    "/etc/exim4/etc/avp_domains{}".format(
+                            self.resource.popServer.id))
 
     @synchronized
     def create(self):
-        if self.resource.antiSpamEnabled and \
-                        self.resource.domain.name not in self._avp_domains:
-            LOGGER.info("Appending {0} to {1}".format(self.resource.domain.name,
-                                                      self._avp_file))
-            self._avp_domains.append(self.resource.domain.name)
-            self._save_domain_list(self._avp_domains, self._avp_file)
+        if self.resource.antiSpamEnabled and not self._avp_domains.has_line(
+                self.resource.domain.name):
+            self._avp_domains.add_line(self.resource.domain.name)
+            self._avp_domains.save()
         else:
             LOGGER.info("{0.name}@{0.domain.name} "
                         "is not spam protected".format(self.resource))
@@ -376,10 +378,8 @@ class MailboxProcessor(ResProcessor):
                         "in {0.domain}".format(self.resource))
             self._is_last = True
         if self.resource.antiSpamEnabled and self._is_last:
-            LOGGER.info("Removing {0.domain.name}"
-                        " from {1}".format(self.resource, self._avp_file))
-            self._avp_domains.remove(self.resource.domain.name)
-            self._save_domain_list(self._avp_domains, self._avp_file)
+            self._avp_domains.remove_line(self.resource.domain.name)
+            self._avp_domains.save()
 
 
 class MailboxAtPopperProcessor(MailboxProcessor):
@@ -413,29 +413,25 @@ class MailboxAtPopperProcessor(MailboxProcessor):
 class MailboxAtMxProcessor(MailboxProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
-        self._relay_file = "/etc/exim4/etc/" \
-                           "relay_domains{}".format(self.resource.popServer.id)
-        self._relay_domains = self._get_domain_list(self._relay_file)
+        self._relay_domains = ConfigFile(
+                "/etc/exim4/etc/relay_domains{}".format(
+                    self.resource.popServer.id))
 
     def create(self):
         super().create()
-        if self.resource.domain.name not in self._relay_domains:
-            LOGGER.info("Appending {0} to {1}".format(self.resource.domain.name,
-                                                      self._relay_file))
-            self._relay_domains.append(self.resource.domain.name)
-            self._save_domain_list(self._relay_domains, self._relay_file)
+        if not self._relay_domains.has_line(self.resource.domain.name):
+            self._relay_domains.add_line(self.resource.domain.name)
+            self._relay_domains.save()
         else:
             LOGGER.info("{0} already exists in {1}, nothing to do".format(
-                    self.resource.domain.name, self._relay_file
+                    self.resource.domain.name, self._relay_domains.file_path
             ))
 
     def delete(self):
         super().delete()
         if self._is_last:
-            LOGGER.info("Removing {0.domain.name}"
-                        " from {1}".format(self.resource, self._relay_file))
-            self._relay_domains.remove(self.resource.domain.name)
-            self._save_domain_list(self._relay_domains, self._relay_file)
+            self._relay_domains.remove_line(self.resource.domain.name)
+            self._relay_domains.save()
 
 
 class DatabaseProcessor(ResProcessor):

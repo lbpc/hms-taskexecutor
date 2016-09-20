@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from taskexecutor.utils import exec_command, set_apparmor_mode
+from taskexecutor.utils import ConfigFile, exec_command, set_apparmor_mode
 from taskexecutor.logger import LOGGER
 
 
@@ -7,6 +7,7 @@ class OpService(metaclass=ABCMeta):
     def __init__(self, name=None):
         self._name = str()
         self._cfg_base = str()
+        self._config = None
         self._instance_id = None
         if name:
             self.name = name
@@ -34,6 +35,20 @@ class OpService(metaclass=ABCMeta):
     @cfg_base.deleter
     def cfg_base(self):
         del self._cfg_base
+
+    @property
+    def config(self):
+        return self._config
+
+    @config.setter
+    def config(self, value):
+        if not isinstance(value, ConfigFile):
+            raise ValueError("config must be instance of ConfigFile class")
+        self._config = value
+
+    @config.deleter
+    def config(self):
+        del self._config
 
     @property
     def instance_id(self):
@@ -105,9 +120,6 @@ class Nginx(SysVService):
         super().__init__()
         self.name = "nginx"
         self.cfg_base = "/etc/nginx"
-        self.config_body = str()
-        self.available_cfg_path = str()
-        self.enabled_cfg_path = str()
 
     def reload(self):
         LOGGER.info("Testing nginx config")
@@ -122,9 +134,6 @@ class Apache(UpstartService):
         if not self.name:
             raise Exception("Apache instance requires name keyword")
         self.cfg_base = "/etc/{}".format(self.name)
-        self.config_body = str()
-        self.available_cfg_path = str()
-        self.enabled_cfg_path = str()
 
     def reload(self):
         LOGGER.info("Testing apache2 config in {}".format(self.cfg_base))

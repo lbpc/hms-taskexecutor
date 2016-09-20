@@ -6,6 +6,8 @@ from functools import reduce
 from collections import Mapping, namedtuple
 from copy import deepcopy
 
+from taskexecutor.logger import LOGGER
+
 
 class HttpClient:
     def __init__(self, host, port):
@@ -14,6 +16,7 @@ class HttpClient:
         self._uri = None
 
     def __enter__(self):
+        LOGGER.info("Connecting to {0}:{1}".format(self._host, self._port))
         self._connection = http.client.HTTPConnection(
                 "{0}:{1}".format(self._host, self._port))
         return self

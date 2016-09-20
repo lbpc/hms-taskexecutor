@@ -131,8 +131,6 @@ class AMQPListener(Listener):
                                                 exchange_name=exchange_name),
             queue=queue_name
         )
-        LOGGER.info("AMQP consumer started for queue {0} "
-                    "bound to {1} exchange".format(queue_name, exchange_name))
 
     def _add_on_cancel_callback(self):
         self._channel.add_on_cancel_callback(self._on_consumer_cancelled)
