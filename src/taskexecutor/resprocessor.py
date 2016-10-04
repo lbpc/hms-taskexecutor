@@ -125,6 +125,7 @@ class UnixAccountProcessor(ResProcessor):
         self._killprocs()
         self._userdel()
 
+
 class UnixAccountProcessorAtFreeBsd(UnixAccountProcessor):
     def _update_jailed_ssh(self, action):
         _jailed_ssh_config = ConfigFile(
@@ -249,10 +250,9 @@ class WebSiteProcessor(ResProcessor):
         self.params["apache_socket"] = self._apache_obj.serviceSocket[0]
         self.params["apache_name"] = self._apache_obj.name
         self.params["nginx_ip_addr"] = Config.nginx.ip_addr
-        self.params["error_pages"] = [
-            (code, "http_{}.html".format(code)) for code in
-            (403, 404, 502, 503, 504)
-            ]
+        self.params["error_pages"] = \
+            [(code, "http_{}.html".format(code)) for code in
+             (403, 404, 502, 503, 504)]
         self.params["static_base"] = Config.paths.nginx_static_base
         self.params[
             "anti_ddos_set_cookie_file"] = "anti_ddos_set_cookie_file.lua"
@@ -327,9 +327,11 @@ class SSLCertificateProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
         self._cert_file = ConfigFile(
-                "{0}/{1.name}.pem".format(Config.paths.ssl_certs, self.resource))
+                "{0}/{1.name}.pem".format(Config.paths.ssl_certs, self.resource)
+        )
         self._key_file = ConfigFile(
-                "{0}/{1.name}.key".format(Config.paths.ssl_certs, self.resource))
+                "{0}/{1.name}.key".format(Config.paths.ssl_certs, self.resource)
+        )
 
     @synchronized
     def create(self):

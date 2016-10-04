@@ -22,7 +22,8 @@ class AMQPReporter(Reporter):
         super().__init__()
         self._url = "amqp://{0.user}:{0.password}@{0.host}:5672/%2F" \
                     "?heartbeat_interval={0.heartbeat_interval}".format(
-                Config.amqp)
+                        Config.amqp
+                    )
         self._connection = None
         self._channel = None
         self._exchange = "service.rc.user"

@@ -102,8 +102,8 @@ class Executor:
         set_thread_name("OPERATION IDENTITY: {0.opid} "
                         "ACTION IDENTITY: {0.actid}".format(self._task))
         LOGGER.info(
-            "Fetching {0} resource by /rc{1}".format(self._task.res_type,
-                                                     self._task.params["objRef"])
+            "Fetching {0} resource by "
+            "/rc{1}".format(self._task.res_type, self._task.params["objRef"])
         )
         _resource = self._get_resource(self._task.params["objRef"])
         processor = ResProcessorBuilder(self._task.res_type)(_resource,

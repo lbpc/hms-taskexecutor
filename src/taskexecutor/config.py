@@ -29,7 +29,8 @@ class __ConfigMeta(type):
             }
             _global_config = cnf_api.get(uri="/te/{}".format(_hms_env),
                                          extra_attrs=_extra_attrs)
-        for attr, value in vars(_global_config.propertySources[0].source).items():
+        for attr, value in vars(
+                _global_config.propertySources[0].source).items():
             if not attr.startswith("_"):
                 setattr(cls, attr, value)
 
@@ -47,8 +48,8 @@ class __ConfigMeta(type):
                 _attr_list.append("{0}={1}".format(attr, value))
         return "Config({})".format(", ".join(_attr_list))
 
+
 class Config(metaclass=__ConfigMeta):
 
     def __init__(self):
         raise Exception("Config is a non-instantiable class")
-

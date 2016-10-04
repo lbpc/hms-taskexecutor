@@ -8,6 +8,8 @@ import platform
 from setuptools import setup, find_packages, Command
 from setuptools.command.install_egg_info import install_egg_info as _install_egg_info
 from setuptools.dist import Distribution
+from pip.req import parse_requirements
+from pip.download import PipSession
 
 
 class EntryPoints(Command):
@@ -74,7 +76,7 @@ class GradleDistribution(Distribution, object):
     excluded_platform_packages = {}
 
     def __init__(self, attrs):
-        attrs['name'] = os.getenv('PYGRADLE_PROJECT_NAME')
+        attrs['name'] = os.getenv('PYGRADLE_PROJECT_NAME') or "taskexecutor"
         attrs['version'] = os.getenv('PYGRADLE_PROJECT_VERSION')
         attrs['install_requires'] = list(self.load_pinned_deps())
         super(GradleDistribution, self).__init__(attrs)
@@ -117,21 +119,18 @@ class GradleDistribution(Distribution, object):
                 if req:
                     name, version = req.split('==')
                     if name and name.lower() not in blacklisted:
-                        yield name
+                        yield req
         except IOError:
             raise StopIteration
 
 setup(
     distclass=GradleDistribution,
     package_dir={'': 'src'},
-    packages=find_packages('src'),
-    include_package_data=True,
-    package_data={
-      'taskexecutor': ['templates/*.j2'],
-    },
+    packages=['taskexecutor'],
+    package_data={'': ['../../pinned.txt', 'templates/*.j2']},
     entry_points={
         'console_scripts': [
-            'taskexecutor = taskexecutor',
+            'taskexecutor = taskexecutor.__main__:main',
         ],
     }
 )

@@ -34,7 +34,7 @@ class ConfigFile:
     @property
     def enabled_path(self):
         if not self._enabled_path and "sites-available" in self.file_path:
-           return self.file_path.replace("available", "enabled")
+            return self.file_path.replace("available", "enabled")
         else:
             return self._enabled_path
 
@@ -89,7 +89,9 @@ class ConfigFile:
         except FileExistsError:
             if os.path.islink(self.enabled_path) and \
                             os.readlink(self.enabled_path) == self.file_path:
-                LOGGER.info("Symlink {} already exists".format(self.enabled_path))
+                LOGGER.info(
+                        "Symlink {} already exists".format(self.enabled_path)
+                )
             else:
                 raise
 
@@ -134,10 +136,10 @@ class ConfigFile:
 
     def revert(self):
         LOGGER.warning("Reverting {0} from {0}.old, {0} will be saved as "
-                       "/tmp/te_{1}_error".format(self.file_path,
-                                                  self.file_path.replace("/", "_")))
+                       "/tmp/te_{1}".format(self.file_path,
+                                            self.file_path.replace("/", "_")))
         os.rename(self.file_path,
-                  "/tmp/te_{}_error".format(self.file_path.replace("/", "_")))
+                  "/tmp/te_{}".format(self.file_path.replace("/", "_")))
         os.rename("{}.old".format(self.file_path), self.file_path)
 
     def confirm(self):
