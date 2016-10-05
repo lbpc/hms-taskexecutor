@@ -5,3 +5,4 @@ pinned.txt
 build
 .gradle
 *.egg-info
+activate

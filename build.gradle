@@ -85,7 +85,7 @@ file("docker").listFiles().each { def dockerFile=file(it) ->
 			copy {
 				from dockerFile
 				into buildDir
-				rename '^$', 'Dockerfile'
+				rename(dockerFile.getName(), "Dockerfile")
 				expand(sdistName: sdistFile.getName())
 			}
 			copy {
