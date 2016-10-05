@@ -61,27 +61,46 @@ uploadArchives {
 	}
 }
 
-task buildDocker(type: Docker, dependsOn: uploadArchives) {
-	def dockerDir = "docker"
-	def sdistFile = file(project.tasks.packageSdist.getSdistOutput())
-	def git = org.ajoberstar.grgit.Grgit.open(file('.'))
-	tagVersion = git.branch.getCurrent().getName().replaceAll("refs/heads/","")
-	if(tagVersion == "HEAD") {
-		tagVersion = project.projectBranch
-	}
-	push = true
-	registry = dockerRegistry
-	applicationName = project.name 
-	dockerfile = file("${buildDir}/Dockerfile")
-	doFirst {
-		copy {
-			from "${dockerDir}/Dockerfile"
-			into buildDir
-			expand(sdistName: sdistFile.getName())
+task cleanSdist(type: Delete) {
+	delete tasks.packageSdist.getSdistOutput()
+}
+
+file("docker").listFiles().each { def dockerFile=file(it) ->
+	tasks.create(
+			name: "buildDocker${dockerFile.getName().replace("Dockerfile","")}",
+			type: Docker,
+			dependsOn: uploadArchives) {
+		def sdistFile = file(tasks.packageSdist.getSdistOutput())
+		def git = org.ajoberstar.grgit.Grgit.open(file('.'))
+		tagVersion = git.branch.getCurrent().getName().replaceAll("refs/heads/","")
+		if(tagVersion == "HEAD") {
+			tagVersion = project.projectBranch
 		}
-		copy {
-			from sdistFile
-			into stageDir 
+		description = "Build Docker image using ${dockerFile} and push it to ${dockerRegistry} with :${tagVersion} tag"
+		push = true
+		registry = dockerRegistry
+		applicationName = project.name 
+		dockerfile = file("${buildDir}/Dockerfile")
+		doFirst {
+			copy {
+				from dockerFile
+				into buildDir
+				rename '^$', 'Dockerfile'
+				expand(sdistName: sdistFile.getName())
+			}
+			copy {
+				from sdistFile
+				into stageDir 
+			}
+		}
+	}
+}
+
+task buildDocker {
+	description = "Build Docker images from dockerfiles in ./docker/ and push them to ${dockerRegistry}"
+	tasks.each {
+		if (it.name.startsWith("buildDocker") && it.name != "buildDocker") {
+			dependsOn it.name
 		}
 	}
 }
@@ -101,6 +120,8 @@ task delCompose(type: Delete) {
 	delete 'docker-compose'
 }
 
+
+packageSdist.dependsOn("cleanSdist")
 cookCompose.dependsOn("cloneCompose")
 composePull.dependsOn("cookCompose")
 composeUp.dependsOn("composePull")
