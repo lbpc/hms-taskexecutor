@@ -63,18 +63,25 @@ uploadArchives {
 
 task buildDocker(type: Docker, dependsOn: uploadArchives) {
 	def dockerDir = "docker"
+	def sdistFile = file(project.tasks.packageSdist.getSdistOutput())
 	def git = org.ajoberstar.grgit.Grgit.open(file('.'))
 	tagVersion = git.branch.getCurrent().getName().replaceAll("refs/heads/","")
 	if(tagVersion == "HEAD") {
 		tagVersion = project.projectBranch
 	}
 	push = true
+	registry = dockerRegistry
 	applicationName = project.name 
 	dockerfile = file("${buildDir}/Dockerfile")
 	doFirst {
 		copy {
 			from "${dockerDir}/Dockerfile"
 			into buildDir
+			expand(sdistName: sdistFile.getName())
+		}
+		copy {
+			from sdistFile
+			into stageDir 
 		}
 	}
 }
