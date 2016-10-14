@@ -139,3 +139,55 @@ class Apache(UpstartService):
         LOGGER.info("Testing apache2 config in {}".format(self.cfg_base))
         exec_command("apache2ctl -d {} -t".format(self.cfg_base))
         super().reload()
+
+# HACK: the two 'Unmanaged' classes below are responsible for
+# reloading services at baton.intr only
+# would be removed when this server is gone
+class UnmanagedNginx(OpService):
+    def __init__(self):
+        super().__init__()
+        self.name = "nginx"
+        self.cfg_base = "/usr/local/nginx/conf"
+
+    def start(self):
+        raise NotImplementedError
+
+    def stop(self):
+        raise NotImplementedError
+
+    def restart(self):
+        raise NotImplementedError
+
+    def reload(self):
+        LOGGER.info("Testing nginx config")
+        exec_command("/usr/local/nginx/sbin/nginx -t")
+        LOGGER.info("Reloading nginx")
+        exec_command("/usr/local/nginx/sbin/nginx -s reload")
+
+
+class UnmanagedApache(OpService):
+    def __init__(self, name):
+        super().__init__(name)
+        if not self.name:
+            raise Exception("Apache instance requires name keyword")
+        self.cfg_base = "/usr/local/{}/conf".format(self.name)
+
+    def start(self):
+        raise NotImplementedError
+
+    def stop(self):
+        raise NotImplementedError
+
+    def restart(self):
+        raise NotImplementedError
+
+    def reload(self):
+        LOGGER.info("Testing apache config: "
+                    "{}/conf/httpd.conf".format(self.cfg_base))
+        exec_command(
+                "/usr/sbin/jail "
+                "/usr/jail t 127.0.0.1 "
+                "{0}/bin/httpd -T -f {0}/conf/httpd.conf".format(self.cfg_base)
+        )
+        LOGGER.info("Reloading apache")
+        exec_command("{}/bin/apachectl2 graceful".format(self.cfg_base))

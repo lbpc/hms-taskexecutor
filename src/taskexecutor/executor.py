@@ -1,7 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
 from traceback import format_exc
+from urllib.parse import urlparse
 
-from taskexecutor.config import Config
+from taskexecutor.config import CONFIG
 from taskexecutor.reporter import ReporterBuilder
 from taskexecutor.resprocessor import ResProcessorBuilder
 from taskexecutor.task import Task
@@ -33,7 +34,7 @@ class Executors:
     def __init__(self):
         if not Executors.instance:
             Executors.instance = Executors.__Executors(
-                ThreadPoolExecutorStackTraced(Config.max_workers)
+                ThreadPoolExecutorStackTraced(CONFIG.max_workers)
             )
         else:
             self.pool = Executors.instance.pool
@@ -95,8 +96,10 @@ class Executor:
 
     @staticmethod
     def _get_resource(obj_ref):
-        with ApiClient(Config.apigw.host, Config.apigw.port) as api:
-            return api.get("/rc{}".format(obj_ref))
+        obj_ref = urlparse(obj_ref)
+        with ApiClient(obj_ref.netloc.split(":")[0],
+                       obj_ref.netloc.split(":")[0]) as api:
+            return api.get(obj_ref.path)
 
     def process_task(self):
         set_thread_name("OPERATION IDENTITY: {0.opid} "

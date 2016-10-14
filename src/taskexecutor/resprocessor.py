@@ -3,8 +3,9 @@ import re
 import shutil
 from abc import ABCMeta, abstractmethod
 from collections import namedtuple
-from taskexecutor.config import Config
-from taskexecutor.opservice import Apache, Nginx
+from taskexecutor.config import CONFIG
+from taskexecutor.opservice import Apache, Nginx, UnmanagedApache, \
+    UnmanagedNginx
 from taskexecutor.httpclient import ApiClient
 from taskexecutor.dbclient import MySQLClient
 from taskexecutor.utils import ConfigFile, exec_command, render_template, \
@@ -126,7 +127,10 @@ class UnixAccountProcessor(ResProcessor):
         self._userdel()
 
 
-class UnixAccountProcessorAtFreeBsd(UnixAccountProcessor):
+# HACK: the only purpose of this class is to process
+# UnixAccount resources at baton.intr
+# should be removed when this server is gone
+class UnixAccountProcessorBaton(UnixAccountProcessor):
     def _update_jailed_ssh(self, action):
         _jailed_ssh_config = ConfigFile(
                 "/usr/jail/usr/local/etc/ssh/sshd_clients_config")
@@ -145,10 +149,10 @@ class UnixAccountProcessorAtFreeBsd(UnixAccountProcessor):
                      "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
                      "pw useradd {0.name} "
                      "-u {0.uid} "
-                     "-d {0.homdir} "
+                     "-d {0.homeDir} "
                      "-h - "
                      "-s /usr/local/bin/bash "
-                     "-c 'Hosting account'".format(self.resource, Config))
+                     "-c 'Hosting account'".format(self.resource, CONFIG))
         self._update_jailed_ssh("append")
 
     def _setquota(self):
@@ -158,13 +162,13 @@ class UnixAccountProcessorAtFreeBsd(UnixAccountProcessor):
                      "edquota "
                      "-g "
                      "-e /home:0:{0.quota} "
-                     "{0.uid}".format(self.resource, Config))
+                     "{0.uid}".format(self.resource, CONFIG))
 
     def _userdel(self):
         LOGGER.info("Deleting user {0.name}".format(self.resource))
         exec_command("jexec "
                      "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
-                     "pw userdel {0.name} -r".format(self.resource, Config))
+                     "pw userdel {0.name} -r".format(self.resource, CONFIG))
         self._update_jailed_ssh("remove")
 
     def _killprocs(self):
@@ -179,7 +183,7 @@ class UnixAccountProcessorAtFreeBsd(UnixAccountProcessor):
                      "pw usermod {0.name}"
                      "-u {0.uid} "
                      "-g {0.uid} "
-                     "-d {0.homeDir}".format(self.resource, Config))
+                     "-d {0.homeDir}".format(self.resource, CONFIG))
         if "sshPublicKey" in self.params.keys() and self.params["sshPublicKey"]:
             self._create_authorized_keys()
 
@@ -193,9 +197,7 @@ class DBAccountProcessor(ResProcessor):
                 "IDENTIFIED BY PASSWORD '{1[passHash]}'".format(self.resource,
                                                                 self.params)
         LOGGER.info("Executing query: {}".format(query))
-        with MySQLClient(Config.mysql.host,
-                         Config.mysql.user,
-                         Config.mysql.password) as c:
+        with MySQLClient(**CONFIG.mysql) as c:
             c.execute(query)
 
     def update(self):
@@ -205,9 +207,7 @@ class DBAccountProcessor(ResProcessor):
     def delete(self):
         query = "DROP USER {0.name}".format(self.resource)
         LOGGER.info("Executing query: {}".format(query))
-        with MySQLClient(Config.mysql.host,
-                         Config.mysql.user,
-                         Config.mysql.password) as c:
+        with MySQLClient(**CONFIG.mysql) as c:
             c.execute(query)
 
 
@@ -224,8 +224,8 @@ class WebSiteProcessor(ResProcessor):
         self._fill_params()
 
     def _get_app_server_obj(self):
-        with ApiClient(Config.apigw.host, Config.apigw.port) as api:
-            return api.service(id=self.resource.applicationServerId).get()
+        with ApiClient(**CONFIG.apigw.socket) as api:
+            return api.service(self.resource.applicationServerId).get()
 
     def _build_vhost_obj_list(self):
         _vhosts = list()
@@ -249,18 +249,18 @@ class WebSiteProcessor(ResProcessor):
     def _fill_params(self):
         self.params["apache_socket"] = self._apache_obj.serviceSocket[0]
         self.params["apache_name"] = self._apache_obj.name
-        self.params["nginx_ip_addr"] = Config.nginx.ip_addr
+        self.params["nginx_ip_addr"] = CONFIG.nginx.ip_addr
         self.params["error_pages"] = \
             [(code, "http_{}.html".format(code)) for code in
              (403, 404, 502, 503, 504)]
-        self.params["static_base"] = Config.paths.nginx_static_base
+        self.params["static_base"] = CONFIG.paths.nginx_static_base
         self.params[
             "anti_ddos_set_cookie_file"] = "anti_ddos_set_cookie_file.lua"
         self.params[
             "anti_ddos_check_cookie_file"] = "anti_ddos_check_cookie_file.lua"
         self.params["subdomains_document_root"] = \
             "/".join(self.resource.documentRoot.split("/")[:-1])
-        self.params["ssl_path"] = Config.paths.ssl_certs
+        self.params["ssl_path"] = CONFIG.paths.ssl_certs
 
     def _create_logs_directory(self):
         _logs_dir = "{}/logs".format(self.resource.unixAccount.homeDir)
@@ -323,14 +323,58 @@ class WebSiteProcessor(ResProcessor):
             srv.reload()
 
 
+# HACK: the only purpose of this class is to process
+# WebSite resources at baton.intr
+# should be removed when this server is gone
+class WebSiteProcessorBaton(WebSiteProcessor):
+    def __init__(self, resource, params):
+        super(WebSiteProcessor, self).__init__(resource, params)
+        _apache_name_mangle = {"apache2-php4": "apache",
+                               "apache2-php52": "apache5",
+                               "apache2-php53": "apache53"}
+        self._apache_obj = self._get_app_server_obj()
+        self._nginx = UnmanagedNginx()
+        self._apache = UnmanagedApache(
+                name=_apache_name_mangle[self._apache_obj.name]
+        )
+        self._apache.config = ConfigFile("{0}/nvh/{1}".format(
+                self._apache.cfg_base, self.resource.id))
+        self._apache.config.enabled_path = self._apache.config.file_path
+        self._nginx.config = ConfigFile("{0}/servers/{1}.conf".format(
+                self._nginx.cfg_base, self.resource.id))
+        self._nginx.config.enabled_path = self._nginx.config.file_path
+        self._fill_params()
+
+    @synchronized
+    def create(self):
+        _vhosts_list = self._build_vhost_obj_list()
+        self._create_logs_directory()
+        self._create_document_root()
+        self._nginx.config.body = render_template("BatonNginxServer.j2",
+                                                  vhosts=_vhosts_list,
+                                                  params=self.params)
+
+        self._apache.config.body = render_template("BatonApacheVHost.j2",
+                                                   vhosts=_vhosts_list,
+                                                   params=self.params)
+        for srv in (self._apache, self._nginx):
+            srv.config.write()
+            try:
+                srv.reload()
+            except:
+                srv.config.revert()
+                raise
+            srv.config.confirm()
+
+
 class SSLCertificateProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
         self._cert_file = ConfigFile(
-                "{0}/{1.name}.pem".format(Config.paths.ssl_certs, self.resource)
+                "{0}/{1.name}.pem".format(CONFIG.paths.ssl_certs, self.resource)
         )
         self._key_file = ConfigFile(
-                "{0}/{1.name}.key".format(Config.paths.ssl_certs, self.resource)
+                "{0}/{1.name}.key".format(CONFIG.paths.ssl_certs, self.resource)
         )
 
     @synchronized
@@ -372,9 +416,9 @@ class MailboxProcessor(ResProcessor):
 
     @synchronized
     def delete(self):
-        with ApiClient(Config.apigw.host, Config.apigw.port) as api:
+        with ApiClient(**CONFIG.apigw.socket) as api:
             _mailboxes_remaining = \
-                api.Mailbox(query={"domain": self.resource.domain.name}).get()
+                api.mailbox(query={"domain": self.resource.domain.name}).get()
         if len(_mailboxes_remaining) == 1:
             LOGGER.info("{0.name}@{0.domain} is the last mailbox "
                         "in {0.domain}".format(self.resource))
@@ -465,9 +509,7 @@ class DatabaseProcessor(ResProcessor):
                 self.resource)
         LOGGER.info("Executing queries: {0}; {1}".format(grant_query,
                                                          create_query))
-        with MySQLClient(Config.mysql.host,
-                         Config.mysql.user,
-                         Config.mysql.password) as c:
+        with MySQLClient(**CONFIG.mysql) as c:
             c.execute(grant_query)
             c.execute(create_query)
 
@@ -477,9 +519,7 @@ class DatabaseProcessor(ResProcessor):
     def delete(self):
         query = "DROP DATABASE {0.name}".format(self.resource)
         LOGGER.info("Executing query: {}".format(query))
-        with MySQLClient(Config.mysql.host,
-                         Config.mysql.user,
-                         Config.mysql.password) as c:
+        with MySQLClient(**CONFIG.mysql) as c:
             c.execute(query)
 
 
@@ -494,13 +534,13 @@ class ResProcessorBuilder:
         elif res_type == "sslcertificate":
             return SSLCertificateProcessor
         elif res_type == "mailbox" and re.match("pop\d+",
-                                                Config.hostname):
+                                                CONFIG.hostname):
             return MailboxAtPopperProcessor
         elif res_type == "mailbox" and re.match("mx\d+-(mr|dh)",
-                                                Config.hostname):
+                                                CONFIG.hostname):
             return MailboxAtMxProcessor
         elif res_type == "mailbox" and re.match("mail-checker\d+",
-                                                Config.hostname):
+                                                CONFIG.hostname):
             return MailboxProcessor
         elif res_type == "database":
             return DatabaseProcessor
