@@ -96,10 +96,8 @@ class Executor:
 
     @staticmethod
     def _get_resource(obj_ref):
-        obj_ref = urlparse(obj_ref)
-        with ApiClient(obj_ref.netloc.split(":")[0],
-                       obj_ref.netloc.split(":")[0]) as api:
-            return api.get(obj_ref.path)
+        with ApiClient(**CONFIG.apigw.serviceSocket) as api:
+            return api.get(urlparse(obj_ref).path)
 
     def process_task(self):
         set_thread_name("OPERATION IDENTITY: {0.opid} "

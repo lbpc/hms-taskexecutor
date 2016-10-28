@@ -3,7 +3,6 @@ import time
 from logging import ERROR
 from signal import SIGINT, signal
 from threading import Thread
-from taskexecutor.config import CONFIG
 from taskexecutor.listener import ListenerBuilder
 from taskexecutor.logger import LOGGER, StreamToLogger
 

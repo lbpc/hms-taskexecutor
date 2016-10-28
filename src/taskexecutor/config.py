@@ -10,18 +10,21 @@ from taskexecutor.logger import LOGGER
 class __Config:
     def __init__(self):
         LOGGER.info("Initializing config")
+        self.discovered_services = ["configserver", "apigw"]
+        self.eureka_socket = dict()
         self.hostname = socket.gethostname().split('.')[0]
-        self.read_os_env()
-        self.discovered_services = ["configserver", "rc-staff", "apigw"]
+        self._read_os_env()
         LOGGER.info("Registering discoverable services: "
                     "{}".format(self.discovered_services))
-        for service, property in self.register_discovered_services():
+        for service, property in self._register_discovered_services():
             LOGGER.info("'{0}' service is now accessible as '{1}' property of "
                         "config class".format(service, property))
-        self.fetch_remote_properties()
-        self.obtain_local_server_role()
+        self._fetch_remote_properties()
+        self._obtain_local_server_props()
+        self._declare_enabled_resources()
+        LOGGER.info("Effective configuration:{}".format(self))
 
-    def read_os_env(self):
+    def _read_os_env(self):
         if "HMS_ENV" in os.environ.keys():
             self.profile = os.environ["HMS_ENV"]
             LOGGER.info("'{}' profile set according to "
@@ -30,40 +33,44 @@ class __Config:
             LOGGER.warning("There is no HMS_ENV environment variable set, "
                            "falling back to 'dev' profile")
             self.profile = "dev"
-        self.eureka_host, self.eureka_port = urlparse(
-                os.environ["EUREKA_CLIENT_SERVICEURL_DEFAULTZONE"]
+        self.eureka_socket["address"], self.eureka_socket["port"] = urlparse(
+                os.environ["EUREKA_CLIENT_SERVICE-URL_defaultZone"]
         ).netloc.split(":")
 
-    def fetch_remote_properties(self):
+    def _fetch_remote_properties(self):
         LOGGER.info("Fetching properties from config server")
-        with ConfigServerClient(**self.configserver.socket) as cnf:
+        with ConfigServerClient(**self.configserver.serviceSocket) as cnf:
             cnf.extra_attrs = [
                 "amqp.consumer_routing_key=te.{}".format(self.hostname),
             ]
             for attr, value in vars(
-                    cnf.get_property_sources_list("te", self.profile)[0]).items():
+                    cnf.get_property_sources_list("te",
+                                                  self.profile)[0]).items():
                 if not attr.startswith("_"):
                     setattr(self, attr, value)
 
-    def obtain_local_server_role(self):
-#        with ApiClient(**self.rc_staff.socket) as rc:
-#            _localserver = rc.server(query={"name": self.hostname}).get()
-        _localserver = type('', (), {})
-        _localserver.serverRole = type('', (), {})
-        _localserver.serverRole.name = "web"
+    def _obtain_local_server_props(self):
+        self.localserver = type('', (), {})
+        self.localserver.serverRole = type('', (), {})
+        self.localserver.serverRole.name = "web"
+        return
+        with ApiClient(**self.apigw.serviceSocket) as api:
+            self.localserver = api.server(query={"name": self.hostname}).get()
+
+    def _declare_enabled_resources(self):
         self.enabled_resources = \
             {"web": ["unixaccount", "dbaccount", "database",
              "website", "sslcertificate"],
              "pop": ["mailbox"],
              "mx": ["mailbox"],
              "mailchecker": ["mailbox"],
-             "db": ["dbaccount", "database"]}[_localserver.serverRole.name]
+             "db": ["dbaccount", "database"]}[self.localserver.serverRole.name]
         LOGGER.info("Server role is '{0}', manageable resources: "
-                    "{1}".format(_localserver.serverRole.name,
+                    "{1}".format(self.localserver.serverRole.name,
                                  self.enabled_resources))
 
     @classmethod
-    def register_discovered_services(cls):
+    def _register_discovered_services(cls):
         _registered = list()
         for service in cls.discovered_services:
             def closure(service, prop):
@@ -75,8 +82,7 @@ class __Config:
                             "Performing first lookup to Eureka for "
                             "'{}' service".format(service)
                         )
-                        with EurekaClient(self.eureka_host,
-                                          self.eureka_port) as eureka:
+                        with EurekaClient(**self.eureka_socket) as eureka:
                             setattr(self, _attr,
                                     eureka.get_random_instance(service))
                         return getattr(self, _attr)
@@ -85,8 +91,7 @@ class __Config:
                             "'{}' timestamp is stale, "
                             "perfoming new lookup".format(service)
                         )
-                        with EurekaClient(self.eureka_host,
-                                          self.eureka_port) as eureka:
+                        with EurekaClient(**self.eureka_socket) as eureka:
                             _service_instance = eureka.get_random_instance(
                                 service
                             )
@@ -116,7 +121,6 @@ class __Config:
         if hasattr(self, name) and not name.startswith("_") and \
                         name not in self.discovered_services:
             raise AttributeError("{} is a read-only attribute".format(name))
-            pass
         setattr(self, name, value)
 
     @classmethod

@@ -8,8 +8,7 @@ from taskexecutor.opservice import Apache, Nginx, UnmanagedApache, \
     UnmanagedNginx
 from taskexecutor.httpclient import ApiClient
 from taskexecutor.dbclient import MySQLClient
-from taskexecutor.utils import ConfigFile, exec_command, render_template, \
-    synchronized
+from taskexecutor.utils import ConfigFile, exec_command, synchronized
 from taskexecutor.logger import LOGGER
 
 
@@ -214,18 +213,50 @@ class DBAccountProcessor(ResProcessor):
 class WebSiteProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
-        self._apache_obj = self._get_app_server_obj()
-        self._nginx = Nginx()
-        self._apache = Apache(name=self._apache_obj.name)
-        self._apache.config = ConfigFile("{0}/sites-available/{1}.conf".format(
-                self._apache.cfg_base, self.resource.id))
-        self._nginx.config = ConfigFile("{0}/sites-available/{1}.conf".format(
-                self._nginx.cfg_base, self.resource.id))
+        self._nginx = self._build_webserver_container("nginx")
+        self._apache = self._build_webserver_container("apache")
         self._fill_params()
 
-    def _get_app_server_obj(self):
-        with ApiClient(**CONFIG.apigw.socket) as api:
+    def _get_apache_service_obj(self):
+        with ApiClient(**CONFIG.apigw.serviceSocket) as api:
             return api.service(self.resource.applicationServerId).get()
+
+    def _get_nginx_service_obj(self):
+        for service in CONFIG.localserver.serviceList:
+            if service.name == "nginx":
+                return service
+        raise AttributeError("Local server has no nginx service")
+
+    def _get_config_template(self, service_obj, template_name):
+        for template in service_obj.serviceTemplate.configTemplateList:
+            if template.name == template_name:
+                with ApiClient(**CONFIG.apigw.serviceSocket) as api:
+                    return api.get(template.fileLink)
+        raise AttributeError("There is no {0} config template "
+                             "in {1}".format(template_name,
+                                             service_obj.serviceTemplate.name))
+
+    def _build_webserver_container(self, webserver_type):
+        if webserver_type == "apache":
+            _service = self._get_apache_service_obj()
+            _opservice = Apache(name=_service.name)
+            _template_name = "ApacheVHost"
+        elif webserver_type == "nginx":
+            _service = self._get_nginx_service_obj()
+            _opservice = Nginx()
+            _template_name = "NginxServer"
+        else:
+            raise KeyError("{} is unknown server type".format(webserver_type))
+        _config = ConfigFile("{0}/sites-available/{1}.conf".format(
+                _opservice.cfg_base,
+                self.resource.id
+        ))
+        _config.template = self._get_config_template(_service, _template_name)
+        return namedtuple("WebServer", "service opservice config")(
+            service=_service,
+            opservice=_opservice,
+            config=_config
+        )
 
     def _build_vhost_obj_list(self):
         _vhosts = list()
@@ -247,20 +278,18 @@ class WebSiteProcessor(ResProcessor):
         return _vhosts
 
     def _fill_params(self):
-        self.params["apache_socket"] = self._apache_obj.serviceSocket[0]
-        self.params["apache_name"] = self._apache_obj.name
-        self.params["nginx_ip_addr"] = CONFIG.nginx.ip_addr
+        self.params["apache_name"] = self._apache.service.name
         self.params["error_pages"] = \
             [(code, "http_{}.html".format(code)) for code in
              (403, 404, 502, 503, 504)]
         self.params["static_base"] = CONFIG.paths.nginx_static_base
+        self.params["ssl_path"] = CONFIG.paths.ssl_certs
         self.params[
             "anti_ddos_set_cookie_file"] = "anti_ddos_set_cookie_file.lua"
         self.params[
             "anti_ddos_check_cookie_file"] = "anti_ddos_check_cookie_file.lua"
         self.params["subdomains_document_root"] = \
             "/".join(self.resource.documentRoot.split("/")[:-1])
-        self.params["ssl_path"] = CONFIG.paths.ssl_certs
 
     def _create_logs_directory(self):
         _logs_dir = "{}/logs".format(self.resource.unixAccount.homeDir)
@@ -289,82 +318,69 @@ class WebSiteProcessor(ResProcessor):
         _vhosts_list = self._build_vhost_obj_list()
         self._create_logs_directory()
         self._create_document_root()
-        self._nginx.config.body = render_template("NginxServer.j2",
-                                                  vhosts=_vhosts_list,
-                                                  params=self.params)
-
-        self._apache.config.body = render_template("ApacheVHost.j2",
-                                                   vhosts=_vhosts_list,
-                                                   params=self.params)
         for srv in (self._apache, self._nginx):
+            srv.config.render_template(socket=srv.service.serviceSocket[0],
+                                       vhosts=_vhosts_list,
+                                       params=self.params)
             srv.config.write()
-            srv.config.enable()
+            if self.resource.switchedOn and not srv.config.is_enabled:
+                srv.config.enable()
             try:
-                srv.reload()
+                srv.opservice.reload()
             except:
                 srv.config.revert()
                 raise
             srv.config.confirm()
 
+    @synchronized
     def update(self):
         if not self.resource.switchedOn:
             for srv in (self._apache, self._nginx):
-                srv.config.disable()
-                srv.reload()
+                if srv.config.is_enabled:
+                    srv.config.disable()
+                    srv.config.write()
+                    srv.config.confirm()
+                    srv.opservice.reload()
         else:
             self.create()
 
     @synchronized
     def delete(self):
         for srv in (self._nginx, self._apache):
-            if os.path.exists(srv.config.enabled_path):
+            if srv.config.is_enabled:
                 srv.config.disable()
             srv.config.delete()
-            srv.reload()
+            srv.opservice.reload()
 
 
 # HACK: the only purpose of this class is to process
 # WebSite resources at baton.intr
 # should be removed when this server is gone
 class WebSiteProcessorBaton(WebSiteProcessor):
-    def __init__(self, resource, params):
-        super(WebSiteProcessor, self).__init__(resource, params)
-        _apache_name_mangle = {"apache2-php4": "apache",
-                               "apache2-php52": "apache5",
-                               "apache2-php53": "apache53"}
-        self._apache_obj = self._get_app_server_obj()
-        self._nginx = UnmanagedNginx()
-        self._apache = UnmanagedApache(
-                name=_apache_name_mangle[self._apache_obj.name]
+    def _build_webserver_container(self, webserver_type):
+        if webserver_type == "apache":
+            _apache_name_mangle = {"apache2-php4": "apache",
+                                   "apache2-php52": "apache5",
+                                   "apache2-php53": "apache53"}
+            _service = self._get_apache_service_obj()
+            _opservice = UnmanagedApache(_apache_name_mangle[_service.name])
+            _template_name = "BatonApacheVHost"
+        elif webserver_type == "nginx":
+            _service = self._get_nginx_service_obj()
+            _opservice = UnmanagedNginx()
+            _template_name = "BatonNginxServer"
+        else:
+            raise KeyError("{} is unknown server type".format(webserver_type))
+        _config = ConfigFile("{0}/sites-available/{1}.conf".format(
+                _opservice.cfg_base,
+                self.resource.id
+        ))
+        _config.template = self._get_config_template(_service, _template_name)
+        return namedtuple("WebServer", "service opservice config")(
+                service=_service,
+                opservice=_opservice,
+                config=_config
         )
-        self._apache.config = ConfigFile("{0}/nvh/{1}".format(
-                self._apache.cfg_base, self.resource.id))
-        self._apache.config.enabled_path = self._apache.config.file_path
-        self._nginx.config = ConfigFile("{0}/servers/{1}.conf".format(
-                self._nginx.cfg_base, self.resource.id))
-        self._nginx.config.enabled_path = self._nginx.config.file_path
-        self._fill_params()
-
-    @synchronized
-    def create(self):
-        _vhosts_list = self._build_vhost_obj_list()
-        self._create_logs_directory()
-        self._create_document_root()
-        self._nginx.config.body = render_template("BatonNginxServer.j2",
-                                                  vhosts=_vhosts_list,
-                                                  params=self.params)
-
-        self._apache.config.body = render_template("BatonApacheVHost.j2",
-                                                   vhosts=_vhosts_list,
-                                                   params=self.params)
-        for srv in (self._apache, self._nginx):
-            srv.config.write()
-            try:
-                srv.reload()
-            except:
-                srv.config.revert()
-                raise
-            srv.config.confirm()
 
 
 class SSLCertificateProcessor(ResProcessor):
@@ -416,7 +432,7 @@ class MailboxProcessor(ResProcessor):
 
     @synchronized
     def delete(self):
-        with ApiClient(**CONFIG.apigw.socket) as api:
+        with ApiClient(**CONFIG.apigw.serviceSocket) as api:
             _mailboxes_remaining = \
                 api.mailbox(query={"domain": self.resource.domain.name}).get()
         if len(_mailboxes_remaining) == 1:
@@ -521,6 +537,20 @@ class DatabaseProcessor(ResProcessor):
         LOGGER.info("Executing query: {}".format(query))
         with MySQLClient(**CONFIG.mysql) as c:
             c.execute(query)
+
+
+class ServiceProcessor(ResProcessor):
+    def __init__(self, resource, params):
+        super().__init__(resource, params)
+
+    def create(self):
+        pass
+
+    def update(self):
+        pass
+
+    def delete(self):
+        pass
 
 
 class ResProcessorBuilder:

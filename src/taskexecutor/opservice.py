@@ -140,6 +140,7 @@ class Apache(UpstartService):
         exec_command("apache2ctl -d {} -t".format(self.cfg_base))
         super().reload()
 
+
 # HACK: the two 'Unmanaged' classes below are responsible for
 # reloading services at baton.intr only
 # would be removed when this server is gone

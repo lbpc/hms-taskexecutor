@@ -4,7 +4,7 @@ import subprocess
 from functools import wraps
 from threading import RLock
 from threading import current_thread
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Template
 from taskexecutor.logger import LOGGER
 
 LOCKS = {}
@@ -15,6 +15,7 @@ class ConfigFile:
         self._file_path = None
         self._enabled_path = None
         self._body = None
+        self._template = None
         self._owner_uid = owner_uid
         self._mode = mode
         self.file_path = abs_path
@@ -60,6 +61,26 @@ class ConfigFile:
     def body(self):
         del self._body
 
+    @property
+    def template(self):
+        return self._template
+
+    @template.setter
+    def template(self, value):
+        self._template = value
+
+    @template.deleter
+    def template(self):
+        del self._template
+
+    @property
+    def is_enabled(self):
+        if not self.enabled_path:
+            raise ValueError("enabled_path property is not set ")
+        return os.path.exists(self.enabled_path) and os.path.islink(
+            self.enabled_path) and os.readlink(
+            self.enabled_path) == self.file_path
+
     def _read_file(self):
         with open(self._file_path, "r") as f:
             self._body = f.read()
@@ -84,16 +105,7 @@ class ConfigFile:
             raise ValueError("enabled_path property is not set ")
         LOGGER.info("Linking {0} to {1}".format(self.file_path,
                                                 self.enabled_path))
-        try:
-            os.symlink(self.file_path, self.enabled_path)
-        except FileExistsError:
-            if os.path.islink(self.enabled_path) and \
-                            os.readlink(self.enabled_path) == self.file_path:
-                LOGGER.info(
-                        "Symlink {} already exists".format(self.enabled_path)
-                )
-            else:
-                raise
+        os.symlink(self.file_path, self.enabled_path)
 
     def disable(self):
         if not self.enabled_path:
@@ -133,6 +145,11 @@ class ConfigFile:
                 _list.insert(idx, new_line)
                 count -= 1
         self.body = "\n".join(_list)
+
+    def render_template(self, **kwargs):
+        if not self.template:
+            raise AttributeError("Template is not set")
+        self.body = Template(self.template).render(**kwargs)
 
     def revert(self):
         LOGGER.warning("Reverting {0} from {0}.old, {0} will be saved as "
@@ -177,16 +194,6 @@ def exec_command(command):
 def set_apparmor_mode(mode, binary):
     LOGGER.info("Applying {0} AppArmor mode on {1}".format(mode, binary))
     exec_command("aa-{0} {1}".format(mode, binary))
-
-
-def render_template(template_name, **kwargs):
-    template_env = Environment(
-            loader=FileSystemLoader("./templates"),
-            lstrip_blocks=True,
-            trim_blocks=True)
-    template = template_env.get_template(template_name)
-
-    return template.render(**kwargs)
 
 
 def set_thread_name(name):

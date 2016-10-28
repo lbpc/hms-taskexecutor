@@ -142,6 +142,12 @@ class AMQPListener(Listener):
 
     def _on_message(self, unused_channel, basic_deliver, properties, body,
                     exchange_name):
+        if exchange_name != basic_deliver.exchange:
+            raise KeyError("Message '{0}' "
+                           "came from unexpected exchange '{1}',"
+                           "expected '{2}'".format(body,
+                                                   basic_deliver.exchange,
+                                                   exchange_name))
         context = dict(zip(("res_type", "action"), exchange_name.split(".")))
         context["delivery_tag"] = basic_deliver.delivery_tag
         self.take_event(context, body)
@@ -209,7 +215,7 @@ class AMQPListener(Listener):
     def stop(self):
         self._closing = True
         self._stop_consuming()
-        self._connection.ioloop._stopping = True
+        return not self._connection
 
 
 class ListenerBuilder:
@@ -218,4 +224,3 @@ class ListenerBuilder:
             return AMQPListener
         else:
             raise ValueError("Unknown Listener type: {}".format(listener_type))
-

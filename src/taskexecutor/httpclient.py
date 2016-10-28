@@ -11,50 +11,50 @@ from taskexecutor.logger import LOGGER
 
 
 class HttpClient:
-    def __init__(self, addr, port):
-        self._addr = addr
+    def __init__(self, address, port):
+        self._address = address
         self._port = port
-        self._uri = None
+        self._uri_path = None
         self._default_headers = dict()
 
     def __enter__(self):
-        LOGGER.info("Connecting to {0}:{1}".format(self._addr, self._port))
+        LOGGER.info("Connecting to {0}:{1}".format(self._address, self._port))
         self._connection = http.client.HTTPConnection(
-                "{0}:{1}".format(self._addr, self._port))
+                "{0}:{1}".format(self._address, self._port))
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._connection.close()
 
     @property
-    def uri(self):
-        return self._uri
+    def uri_path(self):
+        return self._uri_path
 
-    @uri.setter
-    def uri(self, value):
-        self._uri = value
+    @uri_path.setter
+    def uri_path(self, value):
+        self._uri_path = value
 
-    @uri.deleter
-    def uri(self):
-        del self._uri
+    @uri_path.deleter
+    def uri_path(self):
+        del self._uri_path
 
     @staticmethod
     def decode_response(resp_bytes):
         return resp_bytes.decode("UTF-8")
 
-    def post(self, body, uri=None, headers=None):
+    def post(self, body, uri_path=None, headers=None):
         raise NotImplementedError
 
-    def get(self, uri=None, headers=None):
-        _uri = uri or self.uri
+    def get(self, uri_path=None, headers=None):
+        _uri_path = uri_path or self.uri_path
         _headers = headers or self._default_headers
-        self._connection.request("GET", _uri, headers=_headers)
+        self._connection.request("GET", _uri_path, headers=_headers)
         return self.process_response("GET", self._connection.getresponse())
 
-    def put(self, body, uri=None, headers=None):
+    def put(self, body, uri_path=None, headers=None):
         raise NotImplementedError
 
-    def delete(self, uri=None, headers=None):
+    def delete(self, uri_path=None, headers=None):
         raise NotImplementedError
 
     def process_response(self, method, response):
@@ -65,21 +65,23 @@ class HttpClient:
 
 
 class ApiClient(HttpClient):
-    def __init__(self, addr, port, service="rc"):
-        super().__init__(addr, port)
+    def __init__(self, address, port, service=None):
+        super().__init__(address, port)
         self._service = service
 
     def _build_resource(self, res_name, res_id):
-        self.uri = "/{0}/{1}/{2}".format(self._service, res_name, res_id)
+        self.uri_path = "/{0}/{1}".format(res_name, res_id)
+        if self._service:
+            self.uri_path = "/{0}{1}".format(self._service, self.uri_path)
         return self
 
     def _build_collection(self, res_name, query=None):
         if query:
-            self.uri = "/{0}/{1}?{2}".format(self._service,
-                                              res_name,
-                                              urlencode(query))
+            self.uri_path = "/{0}?{1}".format(res_name, urlencode(query))
         else:
-            self.uri = "/{0}/{1}".format(self._service, res_name)
+            self.uri_path = "/{}".format(res_name)
+        if self._service:
+            self.uri_path = "/{0}{1}".format(self._service, self.uri_path)
         return self
 
     def process_response(self, method, response):
@@ -107,8 +109,8 @@ class ApiClient(HttpClient):
 
 
 class ConfigServerClient(HttpClient):
-    def __init__(self, addr, port):
-        super().__init__(addr, port)
+    def __init__(self, address, port):
+        super().__init__(address, port)
         self._extra_attrs = dict()
 
     @property
@@ -121,7 +123,7 @@ class ConfigServerClient(HttpClient):
             _attr, _value = prop.split("=")
             tree = self._extra_attrs
             for idx, k in enumerate(_attr.split(".")):
-                if idx != len(_attr.split("."))-1:
+                if idx != len(_attr.split(".")) - 1:
                     tree = tree.setdefault(k, {})
                 else:
                     tree[k] = _value
@@ -148,13 +150,13 @@ class ConfigServerClient(HttpClient):
                 return _result.as_object(expand_dot_separated=True)
 
     def get_property_sources_list(self, name, profile):
-        self.uri = "/{0}/{1}".format(name, profile)
+        self.uri_path = "/{0}/{1}".format(name, profile)
         _list = [s.source for s in self.get().propertySources]
         LOGGER.info("Got {}".format(_list))
         return _list
 
     def get_property_source(self, name, profile, source_name):
-        self.uri = "/{0}/{1}".format(name, profile)
+        self.uri_path = "/{0}/{1}".format(name, profile)
         _names_available = list()
         for source in self.get().propertySources:
             if source.name == source_name:
@@ -166,34 +168,37 @@ class ConfigServerClient(HttpClient):
                        "available names: {1}".format(source_name,
                                                      _names_available))
 
+
 class EurekaClient(HttpClient):
-    def __init__(self, addr, port):
-        super().__init__(addr, port)
+    def __init__(self, address, port):
+        super().__init__(address, port)
         self._default_headers = {"Accept": "application/json"}
 
     def get_instances_list(self, application_name):
-        self.uri = "/eureka/apps/{}".format(application_name)
+        self.uri_path = "/eureka/apps/{}".format(application_name)
         LOGGER.info("Requested application: {0}, "
-                    "URI path: {1}".format(application_name, self.uri))
+                    "URI path: {1}".format(application_name, self.uri_path))
         _result = self.get()
         LOGGER.info("Got {}".format(_result))
         _instance_list = list()
         if _result and \
-                        "application" in _result.keys() and \
-                        "instance" in _result["application"].keys() and \
+                "application" in _result.keys() and \
+                "instance" in _result["application"].keys() and \
                 _result["application"]["instance"] and \
                 isinstance(_result["application"]["instance"], list) and \
-                        len(_result["application"]["instance"]) > 0:
+                len(_result["application"]["instance"]) > 0:
             for instance in _result["application"]["instance"]:
                 if instance["status"] == "UP":
                     _instance_list.append(
-                            namedtuple("EurekaService", "socket timestamp")(
-                                socket = {
-                                    "addr": instance["ipAddr"],
-                                    "port": instance["port"]["$"]
-                                },
-                                timestamp = instance["leaseInfo"][
-                                                     "serviceUpTimestamp"] / 1000
+                            namedtuple("EurekaService",
+                                       "name serviceSocket timestamp")(
+                                    name=instance["app"].lower(),
+                                    serviceSocket={
+                                        "address": instance["ipAddr"],
+                                        "port": instance["port"]["$"]
+                                    },
+                                    timestamp=instance["leaseInfo"][
+                                                  "serviceUpTimestamp"] / 1000
                             )
                     )
         return _instance_list
