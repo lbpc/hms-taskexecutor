@@ -167,10 +167,10 @@ class TestAMQPListener(PythonDockerTestMixin, unittest.TestCase):
                          test_context["delivery_tag"])
 
     def test_create_task(self):
-        assert True # TODO: implement test
+        assert False # TODO: implement test
 
     def test_pass_task(self):
-        assert True # TODO: implement test
+        assert False # TODO: implement test
 
     def test_stop(self):
         self._start_and_wait_for_amqp_listener_thread()
@@ -178,7 +178,7 @@ class TestAMQPListener(PythonDockerTestMixin, unittest.TestCase):
 
 class TestListenerBuilder(unittest.TestCase):
     def test___new__(self):
-        assert True # TODO: implement test
+        assert False # TODO: implement test
 
 if __name__ == '__main__':
     unittest.main()
