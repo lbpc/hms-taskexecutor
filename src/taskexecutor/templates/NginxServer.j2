@@ -1,6 +1,6 @@
 {% for vhost in vhosts %}
 server {
-    listen {{ params["nginx_ip_addr"] }};
+    listen {{ socket.address }};
 
     server_name {% for domain in vhost.domains %} {{ domain.name }} *.{{ domain.name }}{% endfor %};
     access_log /var/log/nginx/access.log combined_host;
@@ -72,7 +72,7 @@ server {
 
 {% if vhost.domains[0].sslCertificate %}
 server {
-    listen {{ params["nginx_ip_addr"] }}:443 ssl;
+    listen {{ socket.address }}:443 ssl;
 
     ssl_certificate {{ params["ssl_path"] }}/{{ vhost.domains[0].sslCertificate.name }}.pem;
     ssl_certificate_key {{ params["ssl_path"] }}/{{ vhost.domains[0].sslCertificate.name }}.key;

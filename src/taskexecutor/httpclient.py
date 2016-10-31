@@ -1,62 +1,63 @@
 import http.client
-import urllib.parse
 import json
+import random
 import re
 from functools import reduce
 from collections import Mapping, namedtuple
 from copy import deepcopy
+from urllib.parse import urlencode
 
 from taskexecutor.logger import LOGGER
 
 
 class HttpClient:
-    def __init__(self, host, port):
-        self._host = host
+    def __init__(self, address, port):
+        self._address = address
         self._port = port
-        self._uri = None
+        self._uri_path = None
+        self._default_headers = dict()
 
     def __enter__(self):
-        LOGGER.info("Connecting to {0}:{1}".format(self._host, self._port))
+        LOGGER.info("Connecting to {0}:{1}".format(self._address, self._port))
         self._connection = http.client.HTTPConnection(
-                "{0}:{1}".format(self._host, self._port))
+                "{0}:{1}".format(self._address, self._port))
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._connection.close()
 
     @property
-    def uri(self):
-        return self._uri
+    def uri_path(self):
+        return self._uri_path
 
-    @uri.setter
-    def uri(self, value):
-        self._uri = value
+    @uri_path.setter
+    def uri_path(self, value):
+        self._uri_path = value
 
-    @uri.deleter
-    def uri(self):
-        del self._uri
+    @uri_path.deleter
+    def uri_path(self):
+        del self._uri_path
 
     @staticmethod
     def decode_response(resp_bytes):
         return resp_bytes.decode("UTF-8")
 
-    def post(self, body, uri=None):
+    def post(self, body, uri_path=None, headers=None):
         raise NotImplementedError
 
-    def get(self, uri=None, **kwargs):
-        _uri = uri or self._uri
-        self._connection.request("GET", _uri)
-        return self.process_response("GET",
-                                     self._connection.getresponse(),
-                                     **kwargs)
+    def get(self, uri_path=None, headers=None):
+        _uri_path = uri_path or self.uri_path
+        _headers = headers or self._default_headers
+        self._connection.request("GET", _uri_path, headers=_headers)
+        return self.process_response("GET", self._connection.getresponse())
 
-    def put(self, body, uri=None):
+    def put(self, body, uri_path=None, headers=None):
         raise NotImplementedError
 
-    def delete(self, uri=None):
+    def delete(self, uri_path=None, headers=None):
         raise NotImplementedError
 
-    def process_response(self, method, response, **kwargs):
+    def process_response(self, method, response):
         if response.status // 100 == 5:
             raise Exception("{0} failed, HTTP server returned "
                             "{1.status} {1.reason}".format(method, response))
@@ -64,25 +65,26 @@ class HttpClient:
 
 
 class ApiClient(HttpClient):
-    def __init__(self, host, port, service="rc"):
-        super().__init__(host, port)
+    def __init__(self, address, port, service=None):
+        super().__init__(address, port)
         self._service = service
 
-    def _build_resource_uri(self, res_name, res_id):
-        self._uri = "/{0}/{1}/{2}".format(self._service, res_name, res_id)
+    def _build_resource(self, res_name, res_id):
+        self.uri_path = "/{0}/{1}".format(res_name, res_id)
+        if self._service:
+            self.uri_path = "/{0}{1}".format(self._service, self.uri_path)
         return self
 
-    def _build_collection_uri(self, res_name, query=None):
+    def _build_collection(self, res_name, query=None):
         if query:
-            self._uri = "/{0}/{1}?{2}".format(self._service,
-                                              res_name,
-                                              urllib.parse.urlencode(query))
+            self.uri_path = "/{0}?{1}".format(res_name, urlencode(query))
         else:
-            self._uri = "/{0}/{1}".format(self._service, res_name)
+            self.uri_path = "/{}".format(res_name)
+        if self._service:
+            self.uri_path = "/{0}{1}".format(self._service, self.uri_path)
         return self
 
-    def process_response(self, method, response, uri=None, as_object=True,
-                         extra_attrs=None):
+    def process_response(self, method, response):
         if method == "GET":
             if response.status != 200:
                 raise Exception("GET failed, REST server returned "
@@ -92,21 +94,134 @@ class ApiClient(HttpClient):
                 raise Exception(
                     "GET failed, REST server returned empty response")
             _resource = ApiObjectTranslator(_json_str)
-            if as_object:
-                return _resource.as_object(extra_attrs=extra_attrs)
-            else:
-                return _resource.as_dict()
+            return _resource.as_object()
 
     def __getattr__(self, name):
         def wrapper(res_id=None, query=None):
             if res_id:
-                return self._build_resource_uri(name, res_id)
+                return self._build_resource(name, res_id)
             elif query:
-                return self._build_collection_uri(name, query)
+                return self._build_collection(name, query)
             else:
-                return self._build_collection_uri(name)
+                return self._build_collection(name)
 
         return wrapper
+
+
+class ConfigServerClient(HttpClient):
+    def __init__(self, address, port):
+        super().__init__(address, port)
+        self._extra_attrs = dict()
+
+    @property
+    def extra_attrs(self):
+        return self._extra_attrs
+
+    @extra_attrs.setter
+    def extra_attrs(self, lst):
+        for prop in lst:
+            _attr, _value = prop.split("=")
+            tree = self._extra_attrs
+            for idx, k in enumerate(_attr.split(".")):
+                if idx != len(_attr.split(".")) - 1:
+                    tree = tree.setdefault(k, {})
+                else:
+                    tree[k] = _value
+
+    @extra_attrs.deleter
+    def extra_attrs(self):
+        del self._extra_attrs
+
+    def process_response(self, method, response):
+        if method == "GET":
+            if response.status != 200:
+                raise Exception("GET failed, config server returned "
+                                "{0.status} {0.reason}".format(response))
+            _json_str = self.decode_response(response.read())
+            if len(_json_str) == 0:
+                raise Exception(
+                        "GET failed, config server returned empty response")
+            _result = ApiObjectTranslator(_json_str)
+            if self.extra_attrs:
+                return _result.as_object(extra_attrs=self.extra_attrs,
+                                         expand_dot_separated=True,
+                                         overwrite=True)
+            else:
+                return _result.as_object(expand_dot_separated=True)
+
+    def get_property_sources_list(self, name, profile):
+        self.uri_path = "/{0}/{1}".format(name, profile)
+        _list = [s.source for s in self.get().propertySources]
+        LOGGER.info("Got {}".format(_list))
+        return _list
+
+    def get_property_source(self, name, profile, source_name):
+        self.uri_path = "/{0}/{1}".format(name, profile)
+        _names_available = list()
+        for source in self.get().propertySources:
+            if source.name == source_name:
+                LOGGER.info("Got {}".format(source))
+                return source
+            else:
+                _names_available.append(source.name)
+        raise KeyError("No such property source name: {0}, "
+                       "available names: {1}".format(source_name,
+                                                     _names_available))
+
+
+class EurekaClient(HttpClient):
+    def __init__(self, address, port):
+        super().__init__(address, port)
+        self._default_headers = {"Accept": "application/json"}
+
+    def get_instances_list(self, application_name):
+        self.uri_path = "/eureka/apps/{}".format(application_name)
+        LOGGER.info("Requested application: {0}, "
+                    "URI path: {1}".format(application_name, self.uri_path))
+        _result = self.get()
+        LOGGER.info("Got {}".format(_result))
+        _instance_list = list()
+        if _result and \
+                "application" in _result.keys() and \
+                "instance" in _result["application"].keys() and \
+                _result["application"]["instance"] and \
+                isinstance(_result["application"]["instance"], list) and \
+                len(_result["application"]["instance"]) > 0:
+            for instance in _result["application"]["instance"]:
+                if instance["status"] == "UP":
+                    _instance_list.append(
+                            namedtuple("EurekaService",
+                                       "name serviceSocket timestamp")(
+                                    name=instance["app"].lower(),
+                                    serviceSocket={
+                                        "address": instance["ipAddr"],
+                                        "port": instance["port"]["$"]
+                                    },
+                                    timestamp=instance["leaseInfo"][
+                                                  "serviceUpTimestamp"] / 1000
+                            )
+                    )
+        return _instance_list
+
+    def process_response(self, method, response):
+        if method == "GET":
+            if response.status != 200:
+                LOGGER.error("GET failed, Eureka server returned "
+                             "{0.status} {0.reason}".format(response))
+                return None
+            _json_str = self.decode_response(response.read())
+            if len(_json_str) == 0:
+                LOGGER.error("GET failed, "
+                             "Eureka server returned empty response")
+                return None
+            return ApiObjectTranslator(_json_str).as_dict()
+
+    def get_random_instance(self, application_name):
+        _all_instances = self.get_instances_list(application_name)
+        if _all_instances:
+            return random.choice(_all_instances)
+        else:
+            return None
 
 
 class ApiObjectTranslator:
@@ -114,10 +229,10 @@ class ApiObjectTranslator:
         self._json_string = json_string
 
     @staticmethod
-    def dict_merge(target, *args):
+    def dict_merge(target, *args, overwrite=False):
         if len(args) > 1:
             for obj in args:
-                ApiObjectTranslator.dict_merge(target, obj)
+                ApiObjectTranslator.dict_merge(target, obj, overwrite=overwrite)
             return target
 
         obj = args[0]
@@ -125,7 +240,10 @@ class ApiObjectTranslator:
             return obj
         for k, v in obj.items():
             if k in target and isinstance(target[k], dict):
-                ApiObjectTranslator.dict_merge(target[k], v)
+                ApiObjectTranslator.dict_merge(target[k], v,
+                                               overwrite=overwrite)
+            elif k in target.keys() and overwrite:
+                target[k] = v
             elif k not in target.keys():
                 target[k] = deepcopy(v)
         return target
@@ -158,7 +276,7 @@ class ApiObjectTranslator:
         return dct
 
     @staticmethod
-    def object_hook(dct, extra, expand):
+    def object_hook(dct, extra, overwrite, expand):
         dct = ApiObjectTranslator.cast_numeric_recursively(dct)
         if expand:
             _new_dct = dict()
@@ -166,19 +284,22 @@ class ApiObjectTranslator:
                 ApiObjectTranslator.dict_merge(_new_dct,
                                                reduce(lambda x, y: {y: x},
                                                       reversed(key.split(".")),
-                                                      dct[key]))
+                                                      dct[key]),
+                                               overwrite=overwrite)
             if extra and all(k in _new_dct.keys() for k in extra.keys()):
-                ApiObjectTranslator.dict_merge(_new_dct, extra)
+                ApiObjectTranslator.dict_merge(_new_dct, extra,
+                                               overwrite=overwrite)
             return ApiObjectTranslator.to_namedtuple(_new_dct)
         else:
             if extra and all(k in dct.keys() for k in extra.keys()):
-                ApiObjectTranslator.dict_merge(dct, extra)
+                ApiObjectTranslator.dict_merge(dct, extra, overwrite=overwrite)
             return ApiObjectTranslator.namedtuple_from_mapping(dct)
 
-    def as_object(self, extra_attrs=None, expand_dot_separated=True):
+    def as_object(self, extra_attrs=None,
+                  overwrite=False, expand_dot_separated=False):
         return json.loads(self._json_string,
                           object_hook=lambda d: ApiObjectTranslator.object_hook(
-                              d, extra_attrs, expand_dot_separated))
+                              d, extra_attrs, overwrite, expand_dot_separated))
 
     def as_dict(self):
         return self.cast_numeric_recursively(json.loads(self._json_string))

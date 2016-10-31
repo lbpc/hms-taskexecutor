@@ -1,5 +1,5 @@
 {% for vhost in vhosts %}
-<VirtualHost {{ params["apache_socket"].address }}:{{ params["apache_socket"].port }}>
+<VirtualHost {{ socket.address }}:{{ socket.port }}>
     ServerName {{ vhost.domains[0].name }}
     ServerAlias *.{{ vhost.domains[0].name }} {% if vhost.domains|length > 1 %}{% for domain in vhost.domains[1:] %}{{ domain.name }} *.{{ domain.name }} {% endfor %}{% endif %}
 

@@ -3,7 +3,7 @@ import json
 from abc import ABCMeta, abstractmethod
 from itertools import product
 import pika
-from taskexecutor.config import Config
+from taskexecutor.config import CONFIG
 from taskexecutor.executor import Executor, Executors
 from taskexecutor.task import Task
 from taskexecutor.utils import set_thread_name
@@ -35,8 +35,8 @@ class Listener(metaclass=ABCMeta):
 class AMQPListener(Listener):
     def __init__(self):
         self._futures_tags_map = dict()
-        self._exchange_list = list(product(Config.enabled_resources,
-                                           Config.enabled_actions))
+        self._exchange_list = list(product(CONFIG.enabled_resources,
+                                           ["create", "update", "delete"]))
         self._connection = None
         self._channel = None
         self._on_cancel_callback_is_set = False
@@ -45,7 +45,7 @@ class AMQPListener(Listener):
         self._url = "amqp://{0.user}:{0.password}@{0.host}:5672/%2F" \
                     "?heartbeat_interval={0.heartbeat_interval}" \
                     "&connection_attempts={0.connection_attempts}" \
-                    "&retry_delay={0.retry_delay}".format(Config.amqp)
+                    "&retry_delay={0.retry_delay}".format(CONFIG.amqp)
 
     def _connect(self):
         return pika.SelectConnection(pika.URLParameters(self._url),
@@ -63,7 +63,7 @@ class AMQPListener(Listener):
         if self._closing:
             self._connection.ioloop._stopping = True
         else:
-            self._connection.add_timeout(Config.amqp.connection_timeout,
+            self._connection.add_timeout(CONFIG.amqp.connection_timeout,
                                          self._reconnect)
 
     def _reconnect(self):
@@ -87,14 +87,14 @@ class AMQPListener(Listener):
         self._connection.close()
 
     def _setup_exchange(self, exchange_name):
-        _queue_name = "{0}.{1}".format(Config.amqp.consumer_routing_key,
+        _queue_name = "{0}.{1}".format(CONFIG.amqp.consumer_routing_key,
                                        exchange_name)
         self._channel.exchange_declare(
             functools.partial(self._on_exchange_declareok,
                               queue_name=_queue_name,
                               exchange_name=exchange_name),
             exchange_name,
-            Config.amqp.exchange_type
+            CONFIG.amqp.exchange_type
         )
 
     def _on_exchange_declareok(self, unused_frame, queue_name, exchange_name):
@@ -117,7 +117,7 @@ class AMQPListener(Listener):
                               exchange_name=exchange_name),
             queue_name,
             exchange_name,
-            Config.amqp.consumer_routing_key
+            CONFIG.amqp.consumer_routing_key
         )
 
     def _on_bindok(self, unused_frame, queue_name, exchange_name):
@@ -142,6 +142,12 @@ class AMQPListener(Listener):
 
     def _on_message(self, unused_channel, basic_deliver, properties, body,
                     exchange_name):
+        if exchange_name != basic_deliver.exchange:
+            raise KeyError("Message '{0}' "
+                           "came from unexpected exchange '{1}',"
+                           "expected '{2}'".format(body,
+                                                   basic_deliver.exchange,
+                                                   exchange_name))
         context = dict(zip(("res_type", "action"), exchange_name.split(".")))
         context["delivery_tag"] = basic_deliver.delivery_tag
         self.take_event(context, body)
@@ -209,7 +215,7 @@ class AMQPListener(Listener):
     def stop(self):
         self._closing = True
         self._stop_consuming()
-        self._connection.ioloop._stopping = True
+        return not self._connection
 
 
 class ListenerBuilder:

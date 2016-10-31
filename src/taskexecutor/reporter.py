@@ -1,7 +1,7 @@
 import json
 from abc import ABCMeta, abstractmethod
 import pika
-from taskexecutor.config import Config
+from taskexecutor.config import CONFIG
 
 
 class Reporter(metaclass=ABCMeta):
@@ -22,7 +22,7 @@ class AMQPReporter(Reporter):
         super().__init__()
         self._url = "amqp://{0.user}:{0.password}@{0.host}:5672/%2F" \
                     "?heartbeat_interval={0.heartbeat_interval}".format(
-                        Config.amqp
+                        CONFIG.amqp
                     )
         self._connection = None
         self._channel = None
@@ -61,7 +61,7 @@ class AMQPReporter(Reporter):
     def send_report(self):
         self._connection = self._connnect()
         self._channel = self._open_channel()
-        self._declare_exchange(self._exchange, Config.amqp.exchange_type)
+        self._declare_exchange(self._exchange, CONFIG.amqp.exchange_type)
         self._publish_message(self._report_to_json())
         self._close_channel()
 
