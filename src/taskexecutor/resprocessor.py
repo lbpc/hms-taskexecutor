@@ -222,13 +222,13 @@ class WebSiteProcessor(ResProcessor):
             return api.service(self.resource.applicationServerId).get()
 
     def _get_nginx_service_obj(self):
-        for service in CONFIG.localserver.serviceList:
+        for service in CONFIG.localserver.services:
             if service.name == "nginx":
                 return service
         raise AttributeError("Local server has no nginx service")
 
     def _get_config_template(self, service_obj, template_name):
-        for template in service_obj.serviceTemplate.configTemplateList:
+        for template in service_obj.serviceTemplate.configTemplates:
             if template.name == template_name:
                 with ApiClient(**CONFIG.apigw.serviceSocket) as api:
                     return api.get(template.fileLink)
@@ -359,11 +359,8 @@ class WebSiteProcessor(ResProcessor):
 class WebSiteProcessorBaton(WebSiteProcessor):
     def _build_webserver_container(self, webserver_type):
         if webserver_type == "apache":
-            _apache_name_mangle = {"apache2-php4": "apache",
-                                   "apache2-php52": "apache5",
-                                   "apache2-php53": "apache53"}
             _service = self._get_apache_service_obj()
-            _opservice = UnmanagedApache(_apache_name_mangle[_service.name])
+            _opservice = UnmanagedApache(_service.name)
             _template_name = "BatonApacheVHost"
         elif webserver_type == "nginx":
             _service = self._get_nginx_service_obj()
@@ -542,23 +539,68 @@ class DatabaseProcessor(ResProcessor):
 class ServiceProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
+        if self.resource.name == "nginx":
+            self._opservice = Nginx()
+        elif self.resource.name.startswith("apache"):
+            self._opservice = Apache(name=self.resource.name)
+        self._excluded_templates = ("NginxServer", "ApacheVHost")
 
     def create(self):
-        pass
+        _all_configs = list()
+        for config_template in self.resource.serviceTemplate.configTemplates:
+            if config_template.name not in self._excluded_templates:
+                _config = ConfigFile("{0}/{1}".format(self._opservice.cfg_base,
+                                                      config_template.name))
+                _all_configs.append(_config)
+                with ApiClient(**CONFIG.apigw.serviceSocket) as api:
+                    _config.template = api.get(config_template.fileLink)
+                _config.render_template(service=self.resource,
+                                        params=self.params)
+                _config.write()
+        try:
+            self._opservice.reload()
+        except:
+            for config in _all_configs:
+                config.revert()
+            raise
+        for config in _all_configs:
+            config.confirm()
 
     def update(self):
-        pass
+        self.create()
 
     def delete(self):
-        pass
+        for config_template in self.resource.serviceTemplate.configTemplates:
+            _config = ConfigFile("{0}/{1}".format(self._opservice.cfg_base,
+                                                  config_template.name))
+            _config.delete()
+        self._opservice.stop()
+
+
+class ServiceProcessorBaton(ServiceProcessor):
+    def __init__(self, resource, params):
+        super(ServiceProcessor, self).__init__(resource, params)
+        if self.resource.name == "nginx":
+            self._opservice = UnmanagedNginx()
+        elif self.resource.name.startswith("apache"):
+            self._opservice = UnmanagedApache(name=self.resource.name)
+        self._excluded_templates = ("BatonNginxServer", "BatonApacheVHost")
 
 
 class ResProcessorBuilder:
     def __new__(cls, res_type):
-        if res_type == "unixaccount":
+        if res_type == "service" and CONFIG.hostname == "baton":
+            return ServiceProcessorBaton
+        elif res_type == "service":
+            return ServiceProcessor
+        elif res_type == "unixaccount" and CONFIG.hostname == "baton":
+            return UnixAccountProcessorBaton
+        elif res_type == "unixaccount":
             return UnixAccountProcessor
         elif res_type == "dbaccount":
             return DBAccountProcessor
+        elif res_type == "website" and CONFIG.hostname == "baton":
+            return WebSiteProcessorBaton
         elif res_type == "website":
             return WebSiteProcessor
         elif res_type == "sslcertificate":

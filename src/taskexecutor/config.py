@@ -25,22 +25,25 @@ class __Config:
         LOGGER.info("Effective configuration:{}".format(self))
 
     def _read_os_env(self):
-        if "HMS_ENV" in os.environ.keys():
-            self.profile = os.environ["HMS_ENV"]
-            LOGGER.info("'{}' profile set according to "
-                        "HMS_ENV environment variable".format(self.profile))
+        if "SPRING_PROFILES_ACTIVE" in os.environ.keys():
+            self.profile = os.environ["SPRING_PROFILES_ACTIVE"]
+            LOGGER.info("'{}' profile set according to SPRING_PROFILES_ACTIVE "
+                        "environment variable".format(self.profile))
         else:
-            LOGGER.warning("There is no HMS_ENV environment variable set, "
+            LOGGER.warning("There is no SPRING_PROFILES_ACTIVE "
+                           "environment variable set, "
                            "falling back to 'dev' profile")
             self.profile = "dev"
         self.eureka_socket["address"], self.eureka_socket["port"] = urlparse(
                 os.environ["EUREKA_CLIENT_SERVICE-URL_defaultZone"]
         ).netloc.split(":")
+        self._amqp_host = os.environ["SPRING_RABBITMQ_HOST"]
 
     def _fetch_remote_properties(self):
         LOGGER.info("Fetching properties from config server")
         with ConfigServerClient(**self.configserver.serviceSocket) as cnf:
             cnf.extra_attrs = [
+                "amqp.host={}".format(self._amqp_host),
                 "amqp.consumer_routing_key=te.{}".format(self.hostname),
             ]
             for attr, value in vars(
@@ -50,16 +53,12 @@ class __Config:
                     setattr(self, attr, value)
 
     def _obtain_local_server_props(self):
-        self.localserver = type('', (), {})
-        self.localserver.serverRole = type('', (), {})
-        self.localserver.serverRole.name = "web"
-        return
-        with ApiClient(**self.apigw.serviceSocket) as api:
+        with ApiClient(**self.rc_staff.serviceSocket) as api:
             self.localserver = api.server(query={"name": self.hostname}).get()
 
     def _declare_enabled_resources(self):
         self.enabled_resources = \
-            {"web": ["unixaccount", "dbaccount", "database",
+            {"web": ["service", "unixaccount", "dbaccount", "database",
              "website", "sslcertificate"],
              "pop": ["mailbox"],
              "mx": ["mailbox"],
