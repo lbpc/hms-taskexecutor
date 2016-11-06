@@ -62,19 +62,26 @@ class UnixAccountProcessor(ResProcessor):
 
     def _adduser(self):
         LOGGER.info("Adding user {0.name} to system".format(self.resource))
-        exec_command("adduser "
-                     "--force-badname "
-                     "--disabled-password "
-                     "--gecos 'Hosting account' "
-                     "--uid {0.uid} "
-                     "--home {0.homeDir} "
+        exec_command("useradd"
+                     "--comment 'Hosting account HMS ID {0.id}'"
+                     "--uid {0.uid}"
+                     "--home {0.homeDir}"
+                     "--password {0.passwordHash}"
+                     "--create-home"
+                     "--shell /bin/bash"
                      "{0.name}".format(self.resource))
 
-    def _setquota(self):
+    def _setquota(self, quota=None):
         LOGGER.info("Setting quota for user {0.name}".format(self.resource))
-        exec_command("setquota "
-                     "-g {0.uid} 0 {0.quota} "
-                     "0 0 /home".format(self.resource))
+        if quota:
+            _cmd = ("setquota "
+                    "-g {0.uid} 0 {1} "
+                    "0 0 /home").format(self.resource, quota)
+        else:
+            _cmd = ("setquota "
+                    "-g {0.uid} 0 {0.quota} "
+                    "0 0 /home").format(self.resource)
+        exec_command(_cmd)
 
     def _userdel(self):
         LOGGER.info("Deleting user {0.name}".format(self.resource))
@@ -96,8 +103,29 @@ class UnixAccountProcessor(ResProcessor):
             owner_uid=self.resource.uid,
             mode=0o400
         )
-        _authorized_keys.body = self.params["sshPublicKey"]
+        _authorized_keys.body = self.resource.keyPair.publicKey
         _authorized_keys.save()
+
+    def _create_crontab(self):
+        crontab_string = str()
+        for entry in self.resource.crontab:
+            if entry.switchedOn:
+                crontab_string = ("{0}"
+                                  "#{1.name}\n"
+                                  "#{1.execTimeDescription}\n"
+                                  "{1.execTime} {1.command}\n").format(
+                        crontab_string, entry)
+        LOGGER.info("Installing '{0}' crontab for {1}".format(
+                crontab_string, self.resource.name))
+        exec_command("crontab -u {} -".format(self.resource.name),
+                     pass_to_stdin=crontab_string)
+
+    def _delete_crontab_if_present(self):
+        if os.path.exists(
+                "/var/spool/cron/crontabs/{}".format(self.resource.name)
+        ):
+            LOGGER.info("Deleting {} crontab".format(self.resource.name))
+            exec_command("crontab -u {} -r".format(self.resource.name))
 
     def create(self):
         self._adduser()
@@ -108,18 +136,23 @@ class UnixAccountProcessor(ResProcessor):
                          "for user {0.name}".format(self.resource))
             self._userdel()
             raise
-        if "sshPublicKey" in self.params.keys() and self.params["sshPublicKey"]:
+        if len(self.resource.crontab) > 0:
+            self._create_crontab()
+        if hasattr(self.resource, "keyPair") and self.resource.keyPair:
             self._create_authorized_keys()
 
     def update(self):
         LOGGER.info("Modifying user {0.name}".format(self.resource))
-        exec_command("usermod "
-                     "--move-home "
-                     "--home {0.homeDir} "
-                     "--uid {0.uid} "
-                     "{0.name}".format(self.resource))
-        if "sshPublicKey" in self.params.keys() and self.params["sshPublicKey"]:
+        if not self.resource.writable:
+            self._setquota(self.resource.quotaUsed)
+        else:
+            self._setquota()
+        if hasattr(self.resource, "keyPair") and self.resource.keyPair:
             self._create_authorized_keys()
+        if len(self.resource.crontab) > 0:
+            self._create_crontab()
+        else:
+            self._delete_crontab_if_present()
 
     def delete(self):
         self._killprocs()
@@ -140,7 +173,8 @@ class UnixAccountProcessorBaton(UnixAccountProcessor):
         _jailed_ssh_config.save()
         exec_command("jexec "
                      "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
-                     "pgrep sshd | xargs kill -HUP")
+                     "pgrep sshd | xargs kill -HUP",
+                     shell="/usr/local/bin/bash")
 
     def _adduser(self):
         LOGGER.info("Adding user {0.name} to system".format(self.resource))
@@ -151,7 +185,8 @@ class UnixAccountProcessorBaton(UnixAccountProcessor):
                      "-d {0.homeDir} "
                      "-h - "
                      "-s /usr/local/bin/bash "
-                     "-c 'Hosting account'".format(self.resource, CONFIG))
+                     "-c 'Hosting account'".format(self.resource, CONFIG),
+                     shell="/usr/local/bin/bash")
         self._update_jailed_ssh("append")
 
     def _setquota(self):
@@ -161,53 +196,46 @@ class UnixAccountProcessorBaton(UnixAccountProcessor):
                      "edquota "
                      "-g "
                      "-e /home:0:{0.quota} "
-                     "{0.uid}".format(self.resource, CONFIG))
+                     "{0.uid}".format(self.resource, CONFIG),
+                     shell="/usr/local/bin/bash")
 
     def _userdel(self):
         LOGGER.info("Deleting user {0.name}".format(self.resource))
         exec_command("jexec "
                      "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
-                     "pw userdel {0.name} -r".format(self.resource, CONFIG))
+                     "pw userdel {0.name} -r".format(self.resource, CONFIG),
+                     shell="/usr/local/bin/bash")
         self._update_jailed_ssh("remove")
 
     def _killprocs(self):
         LOGGER.info("Killing user {0.name}'s processes, "
                     "if any".format(self.resource))
-        exec_command("killall -9 -u {0.uid} || true".format(self.resource))
+        exec_command("killall -9 -u {0.uid} || true".format(self.resource),
+                     shell="/usr/local/bin/bash")
 
-    def update(self):
-        LOGGER.info("Modifying user {0.name}".format(self.resource))
+    def _create_crontab(self):
+        crontab_string = str()
+        for entry in self.resource.crontab:
+            if entry.switchedOn:
+                crontab_string = ("{0}"
+                                  "{1.execTime} {1.command}\n").format(
+                        crontab_string, entry)
+        LOGGER.info("Installing '{0}' crontab for {1}".format(
+                crontab_string, self.resource.name))
         exec_command("jexec "
                      "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
-                     "pw usermod {0.name}"
-                     "-u {0.uid} "
-                     "-g {0.uid} "
-                     "-d {0.homeDir}".format(self.resource, CONFIG))
-        if "sshPublicKey" in self.params.keys() and self.params["sshPublicKey"]:
-            self._create_authorized_keys()
+                     "crontab -u {0.name} -".format(self.resource, CONFIG),
+                     pass_to_stdin=crontab_string)
 
-
-class DBAccountProcessor(ResProcessor):
-    def __init__(self, resource, params):
-        super().__init__(resource, params)
-
-    def create(self):
-        query = "CREATE USER `{0.name}`@`{1[addr]}` " \
-                "IDENTIFIED BY PASSWORD '{1[passHash]}'".format(self.resource,
-                                                                self.params)
-        LOGGER.info("Executing query: {}".format(query))
-        with MySQLClient(**CONFIG.mysql) as c:
-            c.execute(query)
-
-    def update(self):
-        self.delete()
-        self.create()
-
-    def delete(self):
-        query = "DROP USER {0.name}".format(self.resource)
-        LOGGER.info("Executing query: {}".format(query))
-        with MySQLClient(**CONFIG.mysql) as c:
-            c.execute(query)
+    def _delete_crontab_if_present(self):
+        if os.path.exists(
+                "/usr/jail/var/cron/tabs/{}".format(self.resource.name)
+        ):
+            LOGGER.info("Deleting {} crontab".format(self.resource.name))
+            exec_command("jexec "
+                         "$(jls -ns | "
+                         "awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
+                         "crontab -u {0.name} -r".format(self.resource, CONFIG))
 
 
 class WebSiteProcessor(ResProcessor):
@@ -218,7 +246,7 @@ class WebSiteProcessor(ResProcessor):
         self._fill_params()
 
     def _get_apache_service_obj(self):
-        with ApiClient(**CONFIG.apigw.serviceSocket) as api:
+        with ApiClient(**CONFIG.apigw) as api:
             return api.service(self.resource.applicationServerId).get()
 
     def _get_nginx_service_obj(self):
@@ -230,7 +258,7 @@ class WebSiteProcessor(ResProcessor):
     def _get_config_template(self, service_obj, template_name):
         for template in service_obj.serviceTemplate.configTemplates:
             if template.name == template_name:
-                with ApiClient(**CONFIG.apigw.serviceSocket) as api:
+                with ApiClient(**CONFIG.apigw) as api:
                     return api.get(template.fileLink)
         raise AttributeError("There is no {0} config template "
                              "in {1}".format(template_name,
@@ -429,7 +457,7 @@ class MailboxProcessor(ResProcessor):
 
     @synchronized
     def delete(self):
-        with ApiClient(**CONFIG.apigw.serviceSocket) as api:
+        with ApiClient(**CONFIG.apigw) as api:
             _mailboxes_remaining = \
                 api.mailbox(query={"domain": self.resource.domain.name}).get()
         if len(_mailboxes_remaining) == 1:
@@ -493,47 +521,98 @@ class MailboxAtMxProcessor(MailboxProcessor):
             self._relay_domains.save()
 
 
+class DatabaseUserProcessor(ResProcessor):
+    def __init__(self, resource, params):
+        super().__init__(resource, params)
+
+    def create(self):
+        queryset = [
+            (
+                "CREATE USER `%s`@`%s` IDENTIFIED BY PASSWORD '%s'",
+                (self.resource.name, addr, self.resource.passwordHash)
+            ) for addr in self.resource.addressList
+        ]
+        with MySQLClient(**CONFIG.mysql) as c:
+            for query, values in queryset:
+                LOGGER.info("Executing query: {}".format(query % values))
+                c.execute(query, values)
+
+    def update(self):
+        self.delete()
+        self.create()
+
+    def delete(self):
+        query = "DROP USER %s"
+        with MySQLClient(**CONFIG.mysql) as c:
+            LOGGER.info("Executing query: {}".format(query % self.resource.name))
+            c.execute(query, (self.resource.name,))
+
+
 class DatabaseProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
 
     def create(self):
-        grant_query = "GRANT " \
-                      "SELECT, " \
-                      "INSERT, " \
-                      "UPDATE, " \
-                      "DELETE, " \
-                      "CREATE, " \
-                      "DROP, " \
-                      "REFERENCES, " \
-                      "INDEX, " \
-                      "ALTER, " \
-                      "CREATE TEMPORARY TABLES, " \
-                      "LOCK TABLES, " \
-                      "CREATE VIEW, " \
-                      "SHOW VIEW, " \
-                      "CREATE ROUTINE, " \
-                      "ALTER ROUTINE, " \
-                      "EXECUTE" \
-                      " ON `{0.name}`.* TO `{0.user}`@`{1[addr]}%` " \
-                      "IDENTIFIED BY PASSWORD " \
-                      "'{1[passHash]}'".format(self.resource, self.params)
-        create_query = "CREATE DATABASE IF NOT EXISTS {0.name}".format(
-                self.resource)
-        LOGGER.info("Executing queries: {0}; {1}".format(grant_query,
-                                                         create_query))
+        queryset = [
+            (
+                "CREATE DATABASE IF NOT EXISTS %s", (self.resource.name,)
+            ),
+        ]
+        for user in self.resource.databaseUsers:
+            queryset += [
+                ("GRANT "
+                 "SELECT, "
+                 "INSERT, "
+                 "UPDATE, "
+                 "DELETE, "
+                 "CREATE, "
+                 "DROP, "
+                 "REFERENCES, "
+                 "INDEX, "
+                 "ALTER, "
+                 "CREATE TEMPORARY TABLES, "
+                 "LOCK TABLES, "
+                 "CREATE VIEW, "
+                 "SHOW VIEW, "
+                 "CREATE ROUTINE, "
+                 "ALTER ROUTINE, "
+                 "EXECUTE"
+                 " ON `%s`.* TO `%s`@`%s` "
+                 "IDENTIFIED BY PASSWORD '%s'",
+                 (self.resource.name, user.name, addr, user.passwordHash))
+                for addr in user.addressList
+            ]
         with MySQLClient(**CONFIG.mysql) as c:
-            c.execute(grant_query)
-            c.execute(create_query)
+            for query, values in queryset:
+                LOGGER.info("Executing query: {}".format(query % values))
+                c.execute(query, values)
 
     def update(self):
-        pass
+        if not self.resource.writable:
+            query_action = "REVOKE"
+        else:
+            query_action = "GRANT"
+
+        queryset = list()
+        for user in self.resource.databaseUsers:
+            queryset += [
+                ("{0} INSERT, UPDATE ON "
+                 "`%s`.* FROM `%s`@`%s`".format(query_action),
+                 (self.resource.name, user.name, addr))
+                for addr in user.addressList
+            ]
+        with MySQLClient(**CONFIG.mysql) as c:
+            for query, values in queryset:
+                LOGGER.info("Executing query: {}",format(query % values))
+                c.execute(query, values)
 
     def delete(self):
-        query = "DROP DATABASE {0.name}".format(self.resource)
-        LOGGER.info("Executing query: {}".format(query))
+        query = "DROP DATABASE %s"
         with MySQLClient(**CONFIG.mysql) as c:
-            c.execute(query)
+            LOGGER.info(
+                    "Executing query: {}".format(query % self.resource.name)
+            )
+            c.execute(query, (self.resource.name,))
 
 
 class ServiceProcessor(ResProcessor):
@@ -552,7 +631,7 @@ class ServiceProcessor(ResProcessor):
                 _config = ConfigFile("{0}/{1}".format(self._opservice.cfg_base,
                                                       config_template.name))
                 _all_configs.append(_config)
-                with ApiClient(**CONFIG.apigw.serviceSocket) as api:
+                with ApiClient(**CONFIG.apigw) as api:
                     _config.template = api.get(config_template.fileLink)
                 _config.render_template(service=self.resource,
                                         params=self.params)
@@ -593,12 +672,12 @@ class ResProcessorBuilder:
             return ServiceProcessorBaton
         elif res_type == "service":
             return ServiceProcessor
-        elif res_type == "unixaccount" and CONFIG.hostname == "baton":
+        elif res_type == "unix-account" and CONFIG.hostname == "baton":
             return UnixAccountProcessorBaton
-        elif res_type == "unixaccount":
+        elif res_type == "unix-account":
             return UnixAccountProcessor
-        elif res_type == "dbaccount":
-            return DBAccountProcessor
+        elif res_type == "database-user":
+            return DatabaseUserProcessor
         elif res_type == "website" and CONFIG.hostname == "baton":
             return WebSiteProcessorBaton
         elif res_type == "website":

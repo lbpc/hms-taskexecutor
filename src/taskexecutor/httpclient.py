@@ -18,9 +18,12 @@ class HttpClient:
         self._default_headers = dict()
 
     def __enter__(self):
-        LOGGER.info("Connecting to {0}:{1}".format(self._address, self._port))
+        LOGGER.debug("Connecting to {0}:{1}".format(self._address, self._port))
         self._connection = http.client.HTTPConnection(
-                "{0}:{1}".format(self._address, self._port))
+            "{0}:{1}".format(self._address, self._port),
+            timeout=30
+        )
+        self.authorize()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -28,7 +31,7 @@ class HttpClient:
 
     @property
     def uri_path(self):
-        return self._uri_path
+        return self._uri_path or ""
 
     @uri_path.setter
     def uri_path(self, value):
@@ -43,11 +46,17 @@ class HttpClient:
         return resp_bytes.decode("UTF-8")
 
     def post(self, body, uri_path=None, headers=None):
-        raise NotImplementedError
+        _uri_path = uri_path or self.uri_path
+        _headers = headers or self._default_headers
+        self._connection.request("POST", _uri_path, body=body, headers=_headers)
+        LOGGER.debug("Performing POST request by URI path {0} "
+                     "with following data: '{1}'".format(_uri_path, body))
+        return self.process_response("POST", self._connection.getresponse())
 
     def get(self, uri_path=None, headers=None):
         _uri_path = uri_path or self.uri_path
         _headers = headers or self._default_headers
+        LOGGER.debug("Performing GET request by URI path {}".format(_uri_path))
         self._connection.request("GET", _uri_path, headers=_headers)
         return self.process_response("GET", self._connection.getresponse())
 
@@ -57,6 +66,9 @@ class HttpClient:
     def delete(self, uri_path=None, headers=None):
         raise NotImplementedError
 
+    def authorize(self):
+        LOGGER.debug("Plain HTTP connection without authorization required")
+
     def process_response(self, method, response):
         if response.status // 100 == 5:
             raise Exception("{0} failed, HTTP server returned "
@@ -65,45 +77,77 @@ class HttpClient:
 
 
 class ApiClient(HttpClient):
-    def __init__(self, address, port, service=None):
+    def __init__(self, address, port, user=None, password=None):
         super().__init__(address, port)
-        self._service = service
+        self._default_headers = {"Content-Type": "application/json"}
+        self._access_token = None
+        self._user = user
+        self._password = password
+
+    def authorize(self):
+        if self._user and self._password:
+            post_data = urlencode({"grant_type": "password",
+                                   "username": self._user,
+                                   "password": self._password,
+                                   "client_id": "service",
+                                   "client_secret": "service_secret"})
+            headers = {"X-Requested-With": "XMLHttpRequest",
+                       "Content-Type": "application/x-www-form-urlencoded"}
+            resp = self.post(post_data,
+                             uri_path="/oauth/token",
+                             headers=headers)
+            self._access_token = json.loads(resp)["access_token"]
+            self._default_headers.update(
+                {"Authorization": "Bearer {}".format(self._access_token)}
+            )
+        else:
+            super().authorize()
 
     def _build_resource(self, res_name, res_id):
-        self.uri_path = "/{0}/{1}".format(res_name, res_id)
-        if self._service:
-            self.uri_path = "/{0}{1}".format(self._service, self.uri_path)
-        return self
+        self.uri_path = "{0}/{1}/{2}".format(self.uri_path, res_name, res_id)
 
     def _build_collection(self, res_name, query=None):
         if query:
-            self.uri_path = "/{0}?{1}".format(res_name, urlencode(query))
+            self.uri_path = "{0}/{1}?{2}".format(self.uri_path,
+                                                 res_name,
+                                                 urlencode(query))
         else:
-            self.uri_path = "/{}".format(res_name)
-        if self._service:
-            self.uri_path = "/{0}{1}".format(self._service, self.uri_path)
-        return self
+            self.uri_path = "{0}/{1}".format(self.uri_path, res_name)
 
     def process_response(self, method, response):
+        self.uri_path = None
         if method == "GET":
             if response.status != 200:
-                raise Exception("GET failed, REST server returned "
-                                "{0.status} {0.reason}".format(response))
+                raise Exception(
+                        "GET failed, REST server returned "
+                        "{0.status} {0.reason} {1}".format(response,
+                                                           response.read())
+                )
             _json_str = self.decode_response(response.read())
             if len(_json_str) == 0:
                 raise Exception(
                     "GET failed, REST server returned empty response")
             _resource = ApiObjectTranslator(_json_str)
             return _resource.as_object()
+        elif method == "POST":
+            if response.status // 100 != 2:
+                LOGGER.error(
+                        "POST failed, REST server returned "
+                        "{0.status} {0.reason} {1}".format(response,
+                                                           response.read())
+                )
+                return None
+            return self.decode_response(response.read())
 
     def __getattr__(self, name):
         def wrapper(res_id=None, query=None):
             if res_id:
-                return self._build_resource(name, res_id)
+                self._build_resource(name, res_id)
             elif query:
-                return self._build_collection(name, query)
+                self._build_collection(name, query)
             else:
-                return self._build_collection(name)
+                self._build_collection(name)
+            return self
 
         return wrapper
 
@@ -135,8 +179,11 @@ class ConfigServerClient(HttpClient):
     def process_response(self, method, response):
         if method == "GET":
             if response.status != 200:
-                raise Exception("GET failed, config server returned "
-                                "{0.status} {0.reason}".format(response))
+                raise Exception(
+                        "GET failed, config server returned "
+                        "{0.status} {0.reason} {1}".format(response,
+                                                           response.read())
+                )
             _json_str = self.decode_response(response.read())
             if len(_json_str) == 0:
                 raise Exception(
@@ -152,7 +199,6 @@ class ConfigServerClient(HttpClient):
     def get_property_sources_list(self, name, profile):
         self.uri_path = "/{0}/{1}".format(name, profile)
         _list = [s.source for s in self.get().propertySources]
-        LOGGER.info("Got {}".format(_list))
         return _list
 
     def get_property_source(self, name, profile, source_name):
@@ -160,7 +206,6 @@ class ConfigServerClient(HttpClient):
         _names_available = list()
         for source in self.get().propertySources:
             if source.name == source_name:
-                LOGGER.info("Got {}".format(source))
                 return source
             else:
                 _names_available.append(source.name)
@@ -170,16 +215,32 @@ class ConfigServerClient(HttpClient):
 
 
 class EurekaClient(HttpClient):
-    def __init__(self, address, port):
-        super().__init__(address, port)
+    def __init__(self, sockets_list):
+        self._sockets_list = sockets_list
+        self._uri_path = None
+        self._default_headers = dict()
         self._default_headers = {"Accept": "application/json"}
+
+    def __enter__(self):
+        _address, _port = self._sockets_list[0]
+        for tries in range(len(self._sockets_list) * 2):
+            try:
+                self._connection = http.client.HTTPConnection(
+                        "{0}:{1}".format(_address, _port),
+                        timeout=30
+                )
+                return self
+            except:
+                LOGGER.warning("Trying next Eureka server, "
+                               "tries: {}".format(tries))
+                self._sockets_list.append(self._sockets_list.pop(0))
+        LOGGER.error("All Eureka instances appear to be down, give up")
 
     def get_instances_list(self, application_name):
         self.uri_path = "/eureka/apps/{}".format(application_name)
-        LOGGER.info("Requested application: {0}, "
-                    "URI path: {1}".format(application_name, self.uri_path))
+        LOGGER.debug("Requested application: {0}, "
+                     "URI path: {1}".format(application_name, self.uri_path))
         _result = self.get()
-        LOGGER.info("Got {}".format(_result))
         _instance_list = list()
         if _result and \
                 "application" in _result.keys() and \
@@ -191,12 +252,10 @@ class EurekaClient(HttpClient):
                 if instance["status"] == "UP":
                     _instance_list.append(
                             namedtuple("EurekaService",
-                                       "name serviceSocket timestamp")(
+                                       "name address port timestamp")(
                                     name=instance["app"].lower(),
-                                    serviceSocket={
-                                        "address": instance["ipAddr"],
-                                        "port": instance["port"]["$"]
-                                    },
+                                    address=instance["ipAddr"],
+                                    port=instance["port"]["$"],
                                     timestamp=instance["leaseInfo"][
                                                   "serviceUpTimestamp"] / 1000
                             )

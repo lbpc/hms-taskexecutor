@@ -10,11 +10,14 @@ __all__ = ['PythonDockerTestMixin', 'ConfigurationError', 'ContainerNotReady']
 DEFAULT_READY_TRIES = 10
 DEFAULT_READY_SLEEP = 3
 
+
 class ConfigurationError(Exception):
     pass
 
+
 class ContainerNotReady(Exception):
     pass
+
 
 class ContainerStartThread(threading.Thread):
     def __init__(self, image, ready_callback, ready_tries, ready_sleep):
@@ -71,7 +74,6 @@ class ContainerStartThread(threading.Thread):
                 self.error = e.message
             self.is_ready.set()
 
-
     def terminate(self):
         if hasattr(self, 'container'):
             self.client.stop(self.container)
@@ -82,7 +84,8 @@ class PythonDockerTestMixin(object):
     @classmethod
     def setUpClass(cls):
         if not hasattr(cls, 'CONTAINER_IMAGE'):
-            raise ConfigurationError("Test class missing CONTAINER_IMAGE attribute")
+            raise ConfigurationError("Test class missing "
+                                     "CONTAINER_IMAGE attribute")
 
         ready_tries = getattr(cls, 'CONTAINER_READY_TRIES', DEFAULT_READY_TRIES)
         ready_sleep = getattr(cls, 'CONTAINER_READY_SLEEP', DEFAULT_READY_SLEEP)
@@ -103,7 +106,6 @@ class PythonDockerTestMixin(object):
         cls.container_data = cls.container_start_thread.container_data
 
         super(PythonDockerTestMixin, cls).setUpClass()
-
 
     @classmethod
     def _tearDownClassInternal(cls):

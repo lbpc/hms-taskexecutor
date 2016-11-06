@@ -26,8 +26,9 @@ class AMQPReporter(Reporter):
                     )
         self._connection = None
         self._channel = None
-        self._exchange = "service.rc.user"
-        self._routing_key = "service.rc.user"
+        self._exchange = None
+        self._routing_key = None
+        self._task = None
 
     def _connnect(self):
         return pika.BlockingConnection(pika.URLParameters(self._url))
@@ -46,12 +47,16 @@ class AMQPReporter(Reporter):
     def _publish_message(self, message):
         self._channel.basic_publish(exchange=self._exchange,
                                     routing_key=self._routing_key,
+                                    properties=pika.BasicProperties(
+                                            headers={"provider": "te"}
+                                    ),
                                     body=message)
 
     def _report_to_json(self):
         return json.dumps(self._report)
 
     def create_report(self, task):
+        self._task = task
         self._report["operationIdentity"] = task.opid
         self._report["actionIdentity"] = task.actid
         self._report["objRef"] = task.params["objRef"]
@@ -59,6 +64,9 @@ class AMQPReporter(Reporter):
         return self._report
 
     def send_report(self):
+        self._exchange = "{0}.{1}".format(self._task.res_type,
+                                          self._task.action)
+        self._routing_key = "service.{}".format(self._task.params["provider"])
         self._connection = self._connnect()
         self._channel = self._open_channel()
         self._declare_exchange(self._exchange, CONFIG.amqp.exchange_type)

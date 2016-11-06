@@ -6,6 +6,7 @@ import pika
 import json
 import time
 from mixins import PythonDockerTestMixin, ContainerNotReady
+import taskexecutor.task
 
 
 class TestAMQPListener(PythonDockerTestMixin, unittest.TestCase):
@@ -55,7 +56,7 @@ class TestAMQPListener(PythonDockerTestMixin, unittest.TestCase):
                 exchange=exchange,
                 routing_key=self.mock_config.CONFIG.amqp.consumer_routing_key,
                 body=message_body,
-                properties=pika.BasicProperties(delivery_mode = 2,)
+                properties=pika.BasicProperties(headers={"provider": "rc-user"})
         )
         _channel.close()
 
@@ -81,7 +82,7 @@ class TestAMQPListener(PythonDockerTestMixin, unittest.TestCase):
         self.mock_config.CONFIG.amqp.retry_delay = 5
         self.mock_config.CONFIG.amqp.heartbeat_interval = 30
         self.mock_config.CONFIG.amqp.connection_timeout = 5
-        self.mock_config.CONFIG.enabled_resources = ["unixaccount",
+        self.mock_config.CONFIG.enabled_resources = ["unix-account",
                                                      "dbaccount",
                                                      "database",
                                                      "website",
@@ -104,7 +105,7 @@ class TestAMQPListener(PythonDockerTestMixin, unittest.TestCase):
         )
         self._start_and_wait_for_amqp_listener_thread()
         counter = 0
-        for msg_number, exchange in enumerate(("unixaccount.create",
+        for msg_number, exchange in enumerate(("unix-account.create",
                                                "dbaccount.update",
                                                "website.delete"), 1):
             self._send_amqp_message(exchange, test_string)
@@ -121,6 +122,11 @@ class TestAMQPListener(PythonDockerTestMixin, unittest.TestCase):
                 self.amqp_listener._on_message.call_args[0][1].exchange,
                 exchange
             )
+            self.assertEqual(
+                self.amqp_listener._on_message.call_args[0][2].headers[
+                    "provider"],
+                "rc-user"
+            )
             self.assertEqual(self.amqp_listener._on_message.call_args[0][3],
                              test_string.encode("UTF-8"))
             self.assertEqual(self.amqp_listener._on_message.call_count,
@@ -130,14 +136,15 @@ class TestAMQPListener(PythonDockerTestMixin, unittest.TestCase):
         test_operationIdentity = "testOpId"
         test_actionIdentity = "testActId"
         test_objRef = "http://host/path/to/resource"
-        test_params = {"testKey": "testValue"}
+        test_params = {"provider": "rc-user", "objRef": test_objRef}
         test_message = json.dumps({"operationIdentity": test_operationIdentity,
                                    "actionIdentity": test_actionIdentity,
                                    "objRef": test_objRef,
                                    "params": test_params}).encode("UTF-8")
-        test_context = {"res_type": "unixaccount",
+        test_context = {"res_type": "unix-account",
                         "action": "create",
-                        "delivery_tag": 1}
+                        "delivery_tag": 1,
+                        "provider": "rc-user"}
         mock_task = unittest.mock.Mock()
         mock_future = unittest.mock.Mock()
         self.amqp_listener.create_task = unittest.mock.create_autospec(
@@ -167,18 +174,29 @@ class TestAMQPListener(PythonDockerTestMixin, unittest.TestCase):
                          test_context["delivery_tag"])
 
     def test_create_task(self):
-        assert False # TODO: implement test
-
-    def test_pass_task(self):
-        assert False # TODO: implement test
+        test_operationIdentity = "testOpId"
+        test_actionIdentity = "testActId"
+        test_res_type = "unix-account"
+        test_action = "create"
+        test_params = {"provider": "rc-user",
+                       "objRef": "http://host/path/to/resource"}
+        self.assertEqual(
+                self.amqp_listener.create_task(test_operationIdentity,
+                                               test_actionIdentity,
+                                               test_res_type,
+                                               test_action,
+                                               test_params).__str__(),
+                taskexecutor.task.Task(test_operationIdentity,
+                                       test_actionIdentity,
+                                       test_res_type,
+                                       test_action,
+                                       test_params).__str__()
+        )
 
     def test_stop(self):
         self._start_and_wait_for_amqp_listener_thread()
         self.assertTrue(self, self.amqp_listener.stop())
 
-class TestListenerBuilder(unittest.TestCase):
-    def test___new__(self):
-        assert False # TODO: implement test
 
 if __name__ == '__main__':
     unittest.main()

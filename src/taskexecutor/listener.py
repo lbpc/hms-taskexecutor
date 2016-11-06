@@ -150,6 +150,7 @@ class AMQPListener(Listener):
                                                    exchange_name))
         context = dict(zip(("res_type", "action"), exchange_name.split(".")))
         context["delivery_tag"] = basic_deliver.delivery_tag
+        context["provider"] = properties.headers["provider"]
         self.take_event(context, body)
 
     def acknowledge_message(self, delivery_tag):
@@ -188,6 +189,7 @@ class AMQPListener(Listener):
     def take_event(self, context, message):
         message = json.loads(message.decode("UTF-8"))
         message["params"]["objRef"] = message["objRef"]
+        message["params"]["provider"] = context["provider"]
         message.pop("objRef")
         task = self.create_task(message["operationIdentity"],
                                 message["actionIdentity"],

@@ -96,7 +96,7 @@ class Executor:
 
     @staticmethod
     def _get_resource(obj_ref):
-        with ApiClient(**CONFIG.apigw.serviceSocket) as api:
+        with ApiClient(**CONFIG.apigw) as api:
             return api.get(urlparse(obj_ref).path)
 
     def process_task(self):

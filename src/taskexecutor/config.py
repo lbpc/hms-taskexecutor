@@ -1,6 +1,5 @@
 import os
 import socket
-import re
 import time
 from urllib.parse import urlparse
 from taskexecutor.httpclient import ConfigServerClient, EurekaClient, ApiClient
@@ -10,19 +9,72 @@ from taskexecutor.logger import LOGGER
 class __Config:
     def __init__(self):
         LOGGER.info("Initializing config")
-        self.discovered_services = ["configserver", "apigw"]
-        self.eureka_socket = dict()
         self.hostname = socket.gethostname().split('.')[0]
+        self._configserver = None
+        self._apigw = None
+        self._rc_user = None
         self._read_os_env()
-        LOGGER.info("Registering discoverable services: "
-                    "{}".format(self.discovered_services))
-        for service, property in self._register_discovered_services():
-            LOGGER.info("'{0}' service is now accessible as '{1}' property of "
-                        "config class".format(service, property))
         self._fetch_remote_properties()
         self._obtain_local_server_props()
         self._declare_enabled_resources()
         LOGGER.info("Effective configuration:{}".format(self))
+
+    @property
+    def configserver(self):
+        if not self._configserver:
+            LOGGER.debug("Performing first lookup to Eureka for configserver")
+            with EurekaClient(self.eureka_socket_list) as eureka:
+                self._configserver = eureka.get_random_instance("configserver")
+        if self._configserver.timestamp + 30 < time.time():
+            LOGGER.debug("Configserver timestamp is stale, "
+                         "perfoming new lookup")
+            with EurekaClient(self.eureka_socket_list) as eureka:
+                _instance = eureka.get_random_instance("configserver")
+                if _instance:
+                    self._configserver = _instance
+                else:
+                    LOGGER.warning("Eureka lookup returned nothing, "
+                                   "preserving last value")
+        return {"address": self._configserver.address,
+                "port": self._configserver.port}
+
+    @property
+    def apigw(self):
+        if not self._apigw:
+            LOGGER.debug("Performing first lookup to Eureka for apigw")
+            with EurekaClient(self.eureka_socket_list) as eureka:
+                self._apigw = eureka.get_random_instance("apigw")
+        if self._apigw.timestamp + 30 < time.time():
+            LOGGER.debug("Apigw timestamp is stale, perfoming new lookup")
+            with EurekaClient(self.eureka_socket_list) as eureka:
+                _instance = eureka.get_random_instance("apigw")
+                if _instance:
+                    self._apigw = _instance
+                else:
+                    LOGGER.warning("Eureka lookup returned nothing, "
+                                   "preserving last value")
+        return {"address": self._apigw.address,
+                "port": self._apigw.port,
+                "user": self.api.user,
+                "password": self.api.password}
+
+    @property
+    def rc_user(self):
+        if not self._rc_user:
+            LOGGER.debug("Performing first lookup to Eureka for rc-user")
+            with EurekaClient(self.eureka_socket_list) as eureka:
+                self._rc_user = eureka.get_random_instance("rc-user")
+        if self._rc_user.timestamp + 30 < time.time():
+            LOGGER.debug("Rc-user timestamp is stale, perfoming new lookup")
+            with EurekaClient(self.eureka_socket_list) as eureka:
+                _instance = eureka.get_random_instance("rc-user")
+                if _instance:
+                    self._rc_user = _instance
+                else:
+                    LOGGER.warning("Eureka lookup returned nothing, "
+                                   "preserving last value")
+        return {"address": self._rc_user.address,
+                "port": self._rc_user.port}
 
     def _read_os_env(self):
         if "SPRING_PROFILES_ACTIVE" in os.environ.keys():
@@ -34,14 +86,15 @@ class __Config:
                            "environment variable set, "
                            "falling back to 'dev' profile")
             self.profile = "dev"
-        self.eureka_socket["address"], self.eureka_socket["port"] = urlparse(
-                os.environ["EUREKA_CLIENT_SERVICE-URL_defaultZone"]
-        ).netloc.split(":")
+        self.eureka_socket_list = [
+            urlparse(url).netloc.split(":") for url in
+            os.environ["EUREKA_CLIENT_SERVICE-URL_defaultZone"].split(",")
+        ]
         self._amqp_host = os.environ["SPRING_RABBITMQ_HOST"]
 
     def _fetch_remote_properties(self):
         LOGGER.info("Fetching properties from config server")
-        with ConfigServerClient(**self.configserver.serviceSocket) as cnf:
+        with ConfigServerClient(**self.configserver) as cnf:
             cnf.extra_attrs = [
                 "amqp.host={}".format(self._amqp_host),
                 "amqp.consumer_routing_key=te.{}".format(self.hostname),
@@ -53,12 +106,17 @@ class __Config:
                     setattr(self, attr, value)
 
     def _obtain_local_server_props(self):
-        with ApiClient(**self.rc_staff.serviceSocket) as api:
-            self.localserver = api.server(query={"name": self.hostname}).get()
+        with ApiClient(**self.apigw) as api:
+            _result = api.server(query={"name": self.hostname}).get()[0]
+            if isinstance(_result, list):
+                raise Exception("There is more than one server "
+                                "with name {0}: {1}".format(self.hostname,
+                                                            _result))
+            self.localserver = _result
 
     def _declare_enabled_resources(self):
         self.enabled_resources = \
-            {"web": ["service", "unixaccount", "dbaccount", "database",
+            {"web": ["service", "unix-account", "dbaccount", "database",
              "website", "sslcertificate"],
              "pop": ["mailbox"],
              "mx": ["mailbox"],
@@ -69,56 +127,8 @@ class __Config:
                                  self.enabled_resources))
 
     @classmethod
-    def _register_discovered_services(cls):
-        _registered = list()
-        for service in cls.discovered_services:
-            def closure(service, prop):
-                _attr = "_{}".format(prop)
-
-                def discovered_service_getter(self):
-                    if not hasattr(self, _attr):
-                        LOGGER.info(
-                            "Performing first lookup to Eureka for "
-                            "'{}' service".format(service)
-                        )
-                        with EurekaClient(**self.eureka_socket) as eureka:
-                            setattr(self, _attr,
-                                    eureka.get_random_instance(service))
-                        return getattr(self, _attr)
-                    if getattr(self, _attr).timestamp + 30 < time.time():
-                        LOGGER.info(
-                            "'{}' timestamp is stale, "
-                            "perfoming new lookup".format(service)
-                        )
-                        with EurekaClient(**self.eureka_socket) as eureka:
-                            _service_instance = eureka.get_random_instance(
-                                service
-                            )
-                        if _service_instance:
-                            setattr(self, _attr, _service_instance)
-                        else:
-                            LOGGER.warning(
-                                "Eureka lookup returned nothing, "
-                                "preserving last value"
-                            )
-                    return getattr(self, _attr)
-
-                def discovered_service_setter(self):
-                    raise AttributeError(
-                        "{} is a read-only property".format(service))
-
-                setattr(cls, prop, property(discovered_service_getter,
-                                            discovered_service_setter))
-
-            _normalized_property = re.sub('\W|^(?=\d)', '_', service)
-            closure(service, _normalized_property)
-            _registered.append((service, _normalized_property))
-        return _registered
-
-    @classmethod
     def __setattr__(self, name, value):
-        if hasattr(self, name) and not name.startswith("_") and \
-                        name not in self.discovered_services:
+        if hasattr(self, name) and not name.startswith("_"):
             raise AttributeError("{} is a read-only attribute".format(name))
         setattr(self, name, value)
 

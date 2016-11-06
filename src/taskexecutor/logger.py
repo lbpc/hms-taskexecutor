@@ -21,5 +21,5 @@ logging.basicConfig(
     stream=sys.stdout
 )
 LOGGER = logging.getLogger("taskexecutor")
-LOGGER.setLevel(logging.INFO)
+LOGGER.setLevel(logging.DEBUG)
 logging.getLogger("pika").setLevel(logging.WARNING)
