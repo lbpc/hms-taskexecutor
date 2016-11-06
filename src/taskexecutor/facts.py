@@ -1,3 +1,4 @@
+import os
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 from taskexecutor.dbclient import MySQLClient
@@ -6,7 +7,24 @@ from taskexecutor.utils import repquota, set_thread_name
 
 
 class FactsGatherer:
-    def get_quota(self, res_type):
+    def _calculate_maildirsize(self, file_path):
+        with open(file_path, "r") as f:
+            f.readline()
+            size = 0
+            line = f.readline()
+            while line:
+                size += int(line.split()[0])
+                line = f.readline()
+        return size
+
+    def _sum_directory_tree_size(self, dir_path):
+        return sum(
+                [sum(map(lambda f: os.path.getsize(os.path.join(dir, f)),
+                         files))
+                 for dir, _, files in os.walk(dir_path)]
+        )
+
+    def get_quota(self, res_type, resources=None):
         if res_type == "unix-account" and CONFIG.hostname == "baton":
             return repquota(freebsd=True)
         elif res_type == "unix-account":
@@ -18,6 +36,19 @@ class FactsGatherer:
                           "FROM TABLES GROUP BY table_schema")
 
                 return dict(c.fetchall())
+        elif res_type == "mailbox":
+            result = dict()
+            for mailbox in resources:
+                maildirsize_file = \
+                    "{0.mailSpool}/{0.name}/maildirsize".format(mailbox)
+                if os.path.exists(maildirsize_file):
+                    result[mailbox.id] = \
+                        self._calculate_maildirsize(maildirsize_file)
+                else:
+                    result[mailbox.id] = \
+                        self._sum_directory_tree_size(
+                                "{0.mailSpool/{0.name}}".format(mailbox))
+            return result
 
 
 class FactsSender:
@@ -78,7 +109,10 @@ class FactsSender:
         del self._resources
 
     def get_facts(self):
-        if self.fact_type == "quota":
+        if self.fact_type == "quota" and self.res_type == "mailbox":
+            self.facts = FactsGatherer().get_quota(self.res_type,
+                                                   resources=self.resources)
+        elif self.fact_type == "quota":
             self.facts = FactsGatherer().get_quota(self.res_type)
         return self.facts
 
