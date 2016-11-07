@@ -185,14 +185,16 @@ class UnixAccountProcessorBaton(UnixAccountProcessor):
                      shell="/usr/local/bin/bash")
         self._update_jailed_ssh("append")
 
-    def _setquota(self):
+    def _setquota(self, quota=None):
         LOGGER.info("Setting quota for user {0.name}".format(self.resource))
+        if not quota:
+            quota = self.resource.quota
         exec_command("jexec "
-                     "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
+                     "$(jls -ns | awk -F'[ =]' '/{2.hostname}-a/ {print $12}') "
                      "edquota "
                      "-g "
-                     "-e /home:0:{0.quota} "
-                     "{0.uid}".format(self.resource, CONFIG),
+                     "-e /home:0:{1} "
+                     "{0}".format(self.resource.uid, quota, CONFIG),
                      shell="/usr/local/bin/bash")
 
     def _userdel(self):
