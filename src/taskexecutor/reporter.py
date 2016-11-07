@@ -2,6 +2,7 @@ import json
 from abc import ABCMeta, abstractmethod
 import pika
 from taskexecutor.config import CONFIG
+from taskexecutor.logger import LOGGER
 
 
 class Reporter(metaclass=ABCMeta):
@@ -67,6 +68,8 @@ class AMQPReporter(Reporter):
         self._exchange = "{0}.{1}".format(self._task.res_type,
                                           self._task.action)
         self._routing_key = "service.{}".format(self._task.params["provider"])
+        LOGGER("Publishing to {0} exchange with "
+               "{1} routing key".format(self._exchange, self._routing_key))
         self._connection = self._connnect()
         self._channel = self._open_channel()
         self._declare_exchange(self._exchange, CONFIG.amqp.exchange_type)
