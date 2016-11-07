@@ -3,5 +3,5 @@ COPY ./"${sdistName}" "${sdistName}"
 RUN bash -c "virtualenv -p `which python3` te && \
 				source te/bin/activate && \
 				pip install --find-links file://`pwd`/${sdistName} taskexecutor"
-CMD /usr/local/te/bin/taskexecutor
+CMD mknod /dev/loop0 b 7 0; /usr/local/te/bin/taskexecutor
 

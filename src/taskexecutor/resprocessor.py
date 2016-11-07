@@ -73,15 +73,11 @@ class UnixAccountProcessor(ResProcessor):
 
     def _setquota(self, quota=None):
         LOGGER.info("Setting quota for user {0.name}".format(self.resource))
-        if quota:
-            _cmd = ("setquota "
-                    "-g {0.uid} 0 {1} "
-                    "0 0 /home").format(self.resource, quota)
-        else:
-            _cmd = ("setquota "
-                    "-g {0.uid} 0 {0.quota} "
-                    "0 0 /home").format(self.resource)
-        exec_command(_cmd)
+        if not quota:
+            quota = self.resource.quota
+        exec_command("setquota "
+                     "-g {0} 0 {1} "
+                     "0 0 /home").format(self.resource.uid, quota/1024)
 
     def _userdel(self):
         LOGGER.info("Deleting user {0.name}".format(self.resource))
