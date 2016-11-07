@@ -77,7 +77,7 @@ class UnixAccountProcessor(ResProcessor):
             quota = self.resource.quota
         exec_command("setquota "
                      "-g {0} 0 {1} "
-                     "0 0 /home".format(self.resource.uid, quota/1024))
+                     "0 0 /home".format(self.resource.uid, int(quota/1024)))
 
     def _userdel(self):
         LOGGER.info("Deleting user {0.name}".format(self.resource))
@@ -194,7 +194,7 @@ class UnixAccountProcessorBaton(UnixAccountProcessor):
                      "edquota "
                      "-g "
                      "-e /home:0:{1} "
-                     "{0}".format(self.resource.uid, quota, CONFIG),
+                     "{0}".format(self.resource.uid, int(quota/1024), CONFIG),
                      shell="/usr/local/bin/bash")
 
     def _userdel(self):
