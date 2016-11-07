@@ -62,13 +62,13 @@ class UnixAccountProcessor(ResProcessor):
 
     def _adduser(self):
         LOGGER.info("Adding user {0.name} to system".format(self.resource))
-        exec_command("useradd"
-                     "--comment 'Hosting account HMS ID {0.id}'"
-                     "--uid {0.uid}"
-                     "--home {0.homeDir}"
-                     "--password {0.passwordHash}"
-                     "--create-home"
-                     "--shell /bin/bash"
+        exec_command("useradd "
+                     "--comment 'Hosting account HMS ID {0.id}' "
+                     "--uid {0.uid} "
+                     "--home {0.homeDir} "
+                     "--password '{0.passwordHash}' "
+                     "--create-home "
+                     "--shell /bin/bash "
                      "{0.name}".format(self.resource))
 
     def _setquota(self, quota=None):
@@ -544,7 +544,8 @@ class DatabaseUserProcessor(ResProcessor):
     def delete(self):
         query = "DROP USER %s"
         with MySQLClient(**CONFIG.mysql) as c:
-            LOGGER.info("Executing query: {}".format(query % self.resource.name))
+            LOGGER.info("Executing query: "
+                        "{}".format(query % self.resource.name))
             c.execute(query, (self.resource.name,))
 
 
@@ -603,7 +604,7 @@ class DatabaseProcessor(ResProcessor):
             ]
         with MySQLClient(**CONFIG.mysql) as c:
             for query, values in queryset:
-                LOGGER.info("Executing query: {}",format(query % values))
+                LOGGER.info("Executing query: {}".format(query % values))
                 c.execute(query, values)
 
     def delete(self):

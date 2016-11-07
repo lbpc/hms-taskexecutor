@@ -116,12 +116,14 @@ class __Config:
 
     def _declare_enabled_resources(self):
         self.enabled_resources = \
-            {"web": ["service", "unix-account", "dbaccount", "database",
-             "website", "sslcertificate"],
-             "pop": ["mailbox"],
-             "mx": ["mailbox"],
-             "mailchecker": ["mailbox"],
-             "db": ["dbaccount", "database"]}[self.localserver.serverRole.name]
+            {
+                "web": ["service", "unix-account", "database-user", "database",
+                        "website", "sslcertificate"],
+                "pop": ["mailbox"],
+                "mx": ["mailbox"],
+                "mailchecker": ["mailbox"],
+                "db": ["database-user", "database"]
+            }[self.localserver.serverRole.name]
         LOGGER.info("Server role is '{0}', manageable resources: "
                     "{1}".format(self.localserver.serverRole.name,
                                  self.enabled_resources))

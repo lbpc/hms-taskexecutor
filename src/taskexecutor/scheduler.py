@@ -11,15 +11,11 @@ class Scheduler:
         self._stopping = False
         self._executors = Executors()
         periodic_jobs = dict()
-        try:
-            periodic_jobs[FactsSender("unix-account", "quota").update] = \
-                CONFIG.schedule.facts.unix_account.quota.interval
-            periodic_jobs[FactsSender("database", "quota").update] = \
-                CONFIG.schedule.facts.database.quota.interval
-            periodic_jobs[FactsSender("mailbox", "quota").update] = \
-                CONFIG.schedule.facts.mailbox.quota.interval
-        except:
-            pass
+        for res_type in ("unix-account", "database", "mailbox"):
+            if res_type in CONFIG.enabled_resources:
+                periodic_jobs[FactsSender(res_type, "quota").update] = \
+                    getattr(CONFIG.schedule.facts,
+                            res_type.replace("-", "_")).quota.interval
         for job, interval in periodic_jobs.items():
             schedule.every(interval).seconds.do(
                     self._executors.pool.submit, job

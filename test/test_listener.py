@@ -83,11 +83,25 @@ class TestAMQPListener(PythonDockerTestMixin, unittest.TestCase):
         self.mock_config.CONFIG.amqp.heartbeat_interval = 30
         self.mock_config.CONFIG.amqp.connection_timeout = 5
         self.mock_config.CONFIG.enabled_resources = ["unix-account",
-                                                     "dbaccount",
+                                                     "database-user",
                                                      "database",
                                                      "website",
                                                      "sslcertificate"]
-        modules = {'taskexecutor.config': self.mock_config}
+        self.mock_executor = unittest.mock.Mock()
+        self.mock_executor_executor = unittest.mock.Mock()
+        self.mock_executor.Executor = unittest.mock.Mock(
+            return_value=self.mock_executor_executor
+        )
+        self.mock_executor.Executor.process_task = unittest.mock.Mock()
+        self.mock_executors_instance = unittest.mock.Mock()
+        self.mock_executor.Executors = unittest.mock.Mock(
+                return_value=self.mock_executors_instance
+        )
+        self.mock_future = unittest.mock.Mock()
+        self.mock_executors_instance.pool.submit = \
+            unittest.mock.Mock(return_value=self.mock_future)
+        modules = {'taskexecutor.config': self.mock_config,
+                   'taskexecutor.executor': self.mock_executor}
         self.module_patcher = unittest.mock.patch.dict('sys.modules', modules)
         self.module_patcher.start()
         import taskexecutor.listener
@@ -106,7 +120,7 @@ class TestAMQPListener(PythonDockerTestMixin, unittest.TestCase):
         self._start_and_wait_for_amqp_listener_thread()
         counter = 0
         for msg_number, exchange in enumerate(("unix-account.create",
-                                               "dbaccount.update",
+                                               "database-user.update",
                                                "website.delete"), 1):
             self._send_amqp_message(exchange, test_string)
             while self.amqp_listener._on_message.call_count < msg_number:
@@ -174,24 +188,41 @@ class TestAMQPListener(PythonDockerTestMixin, unittest.TestCase):
                          test_context["delivery_tag"])
 
     def test_create_task(self):
+        self.amqp_listener.set_thread_name = unittest.mock.Mock()
         test_operationIdentity = "testOpId"
         test_actionIdentity = "testActId"
         test_res_type = "unix-account"
         test_action = "create"
         test_params = {"provider": "rc-user",
                        "objRef": "http://host/path/to/resource"}
-        self.assertEqual(
-                self.amqp_listener.create_task(test_operationIdentity,
-                                               test_actionIdentity,
-                                               test_res_type,
-                                               test_action,
-                                               test_params).__str__(),
-                taskexecutor.task.Task(test_operationIdentity,
-                                       test_actionIdentity,
-                                       test_res_type,
-                                       test_action,
-                                       test_params).__str__()
-        )
+        task = self.amqp_listener.create_task(test_operationIdentity,
+                                              test_actionIdentity,
+                                              test_res_type,
+                                              test_action,
+                                              test_params)
+        self.assertIsInstance(task, taskexecutor.task.Task)
+        self.assertEqual(task.opid, test_operationIdentity)
+        self.assertEqual(task.actid, test_actionIdentity)
+        self.assertEqual(task.res_type, test_res_type)
+        self.assertEqual(task.action, test_action)
+        self.assertEqual(task.params["provider"], test_params["provider"])
+        self.assertEqual(task.params["objRef"], test_params["objRef"])
+
+    def test_pass_task(self):
+        mock_task = unittest.mock.Mock()
+        test_callback = lambda x: True
+        test_args = ("testarg",)
+        future = self.amqp_listener.pass_task(mock_task,
+                                              test_callback,
+                                              test_args)
+        self.mock_executor.Executors.assert_called_once_with()
+        self.mock_executor.Executor.assert_called_once_with(mock_task,
+                                                            test_callback,
+                                                            test_args)
+        self.assertEqual(self.mock_executors_instance.method_calls, [
+            unittest.mock.call.pool.submit(
+                self.mock_executor_executor.process_task)])
+        self.assertEqual(future, self.mock_future)
 
     def test_stop(self):
         self._start_and_wait_for_amqp_listener_thread()
