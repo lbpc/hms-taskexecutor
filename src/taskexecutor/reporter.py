@@ -67,7 +67,7 @@ class AMQPReporter(Reporter):
     def send_report(self):
         self._exchange = "{0}.{1}".format(self._task.res_type,
                                           self._task.action)
-        self._routing_key = self._task.params["provider"]
+        self._routing_key = self._task.params["provider"].replace("-", ".")
         LOGGER.info("Publishing to {0} exchange with "
                     "{1} routing key".format(self._exchange, self._routing_key))
         self._connection = self._connnect()
