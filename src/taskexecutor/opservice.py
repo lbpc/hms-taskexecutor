@@ -123,7 +123,7 @@ class Nginx(SysVService):
 
     def reload(self):
         LOGGER.info("Testing nginx config")
-        exec_command("nginx -t")
+        exec_command("nginx -t",)
         super().reload()
         set_apparmor_mode("enforce", "/usr/sbin/nginx")
 
@@ -161,9 +161,11 @@ class UnmanagedNginx(OpService):
 
     def reload(self):
         LOGGER.info("Testing nginx config")
-        exec_command("/usr/local/nginx/sbin/nginx -t")
+        exec_command("/usr/local/nginx/sbin/nginx -t",
+                     shell="/usr/local/bin/bash")
         LOGGER.info("Reloading nginx")
-        exec_command("/usr/local/nginx/sbin/nginx -s reload")
+        exec_command("/usr/local/nginx/sbin/nginx -s reload",
+                     shell="/usr/local/bin/bash")
 
 
 class UnmanagedApache(OpService):
@@ -171,10 +173,10 @@ class UnmanagedApache(OpService):
         super().__init__(name)
         if not self.name:
             raise Exception("Apache instance requires name keyword")
-        _apache_name_mangle = {"apache2-php4": "apache",
-                               "apache2-php52": "apache5",
-                               "apache2-php53": "apache53"}
-        self.name = _apache_name_mangle[name]
+        apache_name_mangle = {"apache2-php4": "apache",
+                              "apache2-php52": "apache5",
+                              "apache2-php53": "apache53"}
+        self.name = apache_name_mangle[name]
         LOGGER.info("Apache name rewrited to '{}'".format(self.name))
         self.cfg_base = "/usr/local/{}/conf".format(self.name)
 
@@ -191,9 +193,11 @@ class UnmanagedApache(OpService):
         LOGGER.info("Testing apache config: "
                     "{}/conf/httpd.conf".format(self.cfg_base))
         exec_command(
-                "/usr/sbin/jail "
-                "/usr/jail t 127.0.0.1 "
-                "{0}/bin/httpd -T -f {0}/conf/httpd.conf".format(self.cfg_base)
+            "/usr/sbin/jail "
+            "/usr/jail t 127.0.0.1 "
+            "{0}/bin/httpd -T -f {0}/conf/httpd.conf".format(self.cfg_base),
+            shell="/usr/local/bin/bash"
         )
         LOGGER.info("Reloading apache")
-        exec_command("{}/bin/apachectl2 graceful".format(self.cfg_base))
+        exec_command("{}/bin/apachectl2 graceful".format(self.cfg_base),
+                     shell="/usr/local/bin/bash")

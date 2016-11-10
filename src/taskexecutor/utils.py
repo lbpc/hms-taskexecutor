@@ -117,34 +117,34 @@ class ConfigFile:
         return line in self._body_as_list()
 
     def get_lines(self, regex, count=-1):
-        _list = self._body_as_list()
-        _ret_list = list()
-        for line in _list:
+        list = self._body_as_list()
+        ret_list = list()
+        for line in list:
             if count != 0 and re.match(regex, line):
-                _ret_list.append(line)
+                ret_list.append(line)
                 count -= 1
-        return _ret_list
+        return ret_list
 
     def add_line(self, line):
         LOGGER.info("Adding '{0}' to {1}".format(line, self.file_path))
-        _list = self._body_as_list().append(line)
-        self.body = "\n".join(_list)
+        list = self._body_as_list().append(line)
+        self.body = "\n".join(list)
 
     def remove_line(self, line):
         LOGGER.info("Removing '{0}' from {1}".format(line, self.file_path))
-        _list = self._body_as_list().remove(line)
-        self.body = "\n".join(_list)
+        list = self._body_as_list().remove(line)
+        self.body = "\n".join(list)
 
     def replace_line(self, regex, new_line, count=1):
-        _list = self._body_as_list()
-        for idx, line in enumerate(_list):
+        list = self._body_as_list()
+        for idx, line in enumerate(list):
             if count != 0 and re.match(regex, line):
                 LOGGER.info("Replacing '{0}' by '{1}' "
                             "in {2}".format(line, new_line, self.file_path))
-                del _list[idx]
-                _list.insert(idx, new_line)
+                del list[idx]
+                list.insert(idx, new_line)
                 count -= 1
-        self.body = "\n".join(_list)
+        self.body = "\n".join(list)
 
     def render_template(self, **kwargs):
         if not self.template:
@@ -174,14 +174,18 @@ class ConfigFile:
         del self.body
 
 
-def exec_command(command):
+def exec_command(command, shell="/bin/bash", pass_to_stdin=None):
     LOGGER.info("Running shell command: {}".format(command))
     with subprocess.Popen(command,
+                          stdin=subprocess.PIPE,
+                          stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE,
                           shell=True,
-                          executable="/bin/bash") as proc:
-        stderr = proc.stderr.read()
-        proc.communicate()
+                          executable=shell) as proc:
+        if pass_to_stdin:
+            proc.communicate(input=pass_to_stdin.encode("UTF-8"))
+        else:
+            stdout, stderr = proc.communicate()
         ret_code = proc.returncode
     if ret_code != 0:
         LOGGER.error(
@@ -190,10 +194,44 @@ def exec_command(command):
             LOGGER.error("STDERR: {}".format(stderr.decode("UTF-8")))
         raise Exception("Failed to execute command '{}'".format(command))
 
+    return stdout.decode("UTF-8")
+
 
 def set_apparmor_mode(mode, binary):
     LOGGER.info("Applying {0} AppArmor mode on {1}".format(mode, binary))
     exec_command("aa-{0} {1}".format(mode, binary))
+
+
+def repquota(freebsd=False):
+    quota = dict()
+    stdout = exec_command("repquota -vangp") if not freebsd \
+        else exec_command("repquota -vang", shell="/usr/local/bin/bash")
+    for line in stdout.split("\n"):
+        parsed_line = list(filter(None, line.split(" ")))
+        if len(parsed_line) == 10 and  \
+                parsed_line[1] in ("--", "+-", "-+", "++"):
+            parsed_line.pop(1)
+            normalized_line = [
+                int(field) * 1024 if 1 < idx < 8 and idx != 4
+                else int(field.strip("#").replace("-", "0"))
+                for idx, field in enumerate(parsed_line)
+            ]
+            quota[normalized_line[0]] = {
+                "block_limit": {
+                    "used": normalized_line[1],
+                    "soft": normalized_line[2],
+                    "hard": normalized_line[3],
+                    "grace": normalized_line[4]
+                },
+                "file_limit": {
+                    "used": normalized_line[5],
+                    "soft": normalized_line[6],
+                    "hard": normalized_line[7],
+                    "grace": normalized_line[8]
+                }
+            }
+
+    return quota
 
 
 def set_thread_name(name):

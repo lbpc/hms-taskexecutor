@@ -25,6 +25,8 @@ dependencies {
 	python "pypi:pika:0.10.0"
 	python "pypi:PyMySQL:0.7.9"
 	python "pypi:Jinja2:2.8"
+	python "pypi:schedule:0.3.2"
+	python "pypi:pytransliter:1.0.1"
 	python "pypi:docker-py:1.10.4"
 }
 
@@ -69,18 +71,20 @@ task cleanSdist(type: Delete) {
 file("docker").listFiles().each { def dockerFile=file(it) ->
 	tasks.create(
 			name: "buildDocker${dockerFile.getName().replace("Dockerfile","")}",
-			type: Docker,
-			dependsOn: uploadArchives) {
+			type: Docker) {
 		def sdistFile = file(tasks.packageSdist.getSdistOutput())
 		def git = org.ajoberstar.grgit.Grgit.open(file('.'))
 		tagVersion = git.branch.getCurrent().getName().replaceAll("refs/heads/","")
 		if(tagVersion == "HEAD") {
 			tagVersion = project.projectBranch
 		}
+		if (tagVersion == "master") {
+			dependsOn uploadArchives
+		}
 		description = "Build Docker image using ${dockerFile} and push it to ${dockerRegistry} with :${tagVersion} tag"
 		push = true
 		registry = dockerRegistry
-		applicationName = project.name 
+		applicationName = project.name + '-' + dockerFile.getName().replace("Dockerfile","").toLowerCase() 
 		dockerfile = file("${buildDir}/Dockerfile")
 		doFirst {
 			copy {
@@ -123,6 +127,7 @@ task delCompose(type: Delete) {
 
 
 packageSdist.dependsOn("cleanSdist")
+buildDocker.dependsOn("build")
 cookCompose.dependsOn("cloneCompose")
 composePull.dependsOn("cookCompose")
 composeUp.dependsOn("composePull")
