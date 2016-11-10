@@ -9,10 +9,10 @@ class StreamToLogger:
         self.log_level = log_level
 
     def write(self, buf):
-        _msg = str()
+        msg = str()
         for line in buf.rstrip().splitlines():
-            _msg += line.strip() + "\n\t"
-        self.logger.log(self.log_level, _msg)
+            msg += line.strip() + "\n\t"
+        self.logger.log(self.log_level, msg)
 
 
 logging.basicConfig(

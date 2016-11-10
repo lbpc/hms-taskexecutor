@@ -173,10 +173,10 @@ class UnmanagedApache(OpService):
         super().__init__(name)
         if not self.name:
             raise Exception("Apache instance requires name keyword")
-        _apache_name_mangle = {"apache2-php4": "apache",
-                               "apache2-php52": "apache5",
-                               "apache2-php53": "apache53"}
-        self.name = _apache_name_mangle[name]
+        apache_name_mangle = {"apache2-php4": "apache",
+                              "apache2-php52": "apache5",
+                              "apache2-php53": "apache53"}
+        self.name = apache_name_mangle[name]
         LOGGER.info("Apache name rewrited to '{}'".format(self.name))
         self.cfg_base = "/usr/local/{}/conf".format(self.name)
 

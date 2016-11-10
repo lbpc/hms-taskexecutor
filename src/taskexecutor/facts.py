@@ -2,7 +2,7 @@ import os
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 from taskexecutor.dbclient import MySQLClient
-from taskexecutor.httpclient import ApiClient
+from taskexecutor.httpsclient import ApiClient
 from taskexecutor.utils import repquota, set_thread_name
 
 
@@ -135,7 +135,7 @@ class FactsSender:
                                         resource.name,
                                         self.fact_type,
                                         data))
-            with ApiClient(**CONFIG.rc_user) as api:
+            with ApiClient(**CONFIG.apigw) as api:
                 ApiResource = getattr(api, self.res_type)
                 ApiResourceFact = getattr(ApiResource(resource.id),
                                           self.fact_type)

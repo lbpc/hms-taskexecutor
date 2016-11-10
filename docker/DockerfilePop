@@ -1,0 +1,7 @@
+FROM docker-registry.intr/test-images/pop:latest
+COPY ./"${sdistName}" "${sdistName}"
+RUN bash -c "virtualenv -p `which python3` te && \
+				source te/bin/activate && \
+				pip install --find-links file://`pwd`/${sdistName} taskexecutor"
+CMD /usr/local/te/bin/taskexecutor
+

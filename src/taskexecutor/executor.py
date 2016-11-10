@@ -6,7 +6,7 @@ from taskexecutor.config import CONFIG
 from taskexecutor.reporter import ReporterBuilder
 from taskexecutor.resprocessor import ResProcessorBuilder
 from taskexecutor.task import Task
-from taskexecutor.httpclient import ApiClient
+from taskexecutor.httpsclient import ApiClient
 from taskexecutor.utils import set_thread_name
 from taskexecutor.logger import LOGGER
 
@@ -106,8 +106,8 @@ class Executor:
             "Fetching {0} resource by "
             "{1}".format(self._task.res_type, self._task.params["objRef"])
         )
-        _resource = self._get_resource(self._task.params["objRef"])
-        processor = ResProcessorBuilder(self._task.res_type)(_resource,
+        resource = self._get_resource(self._task.params["objRef"])
+        processor = ResProcessorBuilder(self._task.res_type)(resource,
                                                              self._task.params)
         LOGGER.info(
             "Invoking {0}.{1} method on {2}".format(type(processor).__name__,

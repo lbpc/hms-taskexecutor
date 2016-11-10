@@ -87,11 +87,11 @@ class AMQPListener(Listener):
         self._connection.close()
 
     def _setup_exchange(self, exchange_name):
-        _queue_name = "{0}.{1}".format(CONFIG.amqp.consumer_routing_key,
-                                       exchange_name)
+        queue_name = "{0}.{1}".format(CONFIG.amqp.consumer_routing_key,
+                                      exchange_name)
         self._channel.exchange_declare(
             functools.partial(self._on_exchange_declareok,
-                              queue_name=_queue_name,
+                              queue_name=queue_name,
                               exchange_name=exchange_name),
             exchange_name,
             CONFIG.amqp.exchange_type

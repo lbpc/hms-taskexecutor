@@ -117,34 +117,34 @@ class ConfigFile:
         return line in self._body_as_list()
 
     def get_lines(self, regex, count=-1):
-        _list = self._body_as_list()
-        _ret_list = list()
-        for line in _list:
+        list = self._body_as_list()
+        ret_list = list()
+        for line in list:
             if count != 0 and re.match(regex, line):
-                _ret_list.append(line)
+                ret_list.append(line)
                 count -= 1
-        return _ret_list
+        return ret_list
 
     def add_line(self, line):
         LOGGER.info("Adding '{0}' to {1}".format(line, self.file_path))
-        _list = self._body_as_list().append(line)
-        self.body = "\n".join(_list)
+        list = self._body_as_list().append(line)
+        self.body = "\n".join(list)
 
     def remove_line(self, line):
         LOGGER.info("Removing '{0}' from {1}".format(line, self.file_path))
-        _list = self._body_as_list().remove(line)
-        self.body = "\n".join(_list)
+        list = self._body_as_list().remove(line)
+        self.body = "\n".join(list)
 
     def replace_line(self, regex, new_line, count=1):
-        _list = self._body_as_list()
-        for idx, line in enumerate(_list):
+        list = self._body_as_list()
+        for idx, line in enumerate(list):
             if count != 0 and re.match(regex, line):
                 LOGGER.info("Replacing '{0}' by '{1}' "
                             "in {2}".format(line, new_line, self.file_path))
-                del _list[idx]
-                _list.insert(idx, new_line)
+                del list[idx]
+                list.insert(idx, new_line)
                 count -= 1
-        self.body = "\n".join(_list)
+        self.body = "\n".join(list)
 
     def render_template(self, **kwargs):
         if not self.template:
