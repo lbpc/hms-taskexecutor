@@ -54,7 +54,8 @@ class __Config:
             self.localserver = result[0]
 
     def _declare_enabled_resources(self):
-        self.enabled_resources = \
+        self.enabled_resources = []
+        resource_to_server_role_mapping = \
             {
                 "shared-hosting": ["service",
                                    "unix-account",
@@ -67,7 +68,12 @@ class __Config:
                 "mail-checker": ["mailbox"],
                 "database-server": ["database-user",
                                     "database"]
-            }[self.localserver.serverRole.name]
+            }
+        for serverRole in self.localserver.serverRoles:
+            self.enabled_resources = self.enabled_resources + resource_to_server_role_mapping[
+                serverRole.name]
+        self.enabled_resources = list(set(self.enabled_resources))
+
         LOGGER.info("Server role is '{0}', manageable resources: "
                     "{1}".format(self.localserver.serverRole.name,
                                  self.enabled_resources))
@@ -85,5 +91,6 @@ class __Config:
             if not attr.startswith("_") and not callable(getattr(self, attr)):
                 attr_list.append("{0}={1}".format(attr, value))
         return "CONFIG({})".format(", ".join(attr_list))
+
 
 CONFIG = __Config()
