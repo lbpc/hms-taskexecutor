@@ -250,7 +250,7 @@ class WebSiteProcessor(ResProcessor):
 
     def _get_nginx_service_obj(self):
         for service in CONFIG.localserver.services:
-            if str(service.serviceType).split("_")[1] == "nginx".upper():
+            if str(service.serviceType.name).split("_")[1] == "nginx".upper():
                 return service
         raise AttributeError("Local server has no nginx service")
 
@@ -267,7 +267,7 @@ class WebSiteProcessor(ResProcessor):
         if webserver_type == "apache":
             service = self._get_apache_service_obj()
             opservice = Apache(
-                    name="-".join(str(service.serviceType).split("_")[1:])
+                    name="-".join(str(service.serviceType.name).split("_")[1:])
             )
             template_name = "{ApacheVHost}.j2"
         elif webserver_type == "nginx":
@@ -400,7 +400,7 @@ class WebSiteProcessorBaton(WebSiteProcessor):
         if webserver_type == "apache":
             service = self._get_apache_service_obj()
             opservice = UnmanagedApache(
-                    name="-".join(str(service.serviceType).split("_")[1:])
+                    name="-".join(str(service.serviceType.name).split("_")[1:])
             )
             template_name = "{BatonApacheVHost}.j2"
         elif webserver_type == "nginx":
