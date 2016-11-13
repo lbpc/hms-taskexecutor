@@ -55,7 +55,7 @@ class __Config:
             self.localserver = result[0]
 
     def _declare_enabled_resources(self):
-        self.enabled_resources = []
+        enabled_resources = []
         resource_to_server_role_mapping = \
             {
                 "shared-hosting": ["service",
@@ -71,9 +71,9 @@ class __Config:
                                     "database"]
             }
         for serverRole in self.localserver.serverRoles:
-            self.enabled_resources = self.enabled_resources \
+            enabled_resources = enabled_resources \
                 + resource_to_server_role_mapping[serverRole.name]
-        self.enabled_resources = list(set(self.enabled_resources))
+        self.enabled_resources = list(set(enabled_resources))
 
         LOGGER.info("Server role is '{0}', manageable resources: "
                     "{1}".format(self.localserver.serverRole.name,
