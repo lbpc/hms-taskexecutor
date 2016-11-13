@@ -72,6 +72,7 @@ class __Config:
         for serverRole in self.localserver.serverRoles:
             self.enabled_resources = self.enabled_resources + resource_to_server_role_mapping[
                 serverRole.name]
+        self.enabled_resources = list(set(self.enabled_resources))
 
         LOGGER.info("Server role is '{0}', manageable resources: "
                     "{1}".format(self.localserver.serverRole.name,
