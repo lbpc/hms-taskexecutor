@@ -1,7 +1,7 @@
 import os
 import socket
 
-from taskexecutor.httpsclient import ApiClient, ConfigServerClient
+from taskexecutor.httpsclient import ApiClient, ConfigServerClient, GitLabClient
 from taskexecutor.logger import LOGGER
 
 
@@ -16,6 +16,7 @@ class __Config:
         self._read_os_env()
         self._fetch_remote_properties()
         self._obtain_local_server_props()
+        self._gitlab_connect()
         self._declare_enabled_resources()
         LOGGER.info("Effective configuration:{}".format(self))
 
@@ -42,6 +43,12 @@ class __Config:
             for attr, value in vars(props).items():
                 if not attr.startswith("_"):
                     setattr(self, attr, value)
+
+    def _gitlab_connect(self):
+        LOGGER.info("Setting gitlab connection")
+        with GitLabClient(self.gitlab.host, self.gitlab.port, self.gitlab.private_token) as gitlab:
+            gitlab.authorize()
+            self.gitlab = gitlab
 
     def _obtain_local_server_props(self):
         with ApiClient(**self.apigw) as api:
