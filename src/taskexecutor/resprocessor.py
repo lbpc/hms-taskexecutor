@@ -250,7 +250,7 @@ class WebSiteProcessor(ResProcessor):
 
     def _get_nginx_service_obj(self):
         for service in CONFIG.localserver.services:
-            if str(service.serviceType).split("_") == "nginx":
+            if str(service.serviceType).split("_")[1] == "nginx".upper():
                 return service
         raise AttributeError("Local server has no nginx service")
 
