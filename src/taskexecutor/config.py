@@ -48,7 +48,7 @@ class __Config:
         LOGGER.info("Setting gitlab connection")
         with GitLabClient(self.gitlab.host, self.gitlab.port, self.gitlab.private_token) as gitlab:
             gitlab.authorize()
-            self.gitlab = gitlab
+            self.gitlabConf = gitlab
 
     def _obtain_local_server_props(self):
         with ApiClient(**self.apigw) as api:
