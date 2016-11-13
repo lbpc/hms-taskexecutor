@@ -1,5 +1,6 @@
 import os
 import socket
+
 from taskexecutor.httpsclient import ApiClient, ConfigServerClient
 from taskexecutor.logger import LOGGER
 
@@ -70,8 +71,8 @@ class __Config:
                                     "database"]
             }
         for serverRole in self.localserver.serverRoles:
-            self.enabled_resources = self.enabled_resources + resource_to_server_role_mapping[
-                serverRole.name]
+            self.enabled_resources = self.enabled_resources \
+                + resource_to_server_role_mapping[serverRole.name]
         self.enabled_resources = list(set(self.enabled_resources))
 
         LOGGER.info("Server role is '{0}', manageable resources: "
