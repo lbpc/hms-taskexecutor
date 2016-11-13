@@ -75,9 +75,9 @@ class __Config:
                 + resource_to_server_role_mapping[serverRole.name]
         self.enabled_resources = list(set(enabled_resources))
 
-        LOGGER.info("Server role is '{0}', manageable resources: "
-                    "{1}".format(self.localserver.serverRole.name,
-                                 self.enabled_resources))
+        LOGGER.info("Server role is '{server_role}', manageable resources: "
+                    "{enabled_resource}".format(server_role=self.localserver.serverRoles,
+                                 enabled_resource=self.enabled_resources))
 
     @classmethod
     def __setattr__(self, name, value):
