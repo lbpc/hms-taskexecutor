@@ -70,27 +70,26 @@ class __Config:
                                     "database"]
             }
         for serverRole in self.localserver.serverRoles:
-            self.enabled_resources = self.enabled_resources + resource_to_server_role_mapping[serverRole.name]
+            self.enabled_resources = self.enabled_resources + resource_to_server_role_mapping[
+                serverRole.name]
 
         LOGGER.info("Server role is '{0}', manageable resources: "
                     "{1}".format(self.localserver.serverRole.name,
                                  self.enabled_resources))
 
+    @classmethod
+    def __setattr__(self, name, value):
+        if hasattr(self, name) and not name.startswith("_"):
+            raise AttributeError("{} is a read-only attribute".format(name))
+        setattr(self, name, value)
 
-@classmethod
-def __setattr__(self, name, value):
-    if hasattr(self, name) and not name.startswith("_"):
-        raise AttributeError("{} is a read-only attribute".format(name))
-    setattr(self, name, value)
-
-
-@classmethod
-def __str__(self):
-    attr_list = list()
-    for attr, value in vars(self).items():
-        if not attr.startswith("_") and not callable(getattr(self, attr)):
-            attr_list.append("{0}={1}".format(attr, value))
-    return "CONFIG({})".format(", ".join(attr_list))
+    @classmethod
+    def __str__(self):
+        attr_list = list()
+        for attr, value in vars(self).items():
+            if not attr.startswith("_") and not callable(getattr(self, attr)):
+                attr_list.append("{0}={1}".format(attr, value))
+        return "CONFIG({})".format(", ".join(attr_list))
 
 
 CONFIG = __Config()
