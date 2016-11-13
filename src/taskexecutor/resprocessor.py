@@ -257,7 +257,7 @@ class WebSiteProcessor(ResProcessor):
     def _get_config_template(self, service_obj, template_name):
         for template in service_obj.serviceTemplate.configTemplates:
             if template.name == template_name:
-                with GitLabClient(**CONFIG.gitlabConf) as gitlab:
+                with GitLabClient(**CONFIG.gitlab) as gitlab:
                     return gitlab.get(template.fileLink)
         raise AttributeError("There is no {0} config template "
                              "in {1}".format(template_name,
