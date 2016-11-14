@@ -45,7 +45,7 @@ class __Config:
 
     def _obtain_local_server_props(self):
         with ApiClient(**self.apigw) as api:
-            result = api.server(query={"name": self.hostname}).get()
+            result = api.Server(query={"name": self.hostname}).get()
             if len(result) > 1:
                 raise Exception("There is more than one server "
                                 "with name {0}: {1}".format(self.hostname,
@@ -75,9 +75,11 @@ class __Config:
                 + resource_to_server_role_mapping[serverRole.name]
         self.enabled_resources = list(set(enabled_resources))
 
-        LOGGER.info("Server role is '{server_role}', manageable resources: "
-                    "{enabled_resource}".format(server_role=self.localserver.serverRoles,
-                                 enabled_resource=self.enabled_resources))
+        LOGGER.info(
+            "Server role is '{server_role}', manageable resources: "
+            "{enabled_resource}".format(
+                server_role=self.localserver.serverRoles,
+                enabled_resource=self.enabled_resources))
 
     @classmethod
     def __setattr__(self, name, value):

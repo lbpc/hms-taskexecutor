@@ -147,7 +147,9 @@ class ApiClient(HttpsClient):
         raise NotImplementedError
 
     def __getattr__(self, name):
-        def wrapper(res_id=None, query=None):
+        name = re.sub("([a-z0-9])([A-Z])", r"\1-\2",
+                      re.sub("(.)([A-Z][a-z]+)", r"\1-\2", name)).lower()
+        def constructor(res_id=None, query=None):
             if res_id:
                 self._build_resource(name, res_id)
             elif query:
@@ -156,7 +158,7 @@ class ApiClient(HttpsClient):
                 self._build_collection(name)
             return self
 
-        return wrapper
+        return constructor
 
 
 class ConfigServerClient(ApiClient):
