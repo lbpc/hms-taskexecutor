@@ -246,18 +246,18 @@ class WebSiteProcessor(ResProcessor):
 
     def _get_apache_service_obj(self):
         with ApiClient(**CONFIG.apigw) as api:
-            return api.service(self.resource.customUserConf).get()
+            return api.Service(self.resource.serviceId).get()
 
     def _get_nginx_service_obj(self):
         for service in CONFIG.localserver.services:
-            if str(service.serviceType.name).split("_")[1] == "nginx".upper():
+            if service.serviceType.name.split("_")[1] == "nginx".upper():
                 return service
         raise AttributeError("Local server has no nginx service")
 
     def _get_config_template(self, service_obj, template_name):
         for template in service_obj.serviceTemplate.configTemplates:
             if template.name == template_name:
-                with GitLabClient(**CONFIG.gitlab) as gitlab:
+                with GitLabClient(**CONFIG.gitlab._asdict()) as gitlab:
                     return gitlab.get(template.fileLink)
         raise AttributeError("There is no {0} config template "
                              "in {1}".format(template_name,
@@ -267,7 +267,7 @@ class WebSiteProcessor(ResProcessor):
         if webserver_type == "apache":
             service = self._get_apache_service_obj()
             opservice = Apache(
-                    name="-".join(str(service.serviceType.name).split("_")[1:])
+                    name="-".join(service.serviceType.name.split("_")[1:])
             )
             template_name = "{ApacheVHost}.j2"
         elif webserver_type == "nginx":
@@ -400,7 +400,7 @@ class WebSiteProcessorBaton(WebSiteProcessor):
         if webserver_type == "apache":
             service = self._get_apache_service_obj()
             opservice = UnmanagedApache(
-                    name="-".join(str(service.serviceType.name).split("_")[1:])
+                    name="-".join(service.serviceType.name.split("_")[1:])
             )
             template_name = "{BatonApacheVHost}.j2"
         elif webserver_type == "nginx":
@@ -472,7 +472,7 @@ class MailboxProcessor(ResProcessor):
     def delete(self):
         with ApiClient(**CONFIG.apigw) as api:
             mailboxes_remaining = \
-                api.mailbox(query={"domain": self.resource.domain.name}).get()
+                api.Mailbox(query={"domain": self.resource.domain.name}).get()
         if len(mailboxes_remaining) == 1:
             LOGGER.info("{0.name}@{0.domain} is the last mailbox "
                         "in {0.domain}".format(self.resource))
@@ -645,8 +645,8 @@ class ServiceProcessor(ResProcessor):
                 config = ConfigFile("{0}/{1}".format(self._opservice.cfg_base,
                                                      config_template.name))
                 all_configs.append(config)
-                with ApiClient(**CONFIG.apigw) as api:
-                    config.template = api.get(config_template.fileLink)
+                with GitLabClient(**CONFIG.gitlab._asdict()) as gitlab:
+                    config.template = gitlab.get(config_template.fileLink)
                 config.render_template(service=self.resource,
                                        params=self.params)
                 config.write()
