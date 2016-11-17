@@ -4,7 +4,7 @@ import subprocess
 from functools import wraps
 from threading import RLock
 from threading import current_thread
-from jinja2 import Template
+from jinja2 import Environment
 from taskexecutor.logger import LOGGER
 
 LOCKS = {}
@@ -81,6 +81,12 @@ class ConfigFile:
             self.enabled_path) and os.readlink(
             self.enabled_path) == self.file_path
 
+    @staticmethod
+    def _setup_jinja2_env():
+        jinja2_env = Environment()
+        jinja2_env.filters["path_join"] = lambda paths: os.path.join(*paths)
+        return jinja2_env
+
     def _read_file(self):
         with open(self._file_path, "r") as f:
             self._body = f.read()
@@ -89,6 +95,10 @@ class ConfigFile:
         return self.body.split("\n")
 
     def write(self):
+        dir_path = os.path.dirname(self.file_path)
+        if not os.path.exists(dir_path):
+            LOGGER.warning("There is no {} found, creating".format(dir_path))
+            os.makedirs(dir_path)
         if os.path.exists(self.file_path):
             LOGGER.info("Backing up {0} file as {0}.old".format(self.file_path))
             os.rename(self.file_path, "{}.old".format(self.file_path))
@@ -149,7 +159,8 @@ class ConfigFile:
     def render_template(self, **kwargs):
         if not self.template:
             raise AttributeError("Template is not set")
-        self.body = Template(self.template).render(**kwargs)
+        jinja2_env = self._setup_jinja2_env()
+        self.body = jinja2_env.from_string(self.template).render(**kwargs)
 
     def revert(self):
         LOGGER.warning("Reverting {0} from {0}.old, {0} will be saved as "
@@ -236,6 +247,13 @@ def repquota(freebsd=False):
 
 def set_thread_name(name):
     current_thread().name = name
+
+
+def to_lower_dashed(name):
+    return re.sub(
+            "([a-z0-9])([A-Z])", r"\1-\2",
+            re.sub("(.)([A-Z][a-z]+)", r"\1-\2", name)
+    ).lower().replace("_", "-")
 
 
 def synchronized(f):

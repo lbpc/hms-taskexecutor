@@ -2,9 +2,10 @@ import pymysql
 
 
 class MySQLClient:
-    def __init__(self, host, user, password, database="mysql"):
+    def __init__(self, host, user, password, port=3306, database="mysql"):
         self._connection = pymysql.connect(database=database,
                                            host=host,
+                                           port=port,
                                            user=user,
                                            password=password)
 
