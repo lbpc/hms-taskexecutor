@@ -238,18 +238,32 @@ class UnixAccountProcessorBaton(UnixAccountProcessor):
 class WebSiteProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
-        self._nginx = OpServiceBuilder(self._get_nginx_service_obj())
-        self._apache = OpServiceBuilder(self._get_apache_service_obj())
-        self._fill_params()
+        self.params.update({
+            "app_server_name": self.app_server.name,
+            "error_pages": [(code, "http_{}.html".format(code)) for code in
+                            (403, 404, 502, 503, 504)],
+            "static_base": CONFIG.nginx.static_base_path,
+            "ssl_path": CONFIG.nginx.ssl_certs_path,
+            "anti_ddos_location": CONFIG.nginx.anti_ddos_location,
+            "anti_ddos_set_cookie_file":
+                CONFIG.nginx.anti_ddos_set_cookie_file,
+            "anti_ddos_check_cookie_file":
+                CONFIG.nginx.anti_ddos_check_cookie_file,
+            "subdomains_document_root":
+                "/".join(self.resource.documentRoot.split("/")[:-1])
+        })
 
-    def _get_apache_service_obj(self):
+    @property
+    def app_server(self):
         with ApiClient(**CONFIG.apigw) as api:
-            return api.Service(self.resource.serviceId).get()
+            service = api.Service(self.resource.serviceId).get()
+        return OpServiceBuilder(service)
 
-    def _get_nginx_service_obj(self):
+    @property
+    def frontend_server(self):
         for service in CONFIG.localserver.services:
             if service.serviceType.name == "STAFF_NGINX":
-                return service
+                return OpServiceBuilder(service)
         raise AttributeError("Local server has no nginx service")
 
     def _build_vhost_obj_list(self):
@@ -272,49 +286,20 @@ class WebSiteProcessor(ResProcessor):
         )
         return vhosts
 
-    def _fill_params(self):
-        self.params["apache_name"] = self._apache.name
-        self.params["error_pages"] = \
-            [(code, "http_{}.html".format(code)) for code in
-             (403, 404, 502, 503, 504)]
-        self.params["static_base"] = CONFIG.nginx.static_base_path
-        self.params["ssl_path"] = CONFIG.nginx.ssl_certs_path
-        self.params["anti_ddos_location"] = CONFIG.nginx.anti_ddos_location
-        self.params["anti_ddos_set_cookie_file"] = \
-            CONFIG.nginx.anti_ddos_set_cookie_file
-        self.params["anti_ddos_check_cookie_file"] = \
-            CONFIG.nginx.anti_ddos_check_cookie_file
-        self.params["subdomains_document_root"] = \
-            "/".join(self.resource.documentRoot.split("/")[:-1])
-
-    def _create_logs_directory(self):
-        logs_dir = "{}/logs".format(self.resource.unixAccount.homeDir)
-        if not os.path.exists(logs_dir):
-            LOGGER.info(
-                    "{} directory does not exist, creating".format(logs_dir)
-            )
-            os.makedirs(logs_dir, mode=0o755)
-
-    def _create_document_root(self):
-        docroot_abs = os.path.join(self.resource.unixAccount.homeDir,
-                                   self.resource.documentRoot)
-        if not os.path.exists(docroot_abs):
-            LOGGER.info("{} directory does not exist, "
-                        "creating".format(docroot_abs))
-            os.makedirs(docroot_abs, mode=0o755)
-            chown_path = self.resource.unixAccount.homeDir
-            for directory in docroot_abs.split("/")[1:]:
-                chown_path += "/{}".format(directory)
-                os.chown(chown_path,
-                         self.resource.unixAccount.uid,
-                         self.resource.unixAccount.uid)
-
     @synchronized
     def create(self):
         vhosts_list = self._build_vhost_obj_list()
-        self._create_logs_directory()
-        self._create_document_root()
-        for service in (self._apache, self._nginx):
+        home_dir = os.path.normpath(self.resource.unixAccount.homeDir)
+        document_root = os.path.normpath(self.resource.documentRoot)
+        for directory in (os.path.join(home_dir, "logs"),
+                          os.path.join(home_dir, document_root)):
+            os.makedirs(directory, mode=0o755, exist_ok=True)
+        for directory in ["/".join(document_root.split("/")[0:i + 1])
+                          for i, d in enumerate(document_root.split("/"))]:
+                os.chown(directory,
+                         self.resource.unixAccount.uid,
+                         self.resource.unixAccount.uid)
+        for service in (self.app_server, self.frontend_server):
             config = service.get_website_config(self.resource.id)
             config.render_template(socket=service.socket,
                                    vhosts=vhosts_list,
@@ -332,7 +317,7 @@ class WebSiteProcessor(ResProcessor):
     @synchronized
     def update(self):
         if not self.resource.switchedOn:
-            for service in (self._apache, self._nginx):
+            for service in (self.app_server, self.frontend_server):
                 config = service.get_website_config(self.resource.id)
                 if config.is_enabled:
                     config.disable()
@@ -344,7 +329,7 @@ class WebSiteProcessor(ResProcessor):
 
     @synchronized
     def delete(self):
-        for service in (self._nginx, self._apache):
+        for service in (self.frontend_server, self.app_server):
             config = service.get_website_config(self.resource.id)
             if config.is_enabled:
                 config.disable()
@@ -480,58 +465,41 @@ class MailboxAtMxProcessor(MailboxProcessor):
 class DatabaseUserProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
-        self._service = OpServiceBuilder(self.resource.serviceType.name)
+        self._db_server = OpServiceBuilder(self.resource.serviceType.name)
 
     def create(self):
-        self._service.add_create_user_query(self.resource.name,
-                                            self.resource.passwordHash,
-                                            self.resource.addressList)
-        self._service.run_queryset()
+        self._db_server.create_user(self.resource.name,
+                                    self.resource.passwordHash,
+                                    self.resource.addressList)
 
     def update(self):
-        self._service.add_update_password_query(self.resource.name,
-                                                self.resource.passwordHash,
-                                                self.resource.addressList)
-        self._service.run_queryset()
+        self._db_server.update_password(self.resource.name,
+                                        self.resource.passwordHash,
+                                        self.resource.addressList)
 
     def delete(self):
-        self._service.add_drop_user_query(self.resource.name)
-        self._service.run_queryset()
+        self._db_server.drop_user(self.resource.name)
 
 
 class DatabaseProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
-        self._service = OpServiceBuilder(self.resource.serviceType.name)
+        self._db_server = OpServiceBuilder(self.resource.serviceType.name)
 
     def create(self):
-        privileges = \
-            CONFIG.mysql.common_privileges + CONFIG.mysql.write_privileges
-        self._service.add_create_database_query(self.resource.name,
-                                                self.resource.databaseUsers)
-        self._service.add_grant_privileges_query(self.resource.name,
-                                                 self.resource.databaseUsers,
-                                                 privileges)
-        self._service.run_queryset()
+        self._db_server.create_database(self.resource.name,
+                                        self.resource.databaseUsers)
 
     def update(self):
         if not self.resource.writable:
-            self._service.add_revoke_privileges_query(
-                    self.resource.name,
-                    self.resource.databaseUsers,
-                    CONFIG.mysql.write_privileges
-            )
+            self._db_server.deny_database_writes(self.resource.name,
+                                                 self.resource.databaseUsers)
         else:
-            self._service.add_grant_privileges_query(
-                    self.resource.name,
-                    self.resource.databaseUsers,
-                    CONFIG.mysql.write_privileges
-            )
-        self._service.run_queryset()
+            self._db_server.allow_database_writes(self.resource.name,
+                                                  self.resource.databaseUsers)
 
     def delete(self):
-        self._service.add_drop_database_query(self.resource.name)
-        self._service.run_queryset()
+        self._db_server.drop_database(self.resource.name)
 
 
 # TODO: reimplement using OpServiceBuilder

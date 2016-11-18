@@ -127,7 +127,7 @@ setup(
     distclass=GradleDistribution,
     package_dir={'': 'src'},
     packages=['taskexecutor'],
-    package_data={'': ['../../pinned.txt', 'templates/*.j2']},
+    package_data={'': ['../../pinned.txt']},
     entry_points={
         'console_scripts': [
             'taskexecutor = taskexecutor.__main__:main',

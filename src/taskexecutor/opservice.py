@@ -278,111 +278,75 @@ class UnmanagedApache(WebServer, OpService):
 
 
 class DatabaseServer(metaclass=ABCMeta):
-    def __init__(self):
-        self._queryset = list()
-
-    @property
-    def queryset(self):
-        return self._queryset
-
     @abstractmethod
-    def add_create_user_query(self, name, password_hash, addresses_list):
+    def create_user(self, name, password_hash, addresses_list):
         pass
 
     @abstractmethod
-    def add_update_password_query(self, user_name,
-                                  password_hash, addresses_list):
+    def update_password(self, user_name, password_hash, addresses_list):
         pass
 
     @abstractmethod
-    def add_drop_user_query(self, name):
+    def drop_user(self, name):
         pass
 
     @abstractmethod
-    def add_create_database_query(self, name, users_list):
+    def create_database(self, name, allowed_users_list):
         pass
 
     @abstractmethod
-    def add_drop_database_query(self, name):
+    def drop_database(self, name):
         pass
 
     @abstractmethod
-    def add_grant_privileges_query(self, database_name,
-                                   users_list, privileges_list):
+    def allow_database_access(self, database_name, users_list):
         pass
 
     @abstractmethod
-    def add_revoke_privileges_query(self, database_name,
-                                    users_list, privileges_list):
+    def deny_database_access(self, database_name, users_list):
         pass
 
     @abstractmethod
-    def run_queryset(self):
+    def allow_database_writes(self, database_name, users_list):
+        pass
+
+    @abstractmethod
+    def deny_database_writes(self, database_name, users_list):
         pass
 
 
 class MySQL(DatabaseServer, NetworkingService, SysVService):
-
     def __init__(self):
-        DatabaseServer.__init__(self)
         NetworkingService.__init__(self)
         SysVService.__init__(self, "mysql")
+        self._queryset = list()
+        self._full_privileges = \
+            CONFIG.mysql.common_privileges + CONFIG.mysql.write_privileges
+        self._write_privileges = CONFIG.mysql.write_privileges
 
-    def add_create_user_query(self, name, password_hash, addresses_list):
-        self._queryset.append(
-            (
-                "CREATE USER `%s`@`%s` IDENTIFIED BY PASSWORD '%s'",
-                (name, address, password_hash)
-            ) for address in addresses_list
-        )
-
-    def add_update_password_query(self, user_name,
-                                  password_hash, addresses_list):
-        self._queryset.append(
-            (
-                "SET PASSWORD FOR `%s`@`%s` = '%s'",
-                (user_name, address, password_hash)
-            ) for address in addresses_list
-        )
-
-    def add_drop_user_query(self, name):
-        self._queryset.append(
-                ("DROP USER %s", (name,))
-        )
-
-    def add_create_database_query(self, name, users_list):
-        self._queryset.append(
-            ("CREATE DATABASE IF NOT EXISTS %s", (name,))
-        )
-
-    def add_drop_database_query(self, name):
-        self._queryset.append(
-            ("DROP DATABASE %s", (name,))
-        )
-
-    def add_grant_privileges_query(self, database_name,
-                                   users_list, privileges_list):
+    def _query_grant_privileges(self, database_name,
+                                users_list, privileges_list):
         for user in users_list:
-            self._queryset.append(
-                ("GRANT {} ON `%s`.* "
-                 "TO `%s`@`%s` "
-                 "IDENTIFIED BY "
-                 "PASSWORD '%s'".format(", ".join(privileges_list)),
-                 (database_name, user.name, address, user.passwordHash))
-                for address in user.addressList
+            self._queryset.extend(
+                [(
+                     "GRANT {} ON `%s`.* TO `%s`@`%s` IDENTIFIED BY "
+                     "PASSWORD '%s'".format(", ".join(privileges_list)),
+                     (database_name, user.name, address, user.passwordHash)
+                ) for address in user.addressList]
             )
 
-    def add_revoke_privileges_query(self, database_name,
-                                    users_list, privileges_list):
+    def _query_revoke_privileges(self, database_name,
+                                 users_list, privileges_list):
         for user in users_list:
-            self._queryset.append(
-                ("REVOKE {} ON `%s`.* "
-                 "FROM `%s`@`%s`".format(", ".join(privileges_list)),
-                 (database_name, user.name, address))
-                for address in user.addressList
+            self._queryset.extend(
+                [(
+                     "REVOKE {} ON `%s`.* "
+                     "FROM `%s`@`%s`".format(", ".join(privileges_list)),
+                     (database_name, user.name, address)
+                ) for address in user.addressList]
             )
 
-    def run_queryset(self):
+    def _run_queryset(self):
         with MySQLClient(host=self.socket.mysql.address,
                          port=self.socket.mysql.port,
                          user=CONFIG.mysql.user,
@@ -391,6 +355,66 @@ class MySQL(DatabaseServer, NetworkingService, SysVService):
                 LOGGER.info("Executing query: {}".format(query % values))
                 c.execute(query, values)
         self._queryset.clear()
+
+    def create_user(self, name, password_hash, addresses_list):
+        self._queryset.extend(
+                [("CREATE USER `%s`@`%s` IDENTIFIED BY PASSWORD '%s'",
+                  (name, address, password_hash)) for address in addresses_list]
+        )
+        self._run_queryset()
+
+    def update_password(self, user_name, password_hash, addresses_list):
+        self._queryset.extend(
+                [(
+                     "SET PASSWORD FOR `%s`@`%s` = '%s'",
+                     (user_name, address, password_hash)
+                ) for address in addresses_list]
+        )
+        self._run_queryset()
+
+    def drop_user(self, name):
+        self._queryset.append(("DROP USER %s", (name,)))
+        self._run_queryset()
+
+    def create_database(self, name, allowed_users_list):
+        self._queryset.append(("CREATE DATABASE IF NOT EXISTS %s", (name,)))
+        self._query_grant_privileges(name,
+                                     allowed_users_list,
+                                     self._full_privileges)
+        self._run_queryset()
+
+    def drop_database(self, name):
+        self._queryset.append(("DROP DATABASE %s", (name,)))
+        self._run_queryset()
+
+    def allow_database_access(self, database_name, users_list):
+        self._query_grant_privileges(database_name,
+                                     users_list,
+                                     self._full_privileges)
+        self._run_queryset()
+
+    def deny_database_access(self, database_name, users_list):
+        self._query_revoke_privileges(database_name,
+                                      users_list,
+                                      self._full_privileges)
+        self._run_queryset()
+
+    def allow_database_writes(self, database_name, users_list):
+        self._query_grant_privileges(database_name,
+                                     users_list,
+                                     self._write_privileges)
+
+    def deny_database_writes(self, database_name, users_list):
+        self._query_revoke_privileges(database_name,
+                                      users_list,
+                                      self._write_privileges)
+
+
+class PostgreSQL(DatabaseServer, NetworkingService, SysVService):
+    def __init__(self):
+        DatabaseServer.__init__(self)
+        NetworkingService.__init__(self)
+        SysVService.__init__(self, "postgresql")
 
 
 class OpServiceBuilder:
