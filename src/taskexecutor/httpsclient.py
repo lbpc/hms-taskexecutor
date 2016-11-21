@@ -9,6 +9,7 @@ from collections import Mapping, namedtuple
 from copy import deepcopy
 from urllib.parse import urlencode
 from taskexecutor.logger import LOGGER
+from taskexecutor.utils import to_lower_dashed
 
 
 class HttpsClient(metaclass=ABCMeta):
@@ -147,8 +148,8 @@ class ApiClient(HttpsClient):
         raise NotImplementedError
 
     def __getattr__(self, name):
-        name = re.sub("([a-z0-9])([A-Z])", r"\1-\2",
-                      re.sub("(.)([A-Z][a-z]+)", r"\1-\2", name)).lower()
+        name = to_lower_dashed(name)
+
         def constructor(res_id=None, query=None):
             if res_id:
                 self._build_resource(name, res_id)
@@ -209,9 +210,11 @@ class ConfigServerClient(ApiClient):
         if self.extra_attrs:
             return result.as_object(extra_attrs=self.extra_attrs,
                                     expand_dot_separated=True,
+                                    comma_separated_to_list=True,
                                     overwrite=True)
         else:
-            return result.as_object(expand_dot_separated=True)
+            return result.as_object(expand_dot_separated=True,
+                                    comma_separated_to_list=True)
 
     def get_property_sources_list(self, name, profile):
         self.uri_path = "/{0}/{1}".format(name, profile)
@@ -257,7 +260,7 @@ class GitLabClient(HttpsClient):
         file_obj = json.loads(json_str)
         if "content" not in file_obj.keys() or not file_obj["content"]:
             raise Exception("Requested file has no content")
-        return b64decode(file_obj["content"])
+        return self.decode_response(b64decode(file_obj["content"]))
 
     def post(self, body, uri_path=None, headers=None):
         raise NotImplementedError
@@ -321,8 +324,19 @@ class ApiObjectMapper:
         return dct
 
     @staticmethod
-    def object_hook(dct, extra, overwrite, expand):
+    def comma_separated_to_list(dct):
+        for k, v in dct.items():
+            if isinstance(v, dict):
+                ApiObjectMapper.comma_separated_to_list(v)
+            elif isinstance(v, str) and "," in v:
+                dct[k] = [e.strip() for e in v.split(",")]
+        return dct
+
+    @staticmethod
+    def object_hook(dct, extra, overwrite, expand, comma):
         dct = ApiObjectMapper.cast_numeric_recursively(dct)
+        if comma:
+            dct = ApiObjectMapper.comma_separated_to_list(dct)
         if expand:
             new_dct = dict()
             for key in dct.keys():
@@ -340,11 +354,18 @@ class ApiObjectMapper:
                 ApiObjectMapper.dict_merge(dct, extra, overwrite=overwrite)
             return ApiObjectMapper.namedtuple_from_mapping(dct)
 
-    def as_object(self, extra_attrs=None,
-                  overwrite=False, expand_dot_separated=False):
-        return json.loads(self._json_string,
-                          object_hook=lambda d: ApiObjectMapper.object_hook(
-                              d, extra_attrs, overwrite, expand_dot_separated))
+    def as_object(self, extra_attrs=None, overwrite=False,
+                  expand_dot_separated=False, comma_separated_to_list=False):
+        return json.loads(
+                self._json_string,
+                object_hook=lambda d: ApiObjectMapper.object_hook(
+                        d,
+                        extra_attrs,
+                        overwrite,
+                        expand_dot_separated,
+                        comma_separated_to_list
+                )
+        )
 
     def as_dict(self):
         return self.cast_numeric_recursively(json.loads(self._json_string))

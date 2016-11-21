@@ -5,10 +5,8 @@ from pytransliter import translit
 from abc import ABCMeta, abstractmethod
 from collections import namedtuple
 from taskexecutor.config import CONFIG
-from taskexecutor.opservice import Apache, Nginx, UnmanagedApache, \
-    UnmanagedNginx
-from taskexecutor.httpsclient import ApiClient, GitLabClient
-from taskexecutor.dbclient import MySQLClient
+from taskexecutor.opservice import OpServiceBuilder
+from taskexecutor.httpsclient import ApiClient
 from taskexecutor.utils import ConfigFile, exec_command, synchronized
 from taskexecutor.logger import LOGGER
 
@@ -240,59 +238,41 @@ class UnixAccountProcessorBaton(UnixAccountProcessor):
 class WebSiteProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
-        self._nginx = self._build_webserver_container("nginx")
-        self._apache = self._build_webserver_container("apache")
-        self._fill_params()
+        self.params.update({
+            "app_server_name": self.app_server.name,
+            "error_pages": [(code, "http_{}.html".format(code)) for code in
+                            (403, 404, 502, 503, 504)],
+            "static_base": CONFIG.nginx.static_base_path,
+            "ssl_path": CONFIG.nginx.ssl_certs_path,
+            "anti_ddos_location": CONFIG.nginx.anti_ddos_location,
+            "anti_ddos_set_cookie_file":
+                CONFIG.nginx.anti_ddos_set_cookie_file,
+            "anti_ddos_check_cookie_file":
+                CONFIG.nginx.anti_ddos_check_cookie_file,
+            "subdomains_document_root":
+                "/".join(self.resource.documentRoot.split("/")[:-1])
+        })
 
-    def _get_apache_service_obj(self):
+    @property
+    def app_server(self):
         with ApiClient(**CONFIG.apigw) as api:
-            return api.Service(self.resource.serviceId).get()
+            service = api.Service(self.resource.serviceId).get()
+        return OpServiceBuilder(service)
 
-    def _get_nginx_service_obj(self):
+    @property
+    def frontend_server(self):
         for service in CONFIG.localserver.services:
-            if service.serviceType.name.split("_")[1] == "nginx".upper():
-                return service
+            if service.serviceType.name == "STAFF_NGINX":
+                return OpServiceBuilder(service)
         raise AttributeError("Local server has no nginx service")
-
-    def _get_config_template(self, service_obj, template_name):
-        for template in service_obj.serviceTemplate.configTemplates:
-            if template.name == template_name:
-                with GitLabClient(**CONFIG.gitlab._asdict()) as gitlab:
-                    return gitlab.get(template.fileLink)
-        raise AttributeError("There is no {0} config template "
-                             "in {1}".format(template_name,
-                                             service_obj.serviceTemplate.name))
-
-    def _build_webserver_container(self, webserver_type):
-        if webserver_type == "apache":
-            service = self._get_apache_service_obj()
-            opservice = Apache(
-                    name="-".join(service.serviceType.name.split("_")[1:])
-            )
-            template_name = "{ApacheVHost}.j2"
-        elif webserver_type == "nginx":
-            service = self._get_nginx_service_obj()
-            opservice = Nginx()
-            template_name = "{NginxServer}.j2"
-        else:
-            raise KeyError("{} is unknown server type".format(webserver_type))
-        config = ConfigFile("{0}/sites-available/{1}.conf".format(
-                opservice.cfg_base,
-                self.resource.id
-        ))
-        config.template = self._get_config_template(service, template_name)
-        return namedtuple("WebServer", "service opservice config")(
-            service=service,
-            opservice=opservice,
-            config=config
-        )
 
     def _build_vhost_obj_list(self):
         vhosts = list()
         non_ssl_domains = list()
         res_dict = self.resource._asdict()
         for domain in self.resource.domains:
-            if domain.sslCertificate:
+            # FIXME: there is no real need in attribute presence check
+            if hasattr(domain, "sslCertificate") and domain.sslCertificate:
                 res_dict["domains"] = [domain, ]
                 vhosts.append(
                         namedtuple("VHost", res_dict.keys())(
@@ -306,80 +286,55 @@ class WebSiteProcessor(ResProcessor):
         )
         return vhosts
 
-    def _fill_params(self):
-        self.params["apache_name"] = self._apache.opservice.name
-        self.params["error_pages"] = \
-            [(code, "http_{}.html".format(code)) for code in
-             (403, 404, 502, 503, 504)]
-        self.params["static_base"] = CONFIG.paths.nginx_static_base
-        self.params["ssl_path"] = CONFIG.paths.ssl_certs
-        self.params[
-            "anti_ddos_set_cookie_file"] = "anti_ddos_set_cookie_file.lua"
-        self.params[
-            "anti_ddos_check_cookie_file"] = "anti_ddos_check_cookie_file.lua"
-        self.params["subdomains_document_root"] = \
-            "/".join(self.resource.documentRoot.split("/")[:-1])
-
-    def _create_logs_directory(self):
-        logs_dir = "{}/logs".format(self.resource.unixAccount.homeDir)
-        if not os.path.exists(logs_dir):
-            LOGGER.info(
-                    "{} directory does not exist, creating".format(logs_dir)
-            )
-            os.mkdir(logs_dir, mode=0o755)
-
-    def _create_document_root(self):
-        docroot_abs = "{0}{1}".format(self.resource.unixAccount.homeDir,
-                                      self.resource.documentRoot)
-        if not os.path.exists(docroot_abs):
-            LOGGER.info("{} directory does not exist, "
-                        "creating".format(docroot_abs))
-            os.makedirs(docroot_abs, mode=0o755)
-            chown_path = self.resource.unixAccount.homeDir
-            for directory in self.resource.documentRoot.split("/")[1:]:
-                chown_path += "/{}".format(directory)
-                os.chown(chown_path,
-                         self.resource.unixAccount.uid,
-                         self.resource.unixAccount.uid)
-
     @synchronized
     def create(self):
         vhosts_list = self._build_vhost_obj_list()
-        self._create_logs_directory()
-        self._create_document_root()
-        for srv in (self._apache, self._nginx):
-            srv.config.render_template(socket=srv.service.serviceSocket[0],
-                                       vhosts=vhosts_list,
-                                       params=self.params)
-            srv.config.write()
-            if self.resource.switchedOn and not srv.config.is_enabled:
-                srv.config.enable()
+        home_dir = os.path.normpath(self.resource.unixAccount.homeDir)
+        document_root = os.path.normpath(self.resource.documentRoot)
+        for directory in (os.path.join(home_dir, "logs"),
+                          os.path.join(home_dir, document_root)):
+            os.makedirs(directory, mode=0o755, exist_ok=True)
+        for directory in ["/".join(document_root.split("/")[0:i + 1])
+                          for i, d in enumerate(document_root.split("/"))]:
+                os.chown(directory,
+                         self.resource.unixAccount.uid,
+                         self.resource.unixAccount.uid)
+        for service in (self.app_server, self.frontend_server):
+            config = service.get_website_config(self.resource.id)
+            config.render_template(socket=service.socket,
+                                   vhosts=vhosts_list,
+                                   params=self.params)
+            config.write()
+            if self.resource.switchedOn and not config.is_enabled:
+                config.enable()
             try:
-                srv.opservice.reload()
+                service.reload()
             except:
-                srv.config.revert()
+                config.revert()
                 raise
-            srv.config.confirm()
+            config.confirm()
 
     @synchronized
     def update(self):
         if not self.resource.switchedOn:
-            for srv in (self._apache, self._nginx):
-                if srv.config.is_enabled:
-                    srv.config.disable()
-                    srv.config.write()
-                    srv.config.confirm()
-                    srv.opservice.reload()
+            for service in (self.app_server, self.frontend_server):
+                config = service.get_website_config(self.resource.id)
+                if config.is_enabled:
+                    config.disable()
+                    config.write()
+                    config.confirm()
+                    service.reload()
         else:
             self.create()
 
     @synchronized
     def delete(self):
-        for srv in (self._nginx, self._apache):
-            if srv.config.is_enabled:
-                srv.config.disable()
-            srv.config.delete()
-            srv.opservice.reload()
+        for service in (self.frontend_server, self.app_server):
+            config = service.get_website_config(self.resource.id)
+            if config.is_enabled:
+                config.disable()
+            config.delete()
+            service.reload()
 
 
 # HACK: the only purpose of this class is to process
@@ -388,37 +343,10 @@ class WebSiteProcessor(ResProcessor):
 class WebSiteProcessorBaton(WebSiteProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
-        self._normalize_resource()
-
-    def _normalize_resource(self):
         res_dict = self.resource._asdict()
         res_dict["documentRoot"] = translit(res_dict["documentRoot"], "ru")
         self.resource = namedtuple("ApiObject",
                                    res_dict.keys())(*res_dict.values())
-
-    def _build_webserver_container(self, webserver_type):
-        if webserver_type == "apache":
-            service = self._get_apache_service_obj()
-            opservice = UnmanagedApache(
-                    name="-".join(service.serviceType.name.split("_")[1:])
-            )
-            template_name = "{BatonApacheVHost}.j2"
-        elif webserver_type == "nginx":
-            service = self._get_nginx_service_obj()
-            opservice = UnmanagedNginx()
-            template_name = "{BatonNginxServer}.j2"
-        else:
-            raise KeyError("{} is unknown server type".format(webserver_type))
-        config = ConfigFile("{0}/sites-available/{1}.conf".format(
-                opservice.cfg_base,
-                self.resource.id
-        ))
-        config.template = self._get_config_template(service, template_name)
-        return namedtuple("WebServer", "service opservice config")(
-                service=service,
-                opservice=opservice,
-                config=config
-        )
 
 
 class SSLCertificateProcessor(ResProcessor):
@@ -537,154 +465,62 @@ class MailboxAtMxProcessor(MailboxProcessor):
 class DatabaseUserProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
+        self._db_server = OpServiceBuilder(self.resource.serviceType.name)
 
     def create(self):
-        queryset = [
-            (
-                "CREATE USER `%s`@`%s` IDENTIFIED BY PASSWORD '%s'",
-                (self.resource.name, addr, self.resource.passwordHash)
-            ) for addr in self.resource.addressList
-        ]
-        with MySQLClient(**CONFIG.mysql) as c:
-            for query, values in queryset:
-                LOGGER.info("Executing query: {}".format(query % values))
-                c.execute(query, values)
+        self._db_server.create_user(self.resource.name,
+                                    self.resource.passwordHash,
+                                    self.resource.addressList)
 
     def update(self):
-        self.delete()
-        self.create()
+        self._db_server.update_password(self.resource.name,
+                                        self.resource.passwordHash,
+                                        self.resource.addressList)
 
     def delete(self):
-        query = "DROP USER %s"
-        with MySQLClient(**CONFIG.mysql) as c:
-            LOGGER.info("Executing query: "
-                        "{}".format(query % self.resource.name))
-            c.execute(query, (self.resource.name,))
+        self._db_server.drop_user(self.resource.name)
 
 
 class DatabaseProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
+        self._db_server = OpServiceBuilder(self.resource.serviceType.name)
 
     def create(self):
-        queryset = [
-            (
-                "CREATE DATABASE IF NOT EXISTS %s", (self.resource.name,)
-            ),
-        ]
-        for user in self.resource.databaseUsers:
-            queryset += [
-                ("GRANT "
-                 "SELECT, "
-                 "INSERT, "
-                 "UPDATE, "
-                 "DELETE, "
-                 "CREATE, "
-                 "DROP, "
-                 "REFERENCES, "
-                 "INDEX, "
-                 "ALTER, "
-                 "CREATE TEMPORARY TABLES, "
-                 "LOCK TABLES, "
-                 "CREATE VIEW, "
-                 "SHOW VIEW, "
-                 "CREATE ROUTINE, "
-                 "ALTER ROUTINE, "
-                 "EXECUTE"
-                 " ON `%s`.* TO `%s`@`%s` "
-                 "IDENTIFIED BY PASSWORD '%s'",
-                 (self.resource.name, user.name, addr, user.passwordHash))
-                for addr in user.addressList
-            ]
-        with MySQLClient(**CONFIG.mysql) as c:
-            for query, values in queryset:
-                LOGGER.info("Executing query: {}".format(query % values))
-                c.execute(query, values)
+        self._db_server.create_database(self.resource.name,
+                                        self.resource.databaseUsers)
 
     def update(self):
         if not self.resource.writable:
-            query_action = "REVOKE"
+            self._db_server.deny_database_writes(self.resource.name,
+                                                 self.resource.databaseUsers)
         else:
-            query_action = "GRANT"
-
-        queryset = list()
-        for user in self.resource.databaseUsers:
-            queryset += [
-                ("{0} INSERT, UPDATE ON "
-                 "`%s`.* FROM `%s`@`%s`".format(query_action),
-                 (self.resource.name, user.name, addr))
-                for addr in user.addressList
-            ]
-        with MySQLClient(**CONFIG.mysql) as c:
-            for query, values in queryset:
-                LOGGER.info("Executing query: {}".format(query % values))
-                c.execute(query, values)
+            self._db_server.allow_database_writes(self.resource.name,
+                                                  self.resource.databaseUsers)
 
     def delete(self):
-        query = "DROP DATABASE %s"
-        with MySQLClient(**CONFIG.mysql) as c:
-            LOGGER.info(
-                    "Executing query: {}".format(query % self.resource.name)
-            )
-            c.execute(query, (self.resource.name,))
+        self._db_server.drop_database(self.resource.name)
 
 
+# TODO: reimplement using OpServiceBuilder
 class ServiceProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
-        if self.resource.name == "nginx":
-            self._opservice = Nginx()
-        elif self.resource.name.startswith("apache"):
-            self._opservice = Apache(name=self.resource.name)
-        self._excluded_templates = ("{NginxServer}.j2", "{ApacheVHost}.j2")
+        self._service = OpServiceBuilder(self.resource)
 
     def create(self):
-        all_configs = list()
-        for config_template in self.resource.serviceTemplate.configTemplates:
-            if config_template.name not in self._excluded_templates:
-                config = ConfigFile("{0}/{1}".format(self._opservice.cfg_base,
-                                                     config_template.name))
-                all_configs.append(config)
-                with GitLabClient(**CONFIG.gitlab._asdict()) as gitlab:
-                    config.template = gitlab.get(config_template.fileLink)
-                config.render_template(service=self.resource,
-                                       params=self.params)
-                config.write()
-        try:
-            self._opservice.reload()
-        except:
-            for config in all_configs:
-                config.revert()
-            raise
-        for config in all_configs:
-            config.confirm()
+        pass
 
     def update(self):
-        self.create()
+        pass
 
     def delete(self):
-        for config_template in self.resource.serviceTemplate.configTemplates:
-            config = ConfigFile("{0}/{1}".format(self._opservice.cfg_base,
-                                                 config_template.name))
-            config.delete()
-        self._opservice.stop()
-
-
-class ServiceProcessorBaton(ServiceProcessor):
-    def __init__(self, resource, params):
-        super(ServiceProcessor, self).__init__(resource, params)
-        if self.resource.name == "nginx":
-            self._opservice = UnmanagedNginx()
-        elif self.resource.name.startswith("apache"):
-            self._opservice = UnmanagedApache(name=self.resource.name)
-        self._excluded_templates = ("BatonNginxServer", "BatonApacheVHost")
+        pass
 
 
 class ResProcessorBuilder:
     def __new__(cls, res_type):
-        if res_type == "service" and CONFIG.hostname == "baton":
-            return ServiceProcessorBaton
-        elif res_type == "service":
+        if res_type == "service":
             return ServiceProcessor
         elif res_type == "unix-account" and CONFIG.hostname == "baton":
             return UnixAccountProcessorBaton
