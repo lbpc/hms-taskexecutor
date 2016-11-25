@@ -1,28 +1,25 @@
 import time
 import schedule
 from taskexecutor.config import CONFIG
-from taskexecutor.facts import FactsSender
-from taskexecutor.executor import Executors
-from taskexecutor.utils import set_thread_name
+import taskexecutor.facts
+import taskexecutor.executor
+import taskexecutor.utils
 
 
 class Scheduler:
     def __init__(self):
         self._stopping = False
-        self._executors = Executors()
+        self._executors = taskexecutor.executor.Executors()
         periodic_jobs = dict()
         for res_type in ("unix-account", "database", "mailbox"):
             if res_type in CONFIG.enabled_resources:
-                periodic_jobs[FactsSender(res_type, "quota").update] = \
-                    getattr(CONFIG.schedule.facts,
-                            res_type.replace("-", "_")).quota.interval
+                periodic_jobs[taskexecutor.facts.FactsSender(res_type, "quota").update] = \
+                    getattr(CONFIG.schedule.facts, res_type.replace("-", "_")).quota.interval
         for job, interval in periodic_jobs.items():
-            schedule.every(interval).seconds.do(
-                    self._executors.pool.submit, job
-            )
+            schedule.every(interval).seconds.do(self._executors.pool.submit, job)
 
     def start(self):
-        set_thread_name("Scheduler")
+        taskexecutor.utils.set_thread_name("Scheduler")
         while not self._stopping:
             schedule.run_pending()
             if schedule.jobs and not self._stopping:

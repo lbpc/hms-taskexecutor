@@ -4,6 +4,8 @@ import pika
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 
+__all__ = ["Builder"]
+
 
 class Reporter(metaclass=ABCMeta):
     def __init__(self):
@@ -77,9 +79,9 @@ class AMQPReporter(Reporter):
         self._close_channel()
 
 
-class ReporterBuilder:
+class Builder:
     def __new__(cls, reporter_type):
         if reporter_type == "amqp":
-            return AMQPReporter
+            return AMQPReporter()
         else:
             raise ValueError("Unknown Reporter type: {}".format(reporter_type))

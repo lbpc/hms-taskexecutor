@@ -18,7 +18,7 @@ class StreamToLogger:
 logging.basicConfig(
     format="%(threadName)s LOG LEVEL: %(levelname)s "
            "(%(module)s:%(lineno)d %(funcName)s) %(message)s",
-    stream=sys.stdout
+    stream=sys.stdout,
 )
 LOGGER = logging.getLogger("taskexecutor")
 LOGGER.setLevel(logging.DEBUG)
