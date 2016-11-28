@@ -278,20 +278,29 @@ class UnmanagedApache(WebServer, OpService):
 
 
 class DatabaseServer(metaclass=abc.ABCMeta):
+    @staticmethod
+    @abc.abstractmethod
+    def generate_allowed_addrs_list(addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def get_current_allowed_addrs_list(self, user_name):
+        pass
+
     @abc.abstractmethod
     def create_user(self, name, password_hash, addrs_list):
         pass
 
     @abc.abstractmethod
-    def update_user(self, user_name, password_hash, addrs_list):
+    def set_password(self, user_name, password_hash, addrs_list):
         pass
 
     @abc.abstractmethod
-    def drop_user(self, name):
+    def drop_user(self, name, addrs_list):
         pass
 
     @abc.abstractmethod
-    def create_database(self, name, allowed_users_list):
+    def create_database(self, name):
         pass
 
     @abc.abstractmethod
@@ -299,19 +308,19 @@ class DatabaseServer(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def allow_database_access(self, database_name, users_list):
+    def allow_database_access(self, database_name, user_name, addrs_list):
         pass
 
     @abc.abstractmethod
-    def deny_database_access(self, database_name, users_list):
+    def deny_database_access(self, database_name, user_name, addrs_list):
         pass
 
     @abc.abstractmethod
-    def allow_database_writes(self, database_name, users_list):
+    def allow_database_writes(self, database_name, user_name, addrs_list):
         pass
 
     @abc.abstractmethod
-    def deny_database_writes(self, database_name, users_list):
+    def deny_database_writes(self, database_name, user_name, addrs_list):
         pass
 
 
@@ -321,107 +330,75 @@ class MySQL(DatabaseServer, ConfigurableService, NetworkingService, SysVService)
         NetworkingService.__init__(self)
         SysVService.__init__(self, "mysql")
         self.config_base_path = "/etc/mysql"
-        self._queryset = list()
+        self._dbclient = None
         self._full_privileges = CONFIG.mysql.common_privileges + CONFIG.mysql.write_privileges
         self._write_privileges = CONFIG.mysql.write_privileges
 
+    @property
+    def dbclient(self):
+        if not self._dbclient:
+            return taskexecutor.dbclient.MySQLClient(host=self.socket.mysql.address,
+                                                     port=self.socket.mysql.port,
+                                                     user=CONFIG.mysql.user,
+                                                     password=CONFIG.mysql.password,
+                                                     database="mysql")
+        else:
+            return self._dbclient
+
     @staticmethod
-    def generate_allowed_addrs_set(addr_list):
-        networks = [ipaddress.IPv4Network(net) for net in CONFIG.database.default_allowed_networks + addr_list]
-        return set([net.with_netmask for net in networks])
+    def generate_allowed_addrs_list(addrs_list):
+        networks = ipaddress.collapse_addresses(ipaddress.IPv4Network(net)
+                                                for net in CONFIG.database.default_allowed_networks + addrs_list)
+        return [net.with_netmask for net in networks]
 
-    def _get_allowed_addrs_set(self, user_name):
-        credentials = {"host": self.socket.mysql.address,
-                       "port": self.socket.mysql.port,
-                       "user": CONFIG.mysql.user,
-                       "password": CONFIG.mysql.password}
-        with taskexecutor.dbclient.MySQLClient(**credentials) as c:
-            c.execute("SELECT host FROM mysql.user WHERE user = %s", (user_name,))
-            return set([row[0] for row in c.fetchall()])
-
-    def _query_grant_privileges(self, database_name, users_list, privileges_list):
-        for user in users_list:
-            self._queryset.extend(
-                [("GRANT {} ON %s.* TO %s@%s IDENTIFIED BY "
-                  "PASSWORD %s".format(", ".join(privileges_list)),
-                  (database_name, user.name, address, user.passwordHash))
-                 for address in self.generate_allowed_addrs_set(user.allowedAddressList)]
-            )
-
-    def _query_revoke_privileges(self, database_name, users_list, privileges_list):
-        for user in users_list:
-            self._queryset.extend(
-                [("REVOKE {} ON %s.* FROM %s@%s".format(", ".join(privileges_list)),
-                  (database_name, user.name, address))
-                 for address in self.generate_allowed_addrs_set(user.allowedAddressList)]
-            )
-
-    def _run_queryset(self):
-        credentials = {"host": self.socket.mysql.address,
-                       "port": self.socket.mysql.port,
-                       "user": CONFIG.mysql.user,
-                       "password": CONFIG.mysql.password}
-        with taskexecutor.dbclient.MySQLClient(**credentials) as c:
-            for query, values in self._queryset:
-                LOGGER.info("Executing query: {}".format(query % values))
-                c.execute(query, values)
-        self._queryset.clear()
+    def get_current_allowed_addrs_list(self, user_name):
+        result = self.dbclient.execute_query("SELECT host FROM mysql.user WHERE user = %s", (user_name,))
+        if not result:
+            return []
+        else:
+            return [row[0] for row in result]
 
     def create_user(self, name, password_hash, addrs_list):
-        self._queryset.extend(
-                [("CREATE USER %s@%s IDENTIFIED BY PASSWORD %s",
-                  (name, address, password_hash)) for address in self.generate_allowed_addrs_set(addrs_list)]
-        )
-        self._run_queryset()
+        for address in addrs_list:
+            self.dbclient.execute_query("CREATE USER %s@%s IDENTIFIED BY PASSWORD %s", (name, address, password_hash))
 
-    def update_user(self, name, password_hash, addrs_list):
-        current_addrs_set = self._get_allowed_addrs_set(name)
-        staging_addrs_set = self.generate_allowed_addrs_set(addrs_list)
-        self._queryset.extend(
-                [("DROP USER %s@%s", (address,)) for address in current_addrs_set.difference(staging_addrs_set)]
-        )
-        self._queryset.extend(
-                [("CREATE USER %s@%s IDENTIFIED BY PASSWORD %s",
-                  (name, address, password_hash)) for address in staging_addrs_set.difference(current_addrs_set)]
-        )
-        self._queryset.extend(
-                [("SET PASSWORD FOR %s@%s = %s",
-                  (name, address, password_hash)) for address in current_addrs_set.intersection(staging_addrs_set)]
-        )
-        self._run_queryset()
+    def set_password(self, name, password_hash, addrs_list):
+        for address in addrs_list:
+            self.dbclient.execute_query("SET PASSWORD FOR %s@%s = %s", (name, address, password_hash))
 
-    def drop_user(self, name):
-        self._queryset.append((
-            "SELECT GROUP_CONCAT('`', user, '`@`', host, '`') INTO @users FROM mysql.user WHERE user = %s;"
-            "SET @users = CONCAT('DROP USER ', @users);"
-            "PREPARE drop_statement FROM @users;"
-            "EXECUTE drop_statement;"
-            "DEALLOCATE PREPARE drop_statement", (name,)
-        ))
-        self._run_queryset()
+    def drop_user(self, name, addrs_list):
+        for address in addrs_list:
+            self.dbclient.execute_query("DROP USER %s@%s", (name, address))
 
-    def create_database(self, name, allowed_users_list):
-        self._queryset.append(("CREATE DATABASE IF NOT EXISTS %s", (name,)))
-        self._query_grant_privileges(name, allowed_users_list, self._full_privileges)
-        self._run_queryset()
+    def create_database(self, name):
+        self.dbclient.execute_query("CREATE DATABASE IF NOT EXISTS {}".format(name), ())
 
     def drop_database(self, name):
-        self._queryset.append(("DROP DATABASE %s", (name,)))
-        self._run_queryset()
+        self.dbclient.execute_query("DROP DATABASE {}".format(name), ())
 
-    def allow_database_access(self, database_name, users_list):
-        self._query_grant_privileges(database_name, users_list, self._full_privileges)
-        self._run_queryset()
+    def allow_database_access(self, database_name, user_name, addrs_list):
+        for address in addrs_list:
+            self.dbclient.execute_query("GRANT {0} ON {1}.* TO "
+                                        "%s@%s".format(", ".join(self._full_privileges), database_name),
+                                        (user_name, address))
 
-    def deny_database_access(self, database_name, users_list):
-        self._query_revoke_privileges(database_name, users_list, self._full_privileges)
-        self._run_queryset()
+    def deny_database_access(self, database_name, user_name, addrs_list):
+        for address in addrs_list:
+            self.dbclient.execute_query("REVOKE {0} ON {1}.* FROM "
+                                        "%s@%s".format(", ".join(self._full_privileges), database_name),
+                                        (user_name, address))
 
-    def allow_database_writes(self, database_name, users_list):
-        self._query_grant_privileges(database_name, users_list, self._write_privileges)
+    def allow_database_writes(self, database_name, user_name, addrs_list):
+        for address in addrs_list:
+            self.dbclient.execute_query("GRANT {0} ON {1}.* TO "
+                                        "%s@%s".format(", ".join(self._write_privileges), database_name),
+                                        (user_name, address))
 
-    def deny_database_writes(self, database_name, users_list):
-        self._query_revoke_privileges(database_name, users_list, self._write_privileges)
+    def deny_database_writes(self, database_name, user_name, addrs_list):
+        for address in addrs_list:
+            self.dbclient.execute_query("REVOKE {0} ON {1}.* FROM "
+                                        "%s@%s".format(", ".join(self._write_privileges), database_name),
+                                        (user_name, address))
 
 
 class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVService):
@@ -430,9 +407,34 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
         NetworkingService.__init__(self)
         SysVService.__init__(self, "postgresql")
         self.config_base_path = "/etc/postgresql/9.3/main"
-        self._queryset = list()
+        self._dbclient = None
+        self._hba_conf = taskexecutor.conffile.Builder("lines", "pg_hba.conf")
         self._full_privileges = CONFIG.postgresql.common_privileges + CONFIG.postgresql.write_privileges
         self._write_privileges = CONFIG.postgresql.write_privileges
+
+    @property
+    def dbclient(self):
+        if not self._dbclient:
+            return taskexecutor.dbclient.PostgreSQLClient(host=self.socket.postgresql.address,
+                                                          port=self.socket.postgresql.port,
+                                                          user=CONFIG.postgresql.user,
+                                                          password=CONFIG.postgresql.password,
+                                                          database="postgres")
+        else:
+            return self._dbclient
+
+    @staticmethod
+    def generate_allowed_addrs_list(addrs_list):
+        networks = ipaddress.collapse_addresses(ipaddress.IPv4Network(net)
+                                                for net in CONFIG.database.default_allowed_networks + addrs_list)
+        return networks
+
+    def get_current_allowed_addrs_list(self, user_name):
+        related_config_lines = self._hba_conf.get_lines(r"host\s.+\s{}\s.+\smd5".format(user_name))
+        if not related_config_lines:
+            return []
+        else:
+            return [line[3] for line in self._hba_conf.get_lines(r"host\s.+\s{}\s.+\smd5".format(user_name))]
 
     @staticmethod
     def _validate_hba_conf(config_body):
@@ -478,23 +480,6 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
                               "krb5", "ident", "peer", "ldap", "radius", "pam"):
                 raise Exception("Unknown auth method '{0}' in line {1}: {2}".format(conn_type, lineno, line))
 
-    def _run_queryset(self):
-        credentials = {"host": self.socket.postgresql.address,
-                       "port": self.socket.postgresql.port,
-                       "user": CONFIG.postgresql.user,
-                       "password": CONFIG.postgresql.password}
-        with taskexecutor.dbclient.PostgreSQLClient(**credentials) as c:
-            for query, values in self._queryset:
-                LOGGER.info("Executing query: {}".format(query % values))
-                c.execute(query, values)
-        self._queryset.clear()
-
-    def _query_update_privileges(self, action, database_name, users_list, privileges_list):
-        query_base = {"grant": "GRANT {} ON DATABASE %s TO %s",
-                      "revoke": "REVOKE {} ON DATABASE %s FROM %s"}[action].format(", ".join(privileges_list))
-        for user in users_list:
-            self._queryset.extend([(query_base, (database_name, user.name))])
-
     def _update_hba_conf(self, database_name, users_list):
         hba_conf = self.get_concrete_config("pg_hba.conf")
         for user in users_list:
@@ -508,44 +493,64 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
         hba_conf.save()
 
     def create_user(self, name, password_hash, addrs_list):
-        self._queryset.append(("CREATE ROLE %s WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB LOGIN NOREPLICATION "
-                               "PASSWORD %s", (name, password_hash)))
-        self._run_queryset()
+        self._dbclient.execute_query("CREATE ROLE %s WITH "
+                                     "NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB LOGIN NOREPLICATION "
+                                     "PASSWORD %s", (name, password_hash))
 
-    def update_user(self, user_name, password_hash, addrs_list):
-        self._queryset.append(("ALTER ROLE %s WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB LOGIN NOREPLICATION "
-                               "PASSWORD %s", (user_name, password_hash)))
-        self._run_queryset()
+    def set_password(self, user_name, password_hash, addrs_list):
+        self._dbclient.execute_query("ALTER ROLE %s WITH "
+                                     "NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB LOGIN NOREPLICATION "
+                                     "PASSWORD %s", (user_name, password_hash))
 
-    def drop_user(self, name):
-        self._queryset.append(("DROP ROLE %s", (name,)))
-        self._run_queryset()
-
-    def create_database(self, name, allowed_users_list):
-        self._queryset.append(("CREATE DATABASE %", (name, )))
-        self._query_update_privileges("grant", name, allowed_users_list, self._full_privileges)
-        self._run_queryset()
-        self._update_hba_conf(name, allowed_users_list)
+    def drop_user(self, name, addrs_list):
+        self._dbclient.execute_query("DROP ROLE %s", (name,))
+        related_lines = list()
+        for address in addrs_list:
+            related_lines.extend(self._hba_conf.get_lines(r"host\s.+\{0}\s{1}\smd5".format(name, address)))
+        for line in related_lines:
+            self._hba_conf.remove_line(line)
+        self._validate_hba_conf(self._hba_conf.body)
+        self._hba_conf.save()
         self.reload()
 
+    def create_database(self, name):
+        self._dbclient.execute_query("CREATE DATABASE %", (name, ))
+
     def drop_database(self, name):
-        self._queryset.append(("DROP DATABASE %s", (name, )))
+        self._dbclient.execute_query("DROP DATABASE %s", (name, ))
 
-    def allow_database_access(self, database_name, users_list):
-        self._query_update_privileges("grant", database_name, users_list, self._full_privileges)
-        self._run_queryset()
+    def allow_database_access(self, database_name, user_name, addrs_list):
+        self._dbclient.execute_query("GRANT {} ON DATABASE %s TO %s".format(self._full_privileges),
+                                     (database_name, user_name))
+        for addr in addrs_list:
+            line = "host {0} {1} {2} md5".format(database_name, user_name, addr)
+            if not self._hba_conf.has_line(line):
+                self._hba_conf.add_line(line)
+        self._validate_hba_conf(self._hba_conf.body)
+        self._hba_conf.save()
+        self.reload()
 
-    def deny_database_access(self, database_name, users_list):
-        self._query_update_privileges("revoke", database_name, users_list, self._full_privileges)
-        self._run_queryset()
+    def deny_database_access(self, database_name, user_name, addrs_list):
+        self._dbclient.execute_query("REVOKE {} ON DATABASE %s FROM %s".format(self._full_privileges),
+                                     (database_name, user_name))
+        related_lines = list()
+        for address in addrs_list:
+            related_lines.extend(
+                    self._hba_conf.get_lines(r"host\s{0}\{1}\s{2}\smd5".format(database_name, user_name, address))
+            )
+        for line in related_lines:
+            self._hba_conf.remove_line(line)
+        self._validate_hba_conf(self._hba_conf.body)
+        self._hba_conf.save()
+        self.reload()
 
-    def allow_database_writes(self, database_name, users_list):
-        self._query_update_privileges("grant", database_name, users_list, self._write_privileges)
-        self._run_queryset()
+    def allow_database_writes(self, database_name, user_name, addrs_list):
+        self._dbclient.execute_query("GRANT {} ON DATABASE %s TO %s".format(self._full_privileges),
+                                     (database_name, user_name))
 
-    def deny_database_writes(self, database_name, users_list):
-        self._query_update_privileges("revoke", database_name, users_list, self._write_privileges)
-        self._run_queryset()
+    def deny_database_writes(self, database_name, user_name, addrs_list):
+        self._dbclient.execute_query("REVOKE {} ON DATABASE %s FROM %s".format(self._full_privileges),
+                                     (database_name, user_name))
 
 
 class Builder:

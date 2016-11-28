@@ -11,7 +11,7 @@ class Scheduler:
         self._stopping = False
         self._executors = taskexecutor.executor.Executors()
         periodic_jobs = dict()
-        for res_type in ("unix-account", "database", "mailbox"):
+        for res_type in ():
             if res_type in CONFIG.enabled_resources:
                 periodic_jobs[taskexecutor.facts.FactsSender(res_type, "quota").update] = \
                     getattr(CONFIG.schedule.facts, res_type.replace("-", "_")).quota.interval

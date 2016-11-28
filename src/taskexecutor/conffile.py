@@ -191,8 +191,7 @@ class LineBasedConfigFile(ConfigFile):
         list = self._body_as_list()
         for idx, line in enumerate(list):
             if count != 0 and re.match(regex, line):
-                LOGGER.info("Replacing '{0}' by '{1}' "
-                            "in {2}".format(line, new_line, self.file_path))
+                LOGGER.info("Replacing '{0}' by '{1}' in {2}".format(line, new_line, self.file_path))
                 del list[idx]
                 list.insert(idx, new_line)
                 count -= 1

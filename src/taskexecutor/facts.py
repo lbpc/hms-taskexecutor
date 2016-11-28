@@ -1,9 +1,9 @@
 import os
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-from taskexecutor.dbclient import MySQLClient
-from taskexecutor.httpsclient import ApiClient
-from taskexecutor.utils import repquota, set_thread_name
+import taskexecutor.dbclient
+import taskexecutor.httpsclient
+import taskexecutor.utils
 
 
 class FactsGatherer:
@@ -26,16 +26,9 @@ class FactsGatherer:
 
     def get_quota(self, res_type, resources=None):
         if res_type == "unix-account" and CONFIG.hostname == "baton":
-            return repquota(freebsd=True)
+            return taskexecutor.utils.repquota(freebsd=True)
         elif res_type == "unix-account":
-            return repquota()
-        elif res_type == "database":
-            with MySQLClient(database="information_schema",
-                             **CONFIG.mysql) as c:
-                c.execute("SELECT table_schema, SUM(data_length+index_length) "
-                          "FROM TABLES GROUP BY table_schema")
-
-                return dict(c.fetchall())
+            return taskexecutor.utils.repquota()
         elif res_type == "mailbox":
             result = dict()
             for mailbox in resources:
@@ -117,7 +110,7 @@ class FactsSender:
         return self.facts
 
     def get_resources(self):
-        with ApiClient(**CONFIG.apigw) as api:
+        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
             Resources = getattr(api, self.res_type)
             self.resources = Resources(
                     query={"serverId": CONFIG.localserver.id}).get()
@@ -135,13 +128,13 @@ class FactsSender:
                                         resource.name,
                                         self.fact_type,
                                         data))
-            with ApiClient(**CONFIG.apigw) as api:
+            with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
                 ApiResource = getattr(api, self.res_type)
                 ApiResourceFact = getattr(ApiResource(resource.id),
                                           self.fact_type)
                 ApiResourceFact(res_id=str(data)).post(None)
 
     def update(self):
-        set_thread_name("FactsSender")
+        taskexecutor.utils.set_thread_name("FactsSender")
         if self.get_resources() and self.get_facts():
             self.send_facts()

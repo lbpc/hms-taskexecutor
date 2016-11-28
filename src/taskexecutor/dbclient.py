@@ -1,35 +1,64 @@
+import abc
 import pymysql
 import pg8000
+
+from taskexecutor.logger import LOGGER
 
 __all__ = ["MySQLClient", "PostgreSQLClient"]
 
 
-class DbApi2Compatible:
-    _connection = None
+class DBClient(metaclass=abc.ABCMeta):
+    def __init__(self, host, user, password, port, database):
+        self._host = host
+        self._user = user
+        self._password = password
+        self._port = port
+        self._database = database
+        self._connection = None
+        self._cursor = None
 
-    def __enter__(self):
+    @abc.abstractmethod
+    def execute_query(self, query, values):
+        pass
+
+
+class MySQLClient(DBClient):
+    def __init__(self, host, user, password, port, database):
+        super().__init__(host, user, password, port, database)
+        self._connection = pymysql.connect(database=self._database,
+                                           host=self._host,
+                                           port=self._port,
+                                           user=self._user,
+                                           password=self._password,
+                                           autocommit=True)
         self._cursor = self._connection.cursor()
-        return self._cursor
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def execute_query(self, query, values):
+        LOGGER.info("Executing query: '{}'".format(query % values))
+        self._connection.ping(reconnect=True)
+        self._cursor.execute(query, values)
+        return self._cursor.fetchall()
+
+
+class PostgreSQLClient(DBClient):
+    def __init__(self, host, user, password, port, database):
+        super().__init__(host, user, password, port, database)
+        self._connect()
+
+    def _connect(self):
+        self._connection = pg8000.connect(database=self._database,
+                                          host=self._host,
+                                          port=self._port,
+                                          user=self._user,
+                                          password=self._password)
+        self._cursor = self._connection.cursor()
+
+    def execute_query(self, query, values):
+        LOGGER.info("Executing query: '{}'".format(query % values))
+        try:
+            self._cursor.execute(query, values)
+        except pg8000.core.OperationalError:
+            self._connect()
+            self.execute_query(query, values)
         self._connection.commit()
-        self._cursor.close()
-        self._connection.close()
-
-
-class MySQLClient(DbApi2Compatible):
-    def __init__(self, host, user, password, port=3306, database="mysql"):
-        self._connection = pymysql.connect(database=database,
-                                           host=host,
-                                           port=port,
-                                           user=user,
-                                           password=password)
-
-
-class PostgreSQLClient(DbApi2Compatible):
-    def __init__(self, host, user, password, port=5432, database=None):
-        self._connection = pg8000.connect(database=database,
-                                          host=host,
-                                          port=port,
-                                          user=user,
-                                          password=password)
+        return self._cursor.fetchall()

@@ -7,6 +7,7 @@ from taskexecutor.logger import LOGGER
 import taskexecutor.reporter
 import taskexecutor.resprocessor
 import taskexecutor.task
+import taskexecutor.opservice
 import taskexecutor.httpsclient
 import taskexecutor.utils
 
@@ -101,8 +102,12 @@ class Executor:
     def process_task(self):
         taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0.opid} ACTION IDENTITY: {0.actid}".format(self._task))
         LOGGER.info("Fetching {0} resource by {1}".format(self._task.res_type, self._task.params["objRef"]))
-        resource = self._get_resource(self._task.params["objRef"])
-        processor = taskexecutor.resprocessor.Builder(self._task.res_type, resource, self._task.params)
+        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+            resource = api.get(urllib.parse.urlparse(self._task.params["objRef"]).path)
+            processor = taskexecutor.resprocessor.Builder(self._task.res_type, resource, self._task.params)
+            processor.extra_services = processor.get_extra_services()
+            if hasattr(resource, "serviceId"):
+                processor.service = taskexecutor.opservice.Builder(api.Service(resource.serviceId).get())
         LOGGER.info(
                 "Invoking {0}.{1} method on {2}".format(type(processor).__name__, self._task.action, processor.resource)
         )

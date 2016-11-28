@@ -17,7 +17,9 @@ __all__ = ["Builder"]
 
 class ResProcessor(metaclass=abc.ABCMeta):
     def __init__(self, resource, params):
-        self._resource = object()
+        self._resource = None
+        self._service = None
+        self._extra_services = None
         self._params = dict()
         self.resource = resource
         self.params = params
@@ -35,6 +37,30 @@ class ResProcessor(metaclass=abc.ABCMeta):
         del self._resource
 
     @property
+    def service(self):
+        return self._service
+
+    @service.setter
+    def service(self, value):
+        self._service = value
+
+    @service.deleter
+    def service(self):
+        del self._service
+
+    @property
+    def extra_services(self):
+        return self._extra_services
+
+    @extra_services.setter
+    def extra_services(self, value):
+        self._extra_services = value
+
+    @extra_services.deleter
+    def extra_services(self):
+        del self._extra_services
+
+    @property
     def params(self):
         return self._params
 
@@ -45,6 +71,11 @@ class ResProcessor(metaclass=abc.ABCMeta):
     @params.deleter
     def params(self):
         del self._params
+
+    @staticmethod
+    @abc.abstractmethod
+    def get_extra_services():
+        pass
 
     @abc.abstractmethod
     def create(self):
@@ -62,6 +93,10 @@ class ResProcessor(metaclass=abc.ABCMeta):
 class UnixAccountProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
+
+    @staticmethod
+    def get_extra_services():
+        return None
 
     def _adduser(self):
         LOGGER.info("Adding user {0.name} to system".format(self.resource))
@@ -227,32 +262,13 @@ class UnixAccountProcessorBaton(UnixAccountProcessor):
 
 
 class WebSiteProcessor(ResProcessor):
-    def __init__(self, resource, params):
-        super().__init__(resource, params)
-        self.params.update({
-            "app_server_name": self.app_server.name,
-            "error_pages": [(code, "http_{}.html".format(code)) for code in (403, 404, 502, 503, 504)],
-            "static_base": CONFIG.nginx.static_base_path,
-            "ssl_path": CONFIG.nginx.ssl_certs_path,
-            "anti_ddos_location": CONFIG.nginx.anti_ddos_location,
-            "anti_ddos_set_cookie_file": CONFIG.nginx.anti_ddos_set_cookie_file,
-            "anti_ddos_check_cookie_file": CONFIG.nginx.anti_ddos_check_cookie_file,
-            "subdomains_document_root": "/".join(self.resource.documentRoot.split("/")[:-1])
-        })
-        LOGGER.critical(self.params)
-
-    @property
-    def app_server(self):
-        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-            service = api.Service(self.resource.serviceId).get()
-        return taskexecutor.opservice.Builder(service)
-
-    @property
-    def frontend_server(self):
+    @staticmethod
+    def get_extra_services():
         for service in CONFIG.localserver.services:
             if service.serviceType.name == "STAFF_NGINX":
-                return taskexecutor.opservice.Builder(service)
-        raise AttributeError("Local server has no nginx service")
+                return collections.namedtuple("Service",
+                                              "http_proxy")(http_proxy=taskexecutor.opservice.Builder(service))
+        raise AttributeError("Local server has no HTTP proxy service")
 
     def _build_vhost_obj_list(self):
         vhosts = list()
@@ -272,6 +288,16 @@ class WebSiteProcessor(ResProcessor):
 
     @taskexecutor.utils.synchronized
     def create(self):
+        self.params.update({
+            "app_server_name": self.service.name,
+            "error_pages": [(code, "http_{}.html".format(code)) for code in (403, 404, 502, 503, 504)],
+            "static_base": CONFIG.nginx.static_base_path,
+            "ssl_path": CONFIG.nginx.ssl_certs_path,
+            "anti_ddos_location": CONFIG.nginx.anti_ddos_location,
+            "anti_ddos_set_cookie_file": CONFIG.nginx.anti_ddos_set_cookie_file,
+            "anti_ddos_check_cookie_file": CONFIG.nginx.anti_ddos_check_cookie_file,
+            "subdomains_document_root": "/".join(self.resource.documentRoot.split("/")[:-1])
+        })
         vhosts_list = self._build_vhost_obj_list()
         home_dir = os.path.normpath(self.resource.unixAccount.homeDir)
         document_root = os.path.normpath(self.resource.documentRoot)
@@ -279,7 +305,7 @@ class WebSiteProcessor(ResProcessor):
             os.makedirs(directory, mode=0o755, exist_ok=True)
         for directory in ["/".join(document_root.split("/")[0:i + 1]) for i, d in enumerate(document_root.split("/"))]:
             os.chown(os.path.join(home_dir, directory), self.resource.unixAccount.uid, self.resource.unixAccount.uid)
-        for service in (self.app_server, self.frontend_server):
+        for service in (self.service, self.extra_services.http_proxy):
             config = service.get_website_config(self.resource.id)
             config.render_template(socket=service.socket, vhosts=vhosts_list, params=self.params)
             config.write()
@@ -295,7 +321,7 @@ class WebSiteProcessor(ResProcessor):
     @taskexecutor.utils.synchronized
     def update(self):
         if not self.resource.switchedOn:
-            for service in (self.app_server, self.frontend_server):
+            for service in (self.service, self.extra_services.http_proxy):
                 config = service.get_website_config(self.resource.id)
                 if config.is_enabled:
                     config.disable()
@@ -307,7 +333,7 @@ class WebSiteProcessor(ResProcessor):
 
     @taskexecutor.utils.synchronized
     def delete(self):
-        for service in (self.frontend_server, self.app_server):
+        for service in (self.extra_services.http_proxy, self.service):
             config = service.get_website_config(self.resource.id)
             if not os.path.exists(config.file_path):
                 LOGGER.warning("{} does not exist".format(config.file_path))
@@ -337,6 +363,10 @@ class SSLCertificateProcessor(ResProcessor):
         self._cert_file = taskexecutor.conffile.Builder("basic", cert_file_path)
         self._key_file = taskexecutor.conffile.Builder("basic", key_file_path)
 
+    @staticmethod
+    def get_extra_services():
+        return None
+
     @taskexecutor.utils.synchronized
     def create(self):
         self._cert_file.body = self.resource.certificate
@@ -360,6 +390,10 @@ class MailboxProcessor(ResProcessor):
             self._avp_domains = taskexecutor.conffile.Builder(
                 "lines", "/etc/exim4/etc/avp_domains{}".format(self.resource.popServer.id)
             )
+
+    @staticmethod
+    def get_extra_services():
+        return None
 
     @taskexecutor.utils.synchronized
     def create(self):
@@ -435,47 +469,60 @@ class MailboxAtMxProcessor(MailboxProcessor):
 
 
 class DatabaseUserProcessor(ResProcessor):
-    @property
-    def db_server(self):
-        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-            service = api.Service(self.resource.serviceId).get()
-        return taskexecutor.opservice.Builder(service)
+    @staticmethod
+    def get_extra_services():
+        return
 
     def create(self):
-        self.db_server.create_user(self.resource.name, self.resource.passwordHash, self.resource.allowedAddressList)
+        addrs_set = set(self.service.generate_allowed_addrs_list(self.resource.allowedAddressList))
+        self.service.create_user(self.resource.name, self.resource.passwordHash, addrs_set)
 
     def update(self):
-        self.db_server.update_password(self.resource.name, self.resource.passwordHash, self.resource.allowedAddressList)
+        current_addrs_set = set(self.service.get_current_allowed_addrs_list(self.resource.name))
+        staging_addrs_set = set(self.service.generate_allowed_addrs_list(self.resource.allowedAddressList))
+        self.service.drop_user(self.resource.name, current_addrs_set.difference(staging_addrs_set))
+        self.service.create_user(self.resource.name, self.resource.passwordHash,
+                                 staging_addrs_set.difference(current_addrs_set))
+        self.service.set_password(self.resource.name, self.resource.passwordHash,
+                                  current_addrs_set.intersection(staging_addrs_set))
 
     def delete(self):
-        self.db_server.drop_user(self.resource.name)
+        self.service.drop_user(self.resource.name, self.service.get_current_allowed_addrs_list(self.resource.name))
 
 
 class DatabaseProcessor(ResProcessor):
-    @property
-    def db_server(self):
-        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-            service = api.Service(self.resource.serviceId).get()
-        return taskexecutor.opservice.Builder(service)
+    @staticmethod
+    def get_extra_services():
+        return
 
     def create(self):
-        self.db_server.create_database(self.resource.name, self.resource.databaseUsers)
+        self.service.create_database(self.resource.name)
+        for user in self.resource.databaseUsers:
+            self.service.allow_database_access(self.resource.name, user.name, user.allowedAddressList)
 
     def update(self):
         if not self.resource.writable:
-            self.db_server.deny_database_writes(self.resource.name, self.resource.databaseUsers)
+            for user in self.resource.databaseUsers:
+                self.service.deny_database_writes(self.resource.name, user.name, user.allowedAddressList)
         else:
-            self.db_server.allow_database_writes(self.resource.name, self.resource.databaseUsers)
+            for user in self.resource.databaseUsers:
+                self.service.allow_database_access(self.resource.name, user.name, user.allowedAddressList)
 
     def delete(self):
-        self.db_server.drop_database(self.resource.name)
+        for user in self.resource.databaseUsers:
+            self.service.deny_database_access(self.resource.name, user.name, user.allowedAddressList)
+        self.service.drop_database(self.resource.name)
 
 
 # TODO: reimplement using OpServiceBuilder
 class ServiceProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
-        self._service = taskexecutor.opservice.Builder(self.resource)
+        self.service = taskexecutor.opservice.Builder(self.resource)
+
+    @staticmethod
+    def get_extra_services():
+        return None
 
     def create(self):
         pass
