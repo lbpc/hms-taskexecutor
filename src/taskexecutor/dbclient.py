@@ -34,6 +34,7 @@ class MySQLClient(DBClient):
         self._cursor = self._connection.cursor()
 
     def execute_query(self, query, values):
+
         LOGGER.info("Executing query: '{}'".format(query % values))
         self._connection.ping(reconnect=True)
         self._cursor.execute(query, values)

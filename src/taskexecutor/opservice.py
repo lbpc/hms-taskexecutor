@@ -363,7 +363,7 @@ class MySQL(DatabaseServer, ConfigurableService, NetworkingService, SysVService)
 
     def get_user(self, name):
         name, password_hash, comma_separated_addrs = self.dbclient.execute_query(
-                "SELECT User, Password, GROUP_CONCAT(Host) FROM mysql.user WHERE User = %s", ())[0]
+                "SELECT User, Password, GROUP_CONCAT(Host) FROM mysql.user WHERE User = %s", (name,))[0]
         if not name:
             return
         addrs = [] if not comma_separated_addrs else comma_separated_addrs.split(",")
