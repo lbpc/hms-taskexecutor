@@ -475,19 +475,34 @@ class DatabaseUserProcessor(ResProcessor):
 
     def create(self):
         addrs_set = set(self.service.generate_allowed_addrs_list(self.resource.allowedAddressList))
-        self.service.create_user(self.resource.name, self.resource.passwordHash, addrs_set)
+        LOGGER.info("Creating {0} user {1} with addresses {2}".format(self.service.__class__.__name__,
+                                                                      self.resource.name,
+                                                                      addrs_set))
+        self.service.create_user(self.resource.name, self.resource.passwordHash, list(addrs_set))
 
     def update(self):
-        current_addrs_set = set(self.service.get_current_allowed_addrs_list(self.resource.name))
+        current_user = self.service.get_user(self.resource.name)
+        if not current_user:
+            LOGGER.warning("{0} user {1} not found, creating".format(self.service.__class__.__name__,
+                                                                     self.resource.name))
+            self.create()
+            current_user = self.resource
+        current_addrs_set = set(current_user.allowedAddressList)
         staging_addrs_set = set(self.service.generate_allowed_addrs_list(self.resource.allowedAddressList))
-        self.service.drop_user(self.resource.name, current_addrs_set.difference(staging_addrs_set))
+        LOGGER.info("Updating {0} user {1}".format(self.service.__class__.__name__, self.resource.name))
+        self.service.drop_user(self.resource.name, list(current_addrs_set.difference(staging_addrs_set)))
         self.service.create_user(self.resource.name, self.resource.passwordHash,
-                                 staging_addrs_set.difference(current_addrs_set))
+                                 list(staging_addrs_set.difference(current_addrs_set)))
         self.service.set_password(self.resource.name, self.resource.passwordHash,
-                                  current_addrs_set.intersection(staging_addrs_set))
+                                  list(current_addrs_set.intersection(staging_addrs_set)))
 
     def delete(self):
-        self.service.drop_user(self.resource.name, self.service.get_current_allowed_addrs_list(self.resource.name))
+        current_user = self.service.get_user(self.resource.name)
+        if current_user:
+            LOGGER.info("Dropping {0} user {1}".format(self.service.__class__.__name__, self.resource.name))
+            self.service.drop_user(self.resource.name, current_user.allowedAddressList)
+        else:
+            LOGGER.warning("{0} user {1} not found".format(self.service.__class__.__name__, self.resource.name))
 
 
 class DatabaseProcessor(ResProcessor):
@@ -496,22 +511,65 @@ class DatabaseProcessor(ResProcessor):
         return
 
     def create(self):
+        LOGGER.info("Creating {0} database {1}".format(self.service.__class__.__name__, self.resource.name))
         self.service.create_database(self.resource.name)
         for user in self.resource.databaseUsers:
-            self.service.allow_database_access(self.resource.name, user.name, user.allowedAddressList)
+            addrs_set = set(self.service.generate_allowed_addrs_list(user.allowedAddressList))
+            LOGGER.info("Granting access on {0} database {1} to user {2} "
+                        "with addresses {3}".format(self.service.__class__.__name__, self.resource.name,
+                                                    user.name, addrs_set))
+            self.service.allow_database_access(self.resource.name, user.name, list(addrs_set))
 
     def update(self):
+        current_database = self.service.get_database(self.resource.name)
+        if not current_database:
+            LOGGER.warning("{0} database {1} not found, creating".format(self.service.__class__.__name__,
+                                                                         self.resource.name))
+            self.create()
+            current_database = self.resource
+        current_usernames_set = set([user.name for user in current_database.databaseUsers])
+        staging_usernames_set = set([user.name for user in self.resource.databaseUsers])
+        new_users_list = [user for user in self.resource.databaseUsers
+                          if user.name in staging_usernames_set.difference(current_usernames_set)]
+        old_users_list = [user for user in current_database.databaseUsers
+                          if user.name in current_usernames_set.difference(staging_usernames_set)]
+        spare_users_list = [user for user in self.resource.databaseUsers
+                            if user.name in current_usernames_set.intersection(staging_usernames_set)]
         if not self.resource.writable:
-            for user in self.resource.databaseUsers:
+            for user in new_users_list:
+                LOGGER.info("Granting READ access on {0} database {1} to "
+                            "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
+                self.service.allow_database_reads(self.resource.name, user.name, user.allowedAddressList)
+            for user in spare_users_list:
+                LOGGER.info("Revoking WRITE access on {0} database {1} from "
+                            "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
                 self.service.deny_database_writes(self.resource.name, user.name, user.allowedAddressList)
+            for user in old_users_list:
+                LOGGER.info("Revoking access on {0} database {1} from "
+                            "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
+                self.service.deny_database_access(self.resource.name, user.name, user.allowedAddressList)
         else:
-            for user in self.resource.databaseUsers:
-                self.service.allow_database_access(self.resource.name, user.name, user.allowedAddressList)
+            for user in spare_users_list + new_users_list:
+                LOGGER.info("Granting access on {0} database {1} to "
+                            "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
+                addrs_set = set(self.service.generate_allowed_addrs_list(self.resource.allowedAddressList))
+                self.service.allow_database_access(self.resource.name, user.name, list(addrs_set))
+            for user in old_users_list:
+                LOGGER.info("Revoking access on {0} database {1} from "
+                            "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
+                self.service.deny_database_access(self.resource.name, user.name, user.allowedAddressList)
 
     def delete(self):
-        for user in self.resource.databaseUsers:
-            self.service.deny_database_access(self.resource.name, user.name, user.allowedAddressList)
-        self.service.drop_database(self.resource.name)
+        current_database = self.service.get_database(self.resource.name)
+        if current_database:
+            for user in current_database.databaseUsers:
+                LOGGER.info("Revoking access on {0} database {1} from "
+                            "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
+                self.service.deny_database_access(self.resource.name, user.name, user.allowedAddressList)
+            LOGGER.info("Dropping {0} database {1}".format(self.service.__class__.__name__, self.resource.name))
+            self.service.drop_database(self.resource.name)
+        else:
+            LOGGER.warning("{0} database {1} not found".format(self.service.__class__.__name__, self.resource.name))
 
 
 # TODO: reimplement using OpServiceBuilder

@@ -104,6 +104,18 @@ class ConfigurableService:
         self._template_sources_map = dict()
         self._config_base_path = None
 
+    @property
+    def config_base_path(self):
+        return self._config_base_path
+
+    @config_base_path.setter
+    def config_base_path(self, value):
+        self._config_base_path = value
+
+    @config_base_path.deleter
+    def config_base_path(self):
+        del self._config_base_path
+
     @staticmethod
     def is_concrete_config(name):
         return False if re.match(r"{.+}", name) else True
@@ -143,18 +155,6 @@ class ConfigurableService:
     def get_config_template(self, template_source):
         with taskexecutor.httpsclient.GitLabClient(**CONFIG.gitlab._asdict()) as gitlab:
             return gitlab.get(template_source)
-
-    @property
-    def config_base_path(self):
-        return self._config_base_path
-
-    @config_base_path.setter
-    def config_base_path(self, value):
-        self._config_base_path = value
-
-    @config_base_path.deleter
-    def config_base_path(self):
-        del self._config_base_path
 
 
 class WebServer(ConfigurableService, NetworkingService):
@@ -278,13 +278,20 @@ class UnmanagedApache(WebServer, OpService):
 
 
 class DatabaseServer(metaclass=abc.ABCMeta):
+    DatabaseUserClass = collections.namedtuple("DatabaseUser", "name passowrdHash allowedAddressList")
+    DatabaseClass = collections.namedtuple("Database", "name databaseUsers quotaUsed")
+
     @staticmethod
     @abc.abstractmethod
     def generate_allowed_addrs_list(addrs_list):
         pass
 
     @abc.abstractmethod
-    def get_current_allowed_addrs_list(self, user_name):
+    def get_user(self, name):
+        pass
+
+    @abc.abstractmethod
+    def get_database(self, name, calculate_quota_used=False):
         pass
 
     @abc.abstractmethod
@@ -323,6 +330,10 @@ class DatabaseServer(metaclass=abc.ABCMeta):
     def deny_database_writes(self, database_name, user_name, addrs_list):
         pass
 
+    @abc.abstractmethod
+    def allow_database_reads(self, database_name, user_name, addrs_list):
+        pass
+
 
 class MySQL(DatabaseServer, ConfigurableService, NetworkingService, SysVService):
     def __init__(self):
@@ -332,7 +343,6 @@ class MySQL(DatabaseServer, ConfigurableService, NetworkingService, SysVService)
         self.config_base_path = "/etc/mysql"
         self._dbclient = None
         self._full_privileges = CONFIG.mysql.common_privileges + CONFIG.mysql.write_privileges
-        self._write_privileges = CONFIG.mysql.write_privileges
 
     @property
     def dbclient(self):
@@ -351,12 +361,26 @@ class MySQL(DatabaseServer, ConfigurableService, NetworkingService, SysVService)
                                                 for net in CONFIG.database.default_allowed_networks + addrs_list)
         return [net.with_netmask for net in networks]
 
-    def get_current_allowed_addrs_list(self, user_name):
-        result = self.dbclient.execute_query("SELECT host FROM mysql.user WHERE user = %s", (user_name,))
-        if not result:
-            return []
-        else:
-            return [row[0] for row in result]
+    def get_user(self, name):
+        name, password_hash, comma_separated_addrs = self.dbclient.execute_query(
+                "SELECT User, Password, GROUP_CONCAT(Host) FROM mysql.user WHERE User = %s", ())[0]
+        if not name:
+            return
+        addrs = [] if not comma_separated_addrs else comma_separated_addrs.split(",")
+        return self.DatabaseUserClass(name, password_hash, addrs)
+
+    def get_database(self, name, calculate_quota_used=False):
+        rows = self.dbclient.execute_query("SELECT Db, User FROM mysql.db WHERE Db = %s", (name,))
+        if not rows:
+            return
+        name = rows[0][0]
+        users = [self.get_user(row[1]) for row in set(rows)]
+        quota_used = None
+        if calculate_quota_used:
+            quota_used = self.dbclient.execute_query(
+                "SELECT SUM(data_length+index_length) FROM information_schema.tables WHERE table_schema = %s", (name,)
+            )[0][0]
+        return self.DatabaseClass(name, users, quota_used)
 
     def create_user(self, name, password_hash, addrs_list):
         for address in addrs_list:
@@ -374,7 +398,7 @@ class MySQL(DatabaseServer, ConfigurableService, NetworkingService, SysVService)
         self.dbclient.execute_query("CREATE DATABASE IF NOT EXISTS {}".format(name), ())
 
     def drop_database(self, name):
-        self.dbclient.execute_query("DROP DATABASE {}".format(name), ())
+        self.dbclient.execute_query("DROP DATABASE  IF EXISTS {}".format(name), ())
 
     def allow_database_access(self, database_name, user_name, addrs_list):
         for address in addrs_list:
@@ -391,13 +415,19 @@ class MySQL(DatabaseServer, ConfigurableService, NetworkingService, SysVService)
     def allow_database_writes(self, database_name, user_name, addrs_list):
         for address in addrs_list:
             self.dbclient.execute_query("GRANT {0} ON {1}.* TO "
-                                        "%s@%s".format(", ".join(self._write_privileges), database_name),
+                                        "%s@%s".format(", ".join(CONFIG.mysql.write_privileges), database_name),
                                         (user_name, address))
 
     def deny_database_writes(self, database_name, user_name, addrs_list):
         for address in addrs_list:
             self.dbclient.execute_query("REVOKE {0} ON {1}.* FROM "
-                                        "%s@%s".format(", ".join(self._write_privileges), database_name),
+                                        "%s@%s".format(", ".join(CONFIG.mysql.write_privileges), database_name),
+                                        (user_name, address))
+
+    def allow_database_reads(self, database_name, user_name, addrs_list):
+        for address in addrs_list:
+            self.dbclient.execute_query("GRANT {0} ON {1}.* TO "
+                                        "%s@%s".format(", ".join(CONFIG.mysql.common_privileges), database_name),
                                         (user_name, address))
 
 
@@ -410,7 +440,6 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
         self._dbclient = None
         self._hba_conf = taskexecutor.conffile.Builder("lines", "pg_hba.conf")
         self._full_privileges = CONFIG.postgresql.common_privileges + CONFIG.postgresql.write_privileges
-        self._write_privileges = CONFIG.postgresql.write_privileges
 
     @property
     def dbclient(self):
@@ -428,13 +457,6 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
         networks = ipaddress.collapse_addresses(ipaddress.IPv4Network(net)
                                                 for net in CONFIG.database.default_allowed_networks + addrs_list)
         return networks
-
-    def get_current_allowed_addrs_list(self, user_name):
-        related_config_lines = self._hba_conf.get_lines(r"host\s.+\s{}\s.+\smd5".format(user_name))
-        if not related_config_lines:
-            return []
-        else:
-            return [line[3] for line in self._hba_conf.get_lines(r"host\s.+\s{}\s.+\smd5".format(user_name))]
 
     @staticmethod
     def _validate_hba_conf(config_body):
@@ -492,6 +514,23 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
         self._validate_hba_conf(hba_conf.body)
         hba_conf.save()
 
+    def get_user(self, name):
+        rows = self.dbclient.execute_query("SELECT rolpassword FROM pg_authid WHERE rolname = %s", (name,))
+        if not rows:
+            return
+        password_hash = rows[0][0]
+        related_config_lines = self._hba_conf.get_lines(r"host\s.+\s{}\s.+\smd5".format(name)) or []
+        addrs = [line[3] for line in related_config_lines]
+        return self.DatabaseUserClass(name, password_hash, addrs)
+
+    def get_database(self, name, calculate_quota_used=False):
+        related_config_lines = self._hba_conf.get_lines(r"host\s{}\s.+\s.+\smd5".format(name)) or []
+        users = [self.get_user(user_name) for user_name in [line[2] for line in related_config_lines]]
+        quota_used = None
+        if calculate_quota_used:
+            quota_used = self.dbclient.execute_query("SELECT pg_database_size(%s)", (name,))[0][0]
+        return self.DatabaseClass(name, users, quota_used)
+
     def create_user(self, name, password_hash, addrs_list):
         self._dbclient.execute_query("CREATE ROLE %s WITH "
                                      "NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB LOGIN NOREPLICATION "
@@ -545,11 +584,15 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
         self.reload()
 
     def allow_database_writes(self, database_name, user_name, addrs_list):
-        self._dbclient.execute_query("GRANT {} ON DATABASE %s TO %s".format(self._full_privileges),
+        self._dbclient.execute_query("GRANT {} ON DATABASE %s TO %s".format(CONFIG.postgresql.write_privileges),
                                      (database_name, user_name))
 
     def deny_database_writes(self, database_name, user_name, addrs_list):
-        self._dbclient.execute_query("REVOKE {} ON DATABASE %s FROM %s".format(self._full_privileges),
+        self._dbclient.execute_query("REVOKE {} ON DATABASE %s FROM %s".format(CONFIG.postgresql.write_privileges),
+                                     (database_name, user_name))
+
+    def allow_database_reads(self, database_name, user_name, addrs_list):
+        self._dbclient.execute_query("GRANT {} ON DATABASE %s TO %s".format(CONFIG.postgresql.common_privileges),
                                      (database_name, user_name))
 
 
