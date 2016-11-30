@@ -474,7 +474,7 @@ class DatabaseUserProcessor(ResProcessor):
         return
 
     def create(self):
-        addrs_set = set(self.service.generate_allowed_addrs_list(self.resource.allowedAddressList))
+        addrs_set = set(self.service.normalize_addrs(self.resource.allowedAddressList))
         LOGGER.info("Creating {0} user {1} with addresses {2}".format(self.service.__class__.__name__,
                                                                       self.resource.name,
                                                                       addrs_set))
@@ -487,8 +487,8 @@ class DatabaseUserProcessor(ResProcessor):
                                                                      self.resource.name))
             self.create()
             current_user = self.resource
-        current_addrs_set = set(current_user.allowedAddressList)
-        staging_addrs_set = set(self.service.generate_allowed_addrs_list(self.resource.allowedAddressList))
+        current_addrs_set = set(self.service.normalize_addrs(current_user.allowedAddressList))
+        staging_addrs_set = set(self.service.normalize_addrs(self.resource.allowedAddressList))
         LOGGER.info("Updating {0} user {1}".format(self.service.__class__.__name__, self.resource.name))
         self.service.drop_user(self.resource.name, list(current_addrs_set.difference(staging_addrs_set)))
         self.service.create_user(self.resource.name, self.resource.passwordHash,
@@ -514,7 +514,7 @@ class DatabaseProcessor(ResProcessor):
         LOGGER.info("Creating {0} database {1}".format(self.service.__class__.__name__, self.resource.name))
         self.service.create_database(self.resource.name)
         for user in self.resource.databaseUsers:
-            addrs_set = set(self.service.generate_allowed_addrs_list(user.allowedAddressList))
+            addrs_set = set(self.service.normalize_addrs(user.allowedAddressList))
             LOGGER.info("Granting access on {0} database {1} to user {2} "
                         "with addresses {3}".format(self.service.__class__.__name__, self.resource.name,
                                                     user.name, addrs_set))
@@ -552,7 +552,7 @@ class DatabaseProcessor(ResProcessor):
             for user in spare_users_list + new_users_list:
                 LOGGER.info("Granting access on {0} database {1} to "
                             "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
-                addrs_set = set(self.service.generate_allowed_addrs_list(self.resource.allowedAddressList))
+                addrs_set = set(self.service.normalize_addrs(user.allowedAddressList))
                 self.service.allow_database_access(self.resource.name, user.name, list(addrs_set))
             for user in old_users_list:
                 LOGGER.info("Revoking access on {0} database {1} from "

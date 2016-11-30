@@ -283,7 +283,7 @@ class DatabaseServer(metaclass=abc.ABCMeta):
 
     @staticmethod
     @abc.abstractmethod
-    def generate_allowed_addrs_list(addrs_list):
+    def normalize_addrs(addrs_list):
         pass
 
     @abc.abstractmethod
@@ -356,7 +356,7 @@ class MySQL(DatabaseServer, ConfigurableService, NetworkingService, SysVService)
             return self._dbclient
 
     @staticmethod
-    def generate_allowed_addrs_list(addrs_list):
+    def normalize_addrs(addrs_list):
         networks = ipaddress.collapse_addresses(ipaddress.IPv4Network(net)
                                                 for net in CONFIG.database.default_allowed_networks + addrs_list)
         return [net.with_netmask for net in networks]
@@ -453,7 +453,7 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
             return self._dbclient
 
     @staticmethod
-    def generate_allowed_addrs_list(addrs_list):
+    def normalize_addrs(addrs_list):
         networks = ipaddress.collapse_addresses(ipaddress.IPv4Network(net)
                                                 for net in CONFIG.database.default_allowed_networks + addrs_list)
         return networks
