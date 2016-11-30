@@ -56,5 +56,5 @@ class Constructor:
         return Listener()
 
     def get_reporter(self, reporter_type):
-        Reporter = taskexecutor.resprocessor.Builder(reporter_type)
+        Reporter = taskexecutor.reporter.Builder(reporter_type)
         return Reporter()
