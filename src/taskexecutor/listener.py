@@ -206,6 +206,6 @@ class AMQPListener(Listener):
 class Builder:
     def __new__(cls, listener_type):
         if listener_type == "amqp":
-            return AMQPListener()
+            return AMQPListener
         else:
             raise ValueError("Unknown Listener type: {}".format(listener_type))

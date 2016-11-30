@@ -1,5 +1,4 @@
 import os
-import re
 import shutil
 import pytransliter
 import abc
@@ -7,20 +6,20 @@ import collections
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-import taskexecutor.opservice
+import taskexecutor.constructor
 import taskexecutor.httpsclient
-import taskexecutor.conffile
 import taskexecutor.utils
 
-__all__ = ["Builder"]
+__all__ = ["Builder", "DatabaseUserProcessor", "WebSiteProcessor"]
 
 
 class ResProcessor(metaclass=abc.ABCMeta):
     def __init__(self, resource, params):
+        super().__init__()
         self._resource = None
         self._service = None
-        self._extra_services = None
         self._params = dict()
+        self._extra_services = None
         self.resource = resource
         self.params = params
 
@@ -49,18 +48,6 @@ class ResProcessor(metaclass=abc.ABCMeta):
         del self._service
 
     @property
-    def extra_services(self):
-        return self._extra_services
-
-    @extra_services.setter
-    def extra_services(self, value):
-        self._extra_services = value
-
-    @extra_services.deleter
-    def extra_services(self):
-        del self._extra_services
-
-    @property
     def params(self):
         return self._params
 
@@ -72,10 +59,17 @@ class ResProcessor(metaclass=abc.ABCMeta):
     def params(self):
         del self._params
 
-    @staticmethod
-    @abc.abstractmethod
-    def get_extra_services():
-        pass
+    @property
+    def extra_services(self):
+        return self._extra_services
+
+    @extra_services.setter
+    def extra_services(self, value):
+        self._extra_services = value
+
+    @extra_services.deleter
+    def extra_services(self):
+        del self._extra_services
 
     @abc.abstractmethod
     def create(self):
@@ -93,10 +87,6 @@ class ResProcessor(metaclass=abc.ABCMeta):
 class UnixAccountProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
-
-    @staticmethod
-    def get_extra_services():
-        return None
 
     def _adduser(self):
         LOGGER.info("Adding user {0.name} to system".format(self.resource))
@@ -132,10 +122,11 @@ class UnixAccountProcessor(ResProcessor):
     def _create_authorized_keys(self):
         if not os.path.exists("{0.homeDir}/.ssh".format(self.resource)):
             os.mkdir("{0.homeDir}/.ssh".format(self.resource), mode=0o700)
-        authorized_keys = taskexecutor.conffile.Builder("basic",
-                                                        "{0.homeDir}/.ssh/authorized_keys".format(self.resource),
-                                                        owner_uid=self.resource.uid,
-                                                        mode=0o400)
+        constructor = taskexecutor.constructor.Constructor()
+        authorized_keys = constructor.get_conffile("basic",
+                                                   "{0.homeDir}/.ssh/authorized_keys".format(self.resource),
+                                                   owner_uid=self.resource.uid,
+                                                   mode=0o400)
         authorized_keys.body = self.resource.keyPair.publicKey
         authorized_keys.save()
 
@@ -192,7 +183,9 @@ class UnixAccountProcessor(ResProcessor):
 # should be removed when this server is gone
 class UnixAccountProcessorBaton(UnixAccountProcessor):
     def _update_jailed_ssh(self, action):
-        jailed_ssh_config = taskexecutor.conffile.Builder("lines", "/usr/jail/usr/local/etc/ssh/sshd_clients_config")
+        jailed_ssh_config = taskexecutor.constructor.Constructor().get_conffile(
+                "lines", "/usr/jail/usr/local/etc/ssh/sshd_clients_config"
+        )
         allow_users = jailed_ssh_config.get_lines("^AllowUsers", count=1).split(' ')
         getattr(allow_users, action)(self.resource.name)
         jailed_ssh_config.replace_line("^AllowUsers", " ".join(allow_users))
@@ -262,14 +255,6 @@ class UnixAccountProcessorBaton(UnixAccountProcessor):
 
 
 class WebSiteProcessor(ResProcessor):
-    @staticmethod
-    def get_extra_services():
-        for service in CONFIG.localserver.services:
-            if service.serviceType.name == "STAFF_NGINX":
-                return collections.namedtuple("Service",
-                                              "http_proxy")(http_proxy=taskexecutor.opservice.Builder(service))
-        raise AttributeError("Local server has no HTTP proxy service")
-
     def _build_vhost_obj_list(self):
         vhosts = list()
         non_ssl_domains = list()
@@ -360,12 +345,9 @@ class SSLCertificateProcessor(ResProcessor):
         super().__init__(resource, params)
         cert_file_path = os.path.join(CONFIG.nginx.ssl_certs_path, "{1.name}.pem".format(self.resource))
         key_file_path = os.path.join(CONFIG.nginx.ssl_certs_path, "{1.name}.key".format(self.resource))
-        self._cert_file = taskexecutor.conffile.Builder("basic", cert_file_path)
-        self._key_file = taskexecutor.conffile.Builder("basic", key_file_path)
-
-    @staticmethod
-    def get_extra_services():
-        return None
+        constructor = taskexecutor.constructor.Constructor()
+        self._cert_file = constructor.get_conffile("basic", cert_file_path)
+        self._key_file = constructor.get_conffile("basic", key_file_path)
 
     @taskexecutor.utils.synchronized
     def create(self):
@@ -387,13 +369,9 @@ class MailboxProcessor(ResProcessor):
         super().__init__(resource, params)
         self._is_last = False
         if self.resource.antiSpamEnabled:
-            self._avp_domains = taskexecutor.conffile.Builder(
+            self._avp_domains = taskexecutor.constructor.Constructor().get_conffile(
                 "lines", "/etc/exim4/etc/avp_domains{}".format(self.resource.popServer.id)
             )
-
-    @staticmethod
-    def get_extra_services():
-        return None
 
     @taskexecutor.utils.synchronized
     def create(self):
@@ -447,7 +425,7 @@ class MailboxAtPopperProcessor(MailboxProcessor):
 class MailboxAtMxProcessor(MailboxProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
-        self._relay_domains = taskexecutor.conffile.Builder(
+        self._relay_domains = taskexecutor.constructor.Constructor().get_conffile(
                 "lines",
                 "/etc/exim4/etc/relay_domains{}".format(self.resource.popServer.id)
         )
@@ -469,10 +447,6 @@ class MailboxAtMxProcessor(MailboxProcessor):
 
 
 class DatabaseUserProcessor(ResProcessor):
-    @staticmethod
-    def get_extra_services():
-        return
-
     def create(self):
         addrs_set = set(self.service.normalize_addrs(self.resource.allowedAddressList))
         LOGGER.info("Creating {0} user {1} with addresses {2}".format(self.service.__class__.__name__,
@@ -506,10 +480,6 @@ class DatabaseUserProcessor(ResProcessor):
 
 
 class DatabaseProcessor(ResProcessor):
-    @staticmethod
-    def get_extra_services():
-        return
-
     def create(self):
         LOGGER.info("Creating {0} database {1}".format(self.service.__class__.__name__, self.resource.name))
         self.service.create_database(self.resource.name)
@@ -572,15 +542,15 @@ class DatabaseProcessor(ResProcessor):
             LOGGER.warning("{0} database {1} not found".format(self.service.__class__.__name__, self.resource.name))
 
 
-# TODO: reimplement using OpServiceBuilder
+# TODO: reimplement using taskexecutor.constructor
 class ServiceProcessor(ResProcessor):
     def __init__(self, resource, params):
         super().__init__(resource, params)
-        self.service = taskexecutor.opservice.Builder(self.resource)
-
-    @staticmethod
-    def get_extra_services():
-        return None
+        self.service = taskexecutor.constructor.Constructor().get_opservice(
+            self.resource.serviceType.name,
+            template_obj_list=self.resource.serviceTemplates.configTemplates,
+            socket_obj_list=self.resource.serviceSockets
+        )
 
     def create(self):
         pass
@@ -593,31 +563,24 @@ class ServiceProcessor(ResProcessor):
 
 
 class Builder:
-    def __new__(cls, res_type, resource, params):
+    def __new__(cls, res_type):
         if res_type == "service":
-            return ServiceProcessor(resource, params)
+            return ServiceProcessor
         elif res_type == "unix-account" and CONFIG.hostname == "baton":
-            return UnixAccountProcessorBaton(resource, params)
+            return UnixAccountProcessorBaton
         elif res_type == "unix-account":
-            return UnixAccountProcessor(resource, params)
+            return UnixAccountProcessor
         elif res_type == "database-user":
-            return DatabaseUserProcessor(resource, params)
-        elif res_type == "website" and CONFIG.hostname == "baton":
-            return WebSiteProcessorBaton(resource, params)
-        elif res_type == "website":
-            return WebSiteProcessor(resource, params)
-        elif res_type == "sslcertificate":
-            return SSLCertificateProcessor(resource, params)
-        elif res_type == "mailbox" and re.match("pop\d+",
-                                                CONFIG.hostname):
-            return MailboxAtPopperProcessor(resource, params)
-        elif res_type == "mailbox" and re.match("mx\d+-(mr|dh)",
-                                                CONFIG.hostname):
-            return MailboxAtMxProcessor(resource, params)
-        elif res_type == "mailbox" and re.match("mail-checker\d+",
-                                                CONFIG.hostname):
-            return MailboxProcessor(resource, params)
+            return DatabaseUserProcessor
         elif res_type == "database":
-            return DatabaseProcessor(resource, params)
+            return DatabaseProcessor
+        elif res_type == "website" and CONFIG.hostname == "baton":
+            return WebSiteProcessorBaton
+        elif res_type == "website":
+            return WebSiteProcessor
+        elif res_type == "sslcertificate":
+            return SSLCertificateProcessor
+        elif res_type == "mailbox":
+            return MailboxProcessor
         else:
             raise ValueError("Unknown resource type: {}".format(res_type))

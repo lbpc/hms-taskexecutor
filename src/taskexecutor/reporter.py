@@ -82,6 +82,6 @@ class AMQPReporter(Reporter):
 class Builder:
     def __new__(cls, reporter_type):
         if reporter_type == "amqp":
-            return AMQPReporter()
+            return AMQPReporter
         else:
             raise ValueError("Unknown Reporter type: {}".format(reporter_type))

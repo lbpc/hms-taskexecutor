@@ -203,14 +203,14 @@ class WebSiteConfigFile(TemplatedConfigFile, SwitchableConfigFile):
 
 
 class Builder:
-    def __new__(cls, config_type, abs_path, owner_uid=None, mode=None):
+    def __new__(cls, config_type):
         if config_type == "website":
-            return WebSiteConfigFile(abs_path, owner_uid, mode)
+            return WebSiteConfigFile
         elif config_type == "templated":
-            return TemplatedConfigFile(abs_path, owner_uid, mode)
+            return TemplatedConfigFile
         elif config_type == "lines":
-            return LineBasedConfigFile(abs_path, owner_uid, mode)
+            return LineBasedConfigFile
         elif config_type == "basic":
-            return ConfigFile(abs_path, owner_uid, mode)
+            return ConfigFile
         else:
             raise ValueError("Unknown config type: {}".format(config_type))

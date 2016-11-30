@@ -6,12 +6,12 @@ import ipaddress
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-import taskexecutor.httpsclient
+import taskexecutor.constructor
 import taskexecutor.dbclient
-import taskexecutor.conffile
+import taskexecutor.httpsclient
 import taskexecutor.utils
 
-__all__ = ["Builder"]
+__all__ = ["Builder", "NetworkingService", "ConfigurableService"]
 
 
 class OpService(metaclass=abc.ABCMeta):
@@ -126,7 +126,8 @@ class ConfigurableService:
             self.add_concrete_config(template_obj.name)
 
     def get_abstract_config(self, template_name, rel_path, config_type="templated"):
-        config = taskexecutor.conffile.Builder(config_type, os.path.join(self.config_base_path, rel_path))
+        constructor = taskexecutor.constructor.Constructor()
+        config = constructor.get_conffile(config_type, os.path.join(self.config_base_path, rel_path))
         config.template = self.get_config_template(self.get_template_source(template_name))
         return config
 
@@ -137,7 +138,8 @@ class ConfigurableService:
         self._template_sources_map[name] = value
 
     def add_concrete_config(self, rel_path):
-        config = taskexecutor.conffile.Builder("templated", os.path.join(self.config_base_path, rel_path))
+        constructor = taskexecutor.constructor.Constructor()
+        config = constructor.get_conffile("templated", os.path.join(self.config_base_path, rel_path))
         self._concrete_configs_set.add(config)
 
     def get_concrete_configs_set(self):
@@ -196,9 +198,9 @@ class WebServer(ConfigurableService, NetworkingService):
 
 
 class Nginx(WebServer, SysVService):
-    def __init__(self):
+    def __init__(self, name):
         WebServer.__init__(self)
-        SysVService.__init__(self, "nginx")
+        SysVService.__init__(self, name)
         self.site_template_name = "{NginxServer}.j2"
         self.config_base_path = "/etc/nginx"
 
@@ -225,9 +227,9 @@ class Apache(WebServer, UpstartService):
 # HACK: the two 'Unmanaged' classes below are responsible for reloading services at baton.intr only
 # would be removed when this server is gone
 class UnmanagedNginx(WebServer, OpService):
-    def __init__(self):
+    def __init__(self, name):
         WebServer.__init__(self)
-        OpService.__init__(self, "nginx")
+        OpService.__init__(self, name)
         self.site_template_name = "{BatonNginxServer}.j2"
         self.config_base_path = "/usr/local/nginx/conf"
 
@@ -336,10 +338,10 @@ class DatabaseServer(metaclass=abc.ABCMeta):
 
 
 class MySQL(DatabaseServer, ConfigurableService, NetworkingService, SysVService):
-    def __init__(self):
+    def __init__(self, name):
         ConfigurableService.__init__(self)
         NetworkingService.__init__(self)
-        SysVService.__init__(self, "mysql")
+        SysVService.__init__(self, name)
         self.config_base_path = "/etc/mysql"
         self._dbclient = None
         self._full_privileges = CONFIG.mysql.common_privileges + CONFIG.mysql.write_privileges
@@ -432,13 +434,13 @@ class MySQL(DatabaseServer, ConfigurableService, NetworkingService, SysVService)
 
 
 class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVService):
-    def __init__(self):
+    def __init__(self, name):
         ConfigurableService.__init__(self)
         NetworkingService.__init__(self)
-        SysVService.__init__(self, "postgresql")
+        SysVService.__init__(self, name)
         self.config_base_path = "/etc/postgresql/9.3/main"
         self._dbclient = None
-        self._hba_conf = taskexecutor.conffile.Builder("lines", "pg_hba.conf")
+        self._hba_conf = taskexecutor.constructor.Constructor().get_conffile("lines", "pg_hba.conf")
         self._full_privileges = CONFIG.postgresql.common_privileges + CONFIG.postgresql.write_privileges
 
     @property
@@ -597,26 +599,12 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
 
 
 class Builder:
-    def __new__(cls, service_obj):
-        service_name = cls.parse_service_type_name(service_obj.serviceType.name)
-        if service_name == "nginx":
-            service = Nginx()
-        elif service_name.startswith("apache2"):
-            service = Apache(service_name)
-        elif service_name == "mysql":
-            service = MySQL()
-        if isinstance(service, NetworkingService):
-            for socket in service_obj.serviceSockets:
-                service.set_socket(cls.get_protocol_from_socket_name(socket.name), socket)
-        if isinstance(service, ConfigurableService) and service.config_base_path:
-            for template in service_obj.serviceTemplate.configTemplates:
-                service.set_config_from_template_obj(template)
-        return service
-
-    @classmethod
-    def parse_service_type_name(cls, name):
-        return "-".join(name.lower().split("_")[1:])
-
-    @classmethod
-    def get_protocol_from_socket_name(cls, name):
-        return name.split("@")[0].split("-")[-1]
+    def __new__(cls, service_type):
+        if service_type == "nginx":
+            return Nginx
+        elif service_type.startswith("apache2"):
+            return Apache
+        elif service_type == "mysql":
+            return MySQL
+        else:
+            raise ValueError("Unknown OpService type: {}".format(service_type))

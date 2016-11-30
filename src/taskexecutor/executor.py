@@ -4,6 +4,7 @@ import urllib.parse
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
+import taskexecutor.constructor
 import taskexecutor.reporter
 import taskexecutor.resprocessor
 import taskexecutor.task
@@ -95,27 +96,27 @@ class Executor:
         del self._args
 
     @staticmethod
-    def _get_resource(obj_ref):
+    def get_resource(obj_ref):
         with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
             return api.get(urllib.parse.urlparse(obj_ref).path)
 
     def process_task(self):
-        taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0.opid} ACTION IDENTITY: {0.actid}".format(self._task))
-        LOGGER.info("Fetching {0} resource by {1}".format(self._task.res_type, self._task.params["objRef"]))
-        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-            resource = api.get(urllib.parse.urlparse(self._task.params["objRef"]).path)
-            processor = taskexecutor.resprocessor.Builder(self._task.res_type, resource, self._task.params)
-            processor.extra_services = processor.get_extra_services()
-            if hasattr(resource, "serviceId"):
-                processor.service = taskexecutor.opservice.Builder(api.Service(resource.serviceId).get())
+        taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0.opid} ACTION IDENTITY: {0.actid}".format(self.task))
+        constructor = taskexecutor.constructor.Constructor()
+        LOGGER.info("Fetching {0} resource by {1}".format(self.task.res_type, self.task.params["objRef"]))
+        resource = self.get_resource(self.task.params["objRef"])
+        processor = constructor.get_resprocessor(self.task.res_type, resource, self.task.params)
         LOGGER.info(
-                "Invoking {0}.{1} method on {2}".format(type(processor).__name__, self._task.action, processor.resource)
+                "Invoking {0}.{1} method on {2}".format(type(processor).__name__, self.task.action, processor.resource)
         )
-        getattr(processor, self._task.action)()
+        getattr(processor, self.task.action)()
+        for processor in constructor.get_siding_resprocessors(processor):
+            LOGGER.info("Updating affected resource {}".format(processor.resource))
+            processor.update()
         LOGGER.info("Calling back {0}{1}".format(self._callback.__name__, self._args))
         self._callback(*self._args)
-        reporter = taskexecutor.reporter.Builder("amqp")
-        report = reporter.create_report(self._task)
+        reporter = constructor.get_reporter("amqp")
+        report = reporter.create_report(self.task)
         LOGGER.info("Sending report {0} using {1}".format(report, type(reporter).__name__))
         reporter.send_report()
-        LOGGER.info("Done with task {}".format(self._task))
+        LOGGER.info("Done with task {}".format(self.task))

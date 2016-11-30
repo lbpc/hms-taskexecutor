@@ -4,7 +4,7 @@ import logging
 import signal
 import threading
 
-import taskexecutor.listener
+import taskexecutor.constructor
 import taskexecutor.scheduler
 import taskexecutor.logger
 
@@ -21,7 +21,7 @@ def receive_signal(signum, unused_stack):
 
 def main():
     signal.signal(signal.SIGINT, receive_signal)
-    amqp_listener = taskexecutor.listener.Builder("amqp")
+    amqp_listener = taskexecutor.constructor.Constructor().get_listener("amqp")
     amqp_listener_thread = threading.Thread(target=amqp_listener.listen)
     amqp_listener_thread.start()
     taskexecutor.logger.LOGGER.info("AMQP listener thread started")
