@@ -47,7 +47,7 @@ class Constructor:
         if isinstance(processor, taskexecutor.resprocessor.DatabaseUserProcessor):
             with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
                 return [self.get_resprocessor("database", resource, {})
-                        for resource in api.Database(query={"databaseUserId": processor.resource.id})]
+                        for resource in api.Database(query={"databaseUserId": processor.resource.id}).get()]
         else:
             return []
 
