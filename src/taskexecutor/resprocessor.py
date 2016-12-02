@@ -10,17 +10,22 @@ import taskexecutor.constructor
 import taskexecutor.httpsclient
 import taskexecutor.utils
 
-__all__ = ["Builder", "DatabaseUserProcessor", "WebSiteProcessor"]
+__all__ = ["Builder"]
+
+
+class BuilderTypeError:
+    pass
 
 
 class ResProcessor(metaclass=abc.ABCMeta):
-    def __init__(self, resource, params):
+    def __init__(self, resource, service, params):
         super().__init__()
         self._resource = None
         self._service = None
         self._params = dict()
         self._extra_services = None
         self.resource = resource
+        self.service = service
         self.params = params
 
     @property
@@ -85,9 +90,6 @@ class ResProcessor(metaclass=abc.ABCMeta):
 
 
 class UnixAccountProcessor(ResProcessor):
-    def __init__(self, resource, params):
-        super().__init__(resource, params)
-
     def _adduser(self):
         LOGGER.info("Adding user {0.name} to system".format(self.resource))
         taskexecutor.utils.exec_command("useradd "
@@ -333,16 +335,16 @@ class WebSiteProcessor(ResProcessor):
 # WebSite resources at baton.intr
 # should be removed when this server is gone
 class WebSiteProcessorBaton(WebSiteProcessor):
-    def __init__(self, resource, params):
-        super().__init__(resource, params)
+    def __init__(self, resource, service, params):
+        super().__init__(resource, service, params)
         res_dict = self.resource._asdict()
         res_dict["documentRoot"] = pytransliter.translit(res_dict["documentRoot"], "ru")
         self.resource = collections.namedtuple("ApiObject", res_dict.keys())(*res_dict.values())
 
 
 class SSLCertificateProcessor(ResProcessor):
-    def __init__(self, resource, params):
-        super().__init__(resource, params)
+    def __init__(self, resource, service, params):
+        super().__init__(resource, service, params)
         cert_file_path = os.path.join(CONFIG.nginx.ssl_certs_path, "{1.name}.pem".format(self.resource))
         key_file_path = os.path.join(CONFIG.nginx.ssl_certs_path, "{1.name}.key".format(self.resource))
         constructor = taskexecutor.constructor.Constructor()
@@ -365,8 +367,8 @@ class SSLCertificateProcessor(ResProcessor):
 
 
 class MailboxProcessor(ResProcessor):
-    def __init__(self, resource, params):
-        super().__init__(resource, params)
+    def __init__(self, resource, service, params):
+        super().__init__(resource, service, params)
         self._is_last = False
         if self.resource.antiSpamEnabled:
             self._avp_domains = taskexecutor.constructor.Constructor().get_conffile(
@@ -397,9 +399,6 @@ class MailboxProcessor(ResProcessor):
 
 
 class MailboxAtPopperProcessor(MailboxProcessor):
-    def __init__(self, resource, params):
-        super().__init__(resource, params)
-
     def create(self):
         if not os.path.isdir(self.resource.mailSpool):
             LOGGER.info("Creating directory {}".format(self.resource.mailSpool))
@@ -423,8 +422,8 @@ class MailboxAtPopperProcessor(MailboxProcessor):
 
 
 class MailboxAtMxProcessor(MailboxProcessor):
-    def __init__(self, resource, params):
-        super().__init__(resource, params)
+    def __init__(self, resource, service, params):
+        super().__init__(resource, service, params)
         self._relay_domains = taskexecutor.constructor.Constructor().get_conffile(
                 "lines",
                 "/etc/exim4/etc/relay_domains{}".format(self.resource.popServer.id)
@@ -447,95 +446,121 @@ class MailboxAtMxProcessor(MailboxProcessor):
 
 
 class DatabaseUserProcessor(ResProcessor):
+    def __init__(self, resource, service, params):
+        super().__init__(resource, service, params)
+        self._current_user = self.service.get_user(self.resource.name)
+
     def create(self):
-        addrs_set = set(self.service.normalize_addrs(self.resource.allowedAddressList))
-        LOGGER.info("Creating {0} user {1} with addresses {2}".format(self.service.__class__.__name__,
-                                                                      self.resource.name,
-                                                                      addrs_set))
-        self.service.create_user(self.resource.name, self.resource.passwordHash, list(addrs_set))
+        if not self._current_user:
+            addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
+            LOGGER.info("Creating {0} user {1} with addresses {2}".format(self.service.__class__.__name__,
+                                                                          self.resource.name,
+                                                                          addrs_set))
+            self.service.create_user(self.resource.name, self.resource.passwordHash, list(addrs_set))
+        else:
+            LOGGER.warning("{0} user {1} already exists, updating".format(self.service.__class__.__name__,
+                                                                          self.resource.name))
+            self.update()
 
     def update(self):
-        current_user = self.service.get_user(self.resource.name)
-        if not current_user:
+        if self._current_user:
+            current_addrs_set = set(self.service.normalize_addrs(self._current_user.allowedIPAddresses))
+            staging_addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
+            LOGGER.info("Updating {0} user {1}".format(self.service.__class__.__name__, self.resource.name))
+            self.service.drop_user(self.resource.name, list(current_addrs_set.difference(staging_addrs_set)))
+            self.service.create_user(self.resource.name, self.resource.passwordHash,
+                                     list(staging_addrs_set.difference(current_addrs_set)))
+            self.service.set_password(self.resource.name, self.resource.passwordHash,
+                                      list(current_addrs_set.intersection(staging_addrs_set)))
+        else:
             LOGGER.warning("{0} user {1} not found, creating".format(self.service.__class__.__name__,
                                                                      self.resource.name))
             self.create()
-            current_user = self.resource
-        current_addrs_set = set(self.service.normalize_addrs(current_user.allowedAddressList))
-        staging_addrs_set = set(self.service.normalize_addrs(self.resource.allowedAddressList))
-        LOGGER.info("Updating {0} user {1}".format(self.service.__class__.__name__, self.resource.name))
-        self.service.drop_user(self.resource.name, list(current_addrs_set.difference(staging_addrs_set)))
-        self.service.create_user(self.resource.name, self.resource.passwordHash,
-                                 list(staging_addrs_set.difference(current_addrs_set)))
-        self.service.set_password(self.resource.name, self.resource.passwordHash,
-                                  list(current_addrs_set.intersection(staging_addrs_set)))
 
     def delete(self):
-        current_user = self.service.get_user(self.resource.name)
-        if current_user:
+        if self._current_user:
             LOGGER.info("Dropping {0} user {1}".format(self.service.__class__.__name__, self.resource.name))
-            self.service.drop_user(self.resource.name, current_user.allowedAddressList)
+            self.service.drop_user(self.resource.name, self._current_user.allowedIPAddresses)
         else:
             LOGGER.warning("{0} user {1} not found".format(self.service.__class__.__name__, self.resource.name))
 
 
 class DatabaseProcessor(ResProcessor):
+    def __init__(self, resource, service, params):
+        super().__init__(resource, service, params)
+        self._current_database = self.service.get_database(self.resource.name)
+
     def create(self):
-        LOGGER.info("Creating {0} database {1}".format(self.service.__class__.__name__, self.resource.name))
-        self.service.create_database(self.resource.name)
-        for user in self.resource.databaseUsers:
-            addrs_set = set(self.service.normalize_addrs(user.allowedAddressList))
-            LOGGER.info("Granting access on {0} database {1} to user {2} "
-                        "with addresses {3}".format(self.service.__class__.__name__, self.resource.name,
-                                                    user.name, addrs_set))
-            self.service.allow_database_access(self.resource.name, user.name, list(addrs_set))
+        if not self._current_database:
+            LOGGER.info("Creating {0} database {1}".format(self.service.__class__.__name__, self.resource.name))
+            self.service.create_database(self.resource.name)
+            for user in self.resource.databaseUsers:
+                addrs_set = set(self.service.normalize_addrs(user.allowedIPAddresses))
+                LOGGER.info("Granting access on {0} database {1} to user {2} "
+                            "with addresses {3}".format(self.service.__class__.__name__, self.resource.name,
+                                                        user.name, addrs_set))
+                self.service.allow_database_access(self.resource.name, user.name, list(addrs_set))
+        else:
+            LOGGER.warning("{0} database {1} already exists, updating".format(self.service.__class__.__name__,
+                                                                              self.resource.name))
+            self.update()
 
     def update(self):
-        current_database = self.service.get_database(self.resource.name)
-        if not current_database:
+        if self._current_database:
+            current_usernames_set = set([user.name for user in self._current_database.databaseUsers])
+            staging_usernames_set = set([user.name for user in self.resource.databaseUsers])
+            new_users_list = [user for user in self.resource.databaseUsers
+                              if user.name in staging_usernames_set.difference(current_usernames_set)]
+            old_users_list = [user for user in self._current_database.databaseUsers
+                              if user.name in current_usernames_set.difference(staging_usernames_set)]
+            spare_users_list = [user for user in self.resource.databaseUsers
+                                if user.name in current_usernames_set.intersection(staging_usernames_set)]
+            if self.resource.writable:
+                for user in new_users_list:
+                    LOGGER.info("Granting access on {0} database {1} to "
+                                "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
+                    addrs_set = set(self.service.normalize_addrs(user.allowedIPAddresses))
+                    self.service.allow_database_access(self.resource.name, user.name, list(addrs_set))
+                for user in spare_users_list:
+                    LOGGER.info("Granting access on {0} database {1} to "
+                                "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
+                    current_user = self.service.get_user(user.name)
+                    current_addrs_set = set(current_user.allowedIPAddresses)
+                    staging_addrs_set = set(user.allowedIPAddresses)
+                    addrs_set = self.service.normalize_addrs(list(staging_addrs_set.difference(current_addrs_set)))
+                    self.service.allow_database_access(self.resource.name, user.name, list(addrs_set))
+                for user in old_users_list:
+                    LOGGER.info("Revoking access on {0} database {1} from "
+                                "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
+                    addrs_set = set(self.service.normalize_addrs(user.allowedIPAddresses))
+                    self.service.deny_database_access(self.resource.name, user.name, list(addrs_set))
+            else:
+                for user in new_users_list:
+                    LOGGER.info("Granting READ access on {0} database {1} to "
+                                "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
+                    addrs_set = set(self.service.normalize_addrs(user.allowedIPAddresses))
+                    self.service.allow_database_reads(self.resource.name, user.name, list(addrs_set))
+                for user in spare_users_list:
+                    LOGGER.info("Revoking WRITE access on {0} database {1} from "
+                                "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
+                    addrs_set = set(self.service.normalize_addrs(user.allowedIPAddresses))
+                    self.service.deny_database_writes(self.resource.name, user.name, list(addrs_set))
+                for user in old_users_list:
+                    LOGGER.info("Revoking access on {0} database {1} from "
+                                "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
+                    addrs_set = set(self.service.normalize_addrs(user.allowedIPAddresses))
+                    self.service.deny_database_access(self.resource.name, user.name, list(addrs_set))
+        else:
             LOGGER.warning("{0} database {1} not found, creating".format(self.service.__class__.__name__,
                                                                          self.resource.name))
             self.create()
-            current_database = self.resource
-        current_usernames_set = set([user.name for user in current_database.databaseUsers])
-        staging_usernames_set = set([user.name for user in self.resource.databaseUsers])
-        new_users_list = [user for user in self.resource.databaseUsers
-                          if user.name in staging_usernames_set.difference(current_usernames_set)]
-        old_users_list = [user for user in current_database.databaseUsers
-                          if user.name in current_usernames_set.difference(staging_usernames_set)]
-        spare_users_list = [user for user in self.resource.databaseUsers
-                            if user.name in current_usernames_set.intersection(staging_usernames_set)]
-        if not self.resource.writable:
-            for user in new_users_list:
-                LOGGER.info("Granting READ access on {0} database {1} to "
-                            "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
-                self.service.allow_database_reads(self.resource.name, user.name, user.allowedAddressList)
-            for user in spare_users_list:
-                LOGGER.info("Revoking WRITE access on {0} database {1} from "
-                            "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
-                self.service.deny_database_writes(self.resource.name, user.name, user.allowedAddressList)
-            for user in old_users_list:
-                LOGGER.info("Revoking access on {0} database {1} from "
-                            "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
-                self.service.deny_database_access(self.resource.name, user.name, user.allowedAddressList)
-        else:
-            for user in spare_users_list + new_users_list:
-                LOGGER.info("Granting access on {0} database {1} to "
-                            "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
-                addrs_set = set(self.service.normalize_addrs(user.allowedAddressList))
-                self.service.allow_database_access(self.resource.name, user.name, list(addrs_set))
-            for user in old_users_list:
-                LOGGER.info("Revoking access on {0} database {1} from "
-                            "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
-                self.service.deny_database_access(self.resource.name, user.name, user.allowedAddressList)
 
     def delete(self):
-        current_database = self.service.get_database(self.resource.name)
-        if current_database:
-            for user in current_database.databaseUsers:
+        if self._current_database:
+            for user in self._current_database.databaseUsers:
                 LOGGER.info("Revoking access on {0} database {1} from "
                             "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
-                self.service.deny_database_access(self.resource.name, user.name, user.allowedAddressList)
+                self.service.deny_database_access(self.resource.name, user.name, user.allowedIPAddresses)
             LOGGER.info("Dropping {0} database {1}".format(self.service.__class__.__name__, self.resource.name))
             self.service.drop_database(self.resource.name)
         else:
@@ -544,8 +569,8 @@ class DatabaseProcessor(ResProcessor):
 
 # TODO: reimplement using taskexecutor.constructor
 class ServiceProcessor(ResProcessor):
-    def __init__(self, resource, params):
-        super().__init__(resource, params)
+    def __init__(self, resource, service, params):
+        super().__init__(resource, service, params)
         self.service = taskexecutor.constructor.Constructor().get_opservice(
             self.resource.serviceType.name,
             template_obj_list=self.resource.serviceTemplates.configTemplates,
@@ -583,4 +608,4 @@ class Builder:
         elif res_type == "mailbox":
             return MailboxProcessor
         else:
-            raise ValueError("Unknown resource type: {}".format(res_type))
+            raise BuilderTypeError("Unknown resource type: {}".format(res_type))

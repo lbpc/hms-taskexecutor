@@ -11,7 +11,15 @@ import taskexecutor.dbclient
 import taskexecutor.httpsclient
 import taskexecutor.utils
 
-__all__ = ["Builder", "NetworkingService", "ConfigurableService"]
+__all__ = ["Builder"]
+
+
+class BuilderTypeError(Exception):
+    pass
+
+
+class ConfigValidationError(Exception):
+    pass
 
 
 class OpService(metaclass=abc.ABCMeta):
@@ -152,7 +160,7 @@ class ConfigurableService:
             if config.file_path == rel_path:
                 config.template = self.get_config_template(self.get_template_source(config.file_path))
                 return config
-        raise KeyError("No such config: {}".format(rel_path))
+        raise ConfigValidationError("No such config: {}".format(rel_path))
 
     def get_config_template(self, template_source):
         with taskexecutor.httpsclient.GitLabClient(**CONFIG.gitlab._asdict()) as gitlab:
@@ -280,7 +288,7 @@ class UnmanagedApache(WebServer, OpService):
 
 
 class DatabaseServer(metaclass=abc.ABCMeta):
-    DatabaseUserClass = collections.namedtuple("DatabaseUser", "name passowrdHash allowedAddressList")
+    DatabaseUserClass = collections.namedtuple("DatabaseUser", "name passowrdHash allowedIPAddresses")
     DatabaseClass = collections.namedtuple("Database", "name databaseUsers quotaUsed")
 
     @staticmethod
@@ -472,7 +480,7 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
             while "=" in fields[-1]:
                 options.append(fields.pop(-1))
             if len(fields) < 4:
-                raise Exception("Too few fields in line {0}: {1}".format(lineno, line))
+                raise ConfigValidationError("Too few fields in line {0}: {1}".format(lineno, line))
             elif len(fields) == 4:
                 conn_type, database, user, method = fields
             elif len(fields) == 5:
@@ -480,15 +488,16 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
             elif len(fields) == 6:
                 conn_type, database, user, address, mask, method = fields
             else:
-                raise Exception("Too many fields in line {0}: {1}".format(lineno, line))
+                raise ConfigValidationError("Too many fields in line {0}: {1}".format(lineno, line))
             if conn_type not in ("local", "host", "hostssl", "hostnossl"):
-                raise Exception("Unknown connection type '{0}' in line {1}: {2}".format(conn_type, lineno, line))
+                raise ConfigValidationError("Unknown connection type '{0}' "
+                                            "in line {1}: {2}".format(conn_type, lineno, line))
             if conn_type == "local" and address:
-                raise Exception("Address field is not permitted for 'local' "
-                                "connection type in line {0}: {1}".format(lineno, line))
+                raise ConfigValidationError("Address field is not permitted for 'local' "
+                                            "connection type in line {0}: {1}".format(lineno, line))
             if conn_type != "local" and not address:
-                raise Exception("Address field is required for '{0}' "
-                                "connection type in line {1}: {2}".format(conn_type, lineno, line))
+                raise ConfigValidationError("Address field is required for '{0}' "
+                                            "connection type in line {1}: {2}".format(conn_type, lineno, line))
             if address and mask:
                 address = "{0}/{1}".format(address, mask)
             if address and not re.match(r"^(.?([a-zA-Z]|[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*"
@@ -499,16 +508,18 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
                     try:
                         ipaddress.IPv6Network(address)
                     except ipaddress.AddressValueError:
-                        raise Exception("Invalid address '{0}' in line {1}: {2}".format(address, lineno, line))
+                        raise ConfigValidationError("Invalid address '{0}' in "
+                                                    "line {1}: {2}".format(address, lineno, line))
             if method not in ("trust", "reject", "md5", "password", "gss", "sspi",
                               "krb5", "ident", "peer", "ldap", "radius", "pam"):
-                raise Exception("Unknown auth method '{0}' in line {1}: {2}".format(conn_type, lineno, line))
+                raise ConfigValidationError("Unknown auth method '{0}' in "
+                                            "line {1}: {2}".format(conn_type, lineno, line))
 
     def _update_hba_conf(self, database_name, users_list):
         hba_conf = self.get_concrete_config("pg_hba.conf")
         for user in users_list:
             networks_list = ipaddress.collapse_addresses([ipaddress.IPv4Network(addr)
-                                                          for addr in user.allowedAddressList])
+                                                          for addr in user.allowedIPAddresses])
             for network in networks_list:
                 config_line = "host {0} {1} {2} md5".format(database_name, user.name, network)
                 if not hba_conf.has_line(config_line):
@@ -607,4 +618,4 @@ class Builder:
         elif service_type == "mysql":
             return MySQL
         else:
-            raise ValueError("Unknown OpService type: {}".format(service_type))
+            raise BuilderTypeError("Unknown OpService type: {}".format(service_type))

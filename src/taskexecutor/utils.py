@@ -7,6 +7,10 @@ from taskexecutor.logger import LOGGER
 LOCKS = {}
 
 
+class CommandEcecutionError(Exception):
+    pass
+
+
 def exec_command(command, shell="/bin/bash", pass_to_stdin=None):
     LOGGER.info("Running shell command: {}".format(command))
     with subprocess.Popen(command,
@@ -25,7 +29,7 @@ def exec_command(command, shell="/bin/bash", pass_to_stdin=None):
                 "Command '{0}' returned {1} code".format(command, ret_code))
         if stderr:
             LOGGER.error("STDERR: {}".format(stderr.decode("UTF-8")))
-        raise Exception("Failed to execute command '{}'".format(command))
+        raise CommandEcecutionError("Failed to execute command '{}'".format(command))
 
     return stdout.decode("UTF-8")
 

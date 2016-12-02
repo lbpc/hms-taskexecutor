@@ -28,13 +28,14 @@ class Constructor:
 
     def get_resprocessor(self, resource_type, resource, params):
         ResProcessor = taskexecutor.resprocessor.Builder(resource_type)
-        processor = ResProcessor(resource, params)
+        op_service = None
         if hasattr(resource, "serviceId"):
             with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
                 service = api.Service(resource.serviceId).get()
-                processor.service = self.get_opservice(service.serviceType.name,
-                                                       template_obj_list=service.serviceTemplate.configTemplates,
-                                                       socket_obj_list=service.serviceSockets)
+                op_service = self.get_opservice(api.Service(resource.serviceId).get().serviceType.name,
+                                                template_obj_list=service.serviceTemplate.configTemplates,
+                                                socket_obj_list=service.serviceSockets)
+        processor = ResProcessor(resource, op_service, params)
         if isinstance(processor, taskexecutor.resprocessor.WebSiteProcessor):
             ExtraServices = collections.namedtuple("Service", "http_proxy")
             for service in CONFIG.localserver.services:
@@ -47,7 +48,7 @@ class Constructor:
         if isinstance(processor, taskexecutor.resprocessor.DatabaseUserProcessor):
             with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
                 return [self.get_resprocessor("database", resource, {})
-                        for resource in api.Database(query={"databaseUserId": processor.resource.id}).get()]
+                        for resource in api.Database().filter(databaseUserId=processor.resource.id).get()]
         else:
             return []
 

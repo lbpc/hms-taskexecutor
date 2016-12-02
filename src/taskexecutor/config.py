@@ -5,6 +5,10 @@ import taskexecutor.httpsclient
 from taskexecutor.logger import LOGGER
 
 
+class PropertyValidationError(Exception):
+    pass
+
+
 class __Config:
     def __init__(self):
         LOGGER.info("Initializing config")
@@ -42,9 +46,10 @@ class __Config:
         with taskexecutor.httpsclient.ApiClient(**self.apigw) as api:
             result = api.Server(query={"name": self.hostname}).get()
             if len(result) > 1:
-                raise Exception("There is more than one server with name {0}: {1}".format(self.hostname, result))
+                raise PropertyValidationError("There is more than one server with name {0}: "
+                                              "{1}".format(self.hostname, result))
             elif len(result) == 0:
-                raise Exception("No {} server found".format(self.hostname))
+                raise PropertyValidationError("No {} server found".format(self.hostname))
             self.localserver = result[0]
 
     def _declare_enabled_resources(self):

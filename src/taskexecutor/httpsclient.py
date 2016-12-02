@@ -15,6 +15,14 @@ import taskexecutor.utils
 __all__ = ["ApiClient", "ConfigServerClient", "GitLabClient"]
 
 
+class RequestError(Exception):
+    pass
+
+
+class ResponseError(Exception):
+    pass
+
+
 class HttpsClient(metaclass=abc.ABCMeta):
     def __init__(self, host, port, user, password):
         self._host = host
@@ -117,11 +125,11 @@ class ApiClient(HttpsClient):
         response = self._connection.getresponse()
         self.uri_path = None
         if response.status != 200:
-            raise Exception("GET failed, API gateway returned "
-                            "{0.status} {0.reason} {1}".format(response, response.read()))
+            raise RequestError("GET failed, API gateway returned "
+                               "{0.status} {0.reason} {1}".format(response, response.read()))
         json_str = self.decode_response(response.read())
         if len(json_str) == 0:
-            raise Exception("GET failed, API gateway returned empty response")
+            raise RequestError("GET failed, API gateway returned empty response")
         resource = ApiObjectMapper(json_str)
         return resource.as_object()
 
@@ -130,6 +138,10 @@ class ApiClient(HttpsClient):
 
     def delete(self, uri_path=None, headers=None):
         raise NotImplementedError
+
+    def filter(self, **query):
+        self._build_collection("filter", query)
+        return self
 
     def __getattr__(self, name):
         name = taskexecutor.utils.to_lower_dashed(name)
@@ -181,11 +193,11 @@ class ConfigServerClient(ApiClient):
         response = self._connection.getresponse()
         self.uri_path = None
         if response.status != 200:
-            raise Exception("GET failed, API gateway returned "
-                            "{0.status} {0.reason} {1}".format(response, response.read()))
+            raise RequestError("GET failed, API gateway returned "
+                               "{0.status} {0.reason} {1}".format(response, response.read()))
         json_str = self.decode_response(response.read())
         if len(json_str) == 0:
-            raise Exception("GET failed, API gateway returned empty response")
+            raise RequestError("GET failed, API gateway returned empty response")
         result = ApiObjectMapper(json_str)
         if self.extra_attrs:
             return result.as_object(extra_attrs=self.extra_attrs, expand_dot_separated=True,
@@ -205,7 +217,8 @@ class ConfigServerClient(ApiClient):
                 return source
             else:
                 names_available.append(source.name)
-        raise KeyError("No such property source name: {0}, available names: {1}".format(source_name, names_available))
+        raise ResponseError("No such property source name: {0},"
+                            "available names: {1}".format(source_name, names_available))
 
 
 class GitLabClient(HttpsClient):
@@ -223,13 +236,14 @@ class GitLabClient(HttpsClient):
         self._connection.request("GET", uri_path, headers=self._headers)
         response = self._connection.getresponse()
         if response.status != 200:
-            raise Exception("GET failed, GitLab returned {0.status} {0.reason} {1}".format(response, response.read()))
+            raise RequestError("GET failed, GitLab returned {0.status} {0.reason} "
+                               "{1}".format(response, response.read()))
         json_str = self.decode_response(response.read())
         if len(json_str) == 0:
-            raise Exception("GET failed, Gitlab returned empty response")
+            raise RequestError("GET failed, Gitlab returned empty response")
         file_obj = json.loads(json_str)
         if "content" not in file_obj.keys() or not file_obj["content"]:
-            raise Exception("Requested file has no content")
+            raise ResponseError("Requested file has no content")
         return self.decode_response(base64.b64decode(file_obj["content"]))
 
     def post(self, body, uri_path=None, headers=None):

@@ -6,6 +6,14 @@ from taskexecutor.logger import LOGGER
 __all__ = ["Builder"]
 
 
+class PropertyValidationError(Exception):
+    pass
+
+
+class BuilderTypeError(Exception):
+    pass
+
+
 class ConfigFile:
     def __init__(self, abs_path, owner_uid, mode):
         self._file_path = None
@@ -109,21 +117,21 @@ class SwitchableConfigFile(ConfigFile):
     @property
     def is_enabled(self):
         if not self.enabled_path:
-            raise ValueError("enabled_path property is not set ")
+            raise PropertyValidationError("enabled_path property is not set ")
         return os.path.exists(self.enabled_path) and os.path.islink(
                 self.enabled_path) and os.readlink(
                 self.enabled_path) == self.file_path
 
     def enable(self):
         if not self.enabled_path:
-            raise ValueError("enabled_path property is not set ")
+            raise PropertyValidationError("enabled_path property is not set ")
         LOGGER.info("Linking {0} to {1}".format(self.file_path,
                                                 self.enabled_path))
         os.symlink(self.file_path, self.enabled_path)
 
     def disable(self):
         if not self.enabled_path:
-            raise ValueError("enabled_path property is not set ")
+            raise PropertyValidationError("enabled_path property is not set ")
         LOGGER.info("Unlinking {}".format(self.enabled_path))
         os.unlink(self.enabled_path)
 
@@ -153,7 +161,7 @@ class TemplatedConfigFile(ConfigFile):
 
     def render_template(self, **kwargs):
         if not self.template:
-            raise AttributeError("Template is not set")
+            raise PropertyValidationError("Template is not set")
         jinja2_env = self._setup_jinja2_env()
         self.body = jinja2_env.from_string(self.template).render(**kwargs)
 
@@ -213,4 +221,4 @@ class Builder:
         elif config_type == "basic":
             return ConfigFile
         else:
-            raise ValueError("Unknown config type: {}".format(config_type))
+            raise BuilderTypeError("Unknown config type: {}".format(config_type))

@@ -5,14 +5,15 @@ import urllib.parse
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.constructor
-import taskexecutor.reporter
-import taskexecutor.resprocessor
-import taskexecutor.task
-import taskexecutor.opservice
 import taskexecutor.httpsclient
+import taskexecutor.task
 import taskexecutor.utils
 
 __all__ = ["Executors", "Executor"]
+
+
+class PropertyValidationError(Exception):
+    pass
 
 
 class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
@@ -23,8 +24,8 @@ class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
     def _function_wrapper(fn, *args, **kwargs):
         try:
             return fn(*args, **kwargs)
-        except Exception:
-            raise Exception(traceback.format_exc())
+        except Exception as e:
+            raise type(e)(traceback.format_exc())
 
 
 class Executors:
@@ -60,7 +61,7 @@ class Executor:
     @task.setter
     def task(self, value):
         if not isinstance(value, taskexecutor.task.Task):
-            raise TypeError("task must be instance of Task class")
+            raise PropertyValidationError("task must be instance of Task class")
         self._task = value
 
     @task.deleter
@@ -74,7 +75,7 @@ class Executor:
     @callback.setter
     def callback(self, f):
         if not callable(f):
-            raise TypeError("callback must be callable")
+            raise PropertyValidationError("callback must be callable")
         self._callback = f
 
     @callback.deleter
@@ -88,7 +89,7 @@ class Executor:
     @args.setter
     def args(self, value):
         if not isinstance(value, (list, tuple)):
-            raise TypeError("args must be list or tuple")
+            raise PropertyValidationError("args must be list or tuple")
         self._args = value
 
     @args.deleter
