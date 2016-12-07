@@ -1,6 +1,7 @@
 import collections
 
 from taskexecutor.config import CONFIG
+from taskexecutor.logger import LOGGER
 import taskexecutor.conffile
 import taskexecutor.opservice
 import taskexecutor.resprocessor
@@ -28,6 +29,7 @@ class Constructor:
 
     def get_resprocessor(self, resource_type, resource, params):
         ResProcessor = taskexecutor.resprocessor.Builder(resource_type)
+        LOGGER.debug("Resource processor type: {}".format(ResProcessor.__name__))
         op_service = None
         if hasattr(resource, "serviceId"):
             with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
@@ -40,8 +42,12 @@ class Constructor:
             ExtraServices = collections.namedtuple("Service", "http_proxy")
             for service in CONFIG.localserver.services:
                 if service.serviceType.name == "STAFF_NGINX":
-                    processor.extra_services = ExtraServices(http_proxy=taskexecutor.opservice.Builder(service))
-                raise AttributeError("Local server has no HTTP proxy service")
+                    nginx = self.get_opservice(service.serviceType.name,
+                                               template_obj_list=service.serviceTemplate.configTemplates,
+                                               socket_obj_list=service.serviceSockets)
+                    processor.extra_services = ExtraServices(http_proxy=nginx)
+                    return processor
+            raise AttributeError("Local server has no HTTP proxy service")
         return processor
 
     def get_siding_resprocessors(self, processor):
