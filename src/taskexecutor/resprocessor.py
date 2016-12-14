@@ -286,8 +286,8 @@ class WebSiteProcessor(ResProcessor):
             "subdomains_document_root": "/".join(self.resource.documentRoot.split("/")[:-1])
         })
         vhosts_list = self._build_vhost_obj_list()
-        home_dir = os.path.normpath(self.resource.unixAccount.homeDir)
-        document_root = os.path.normpath(self.resource.documentRoot)
+        home_dir = os.path.normpath(str(self.resource.unixAccount.homeDir))
+        document_root = os.path.normpath(str(self.resource.documentRoot))
         for directory in (os.path.join(home_dir, "logs"), os.path.join(home_dir, document_root)):
             os.makedirs(directory, mode=0o755, exist_ok=True)
         for directory in ["/".join(document_root.split("/")[0:i + 1]) for i, d in enumerate(document_root.split("/"))]:
@@ -369,80 +369,24 @@ class SSLCertificateProcessor(ResProcessor):
 class MailboxProcessor(ResProcessor):
     def __init__(self, resource, service, params):
         super().__init__(resource, service, params)
-        self._is_last = False
-        if self.resource.antiSpamEnabled:
-            self._avp_domains = taskexecutor.constructor.Constructor().get_conffile(
-                "lines", "/etc/exim4/etc/avp_domains{}".format(self.resource.popServer.id)
-            )
+        self._maildir = os.path.join(str(self.resource.mailSpool), str(self.resource.name))
 
-    @taskexecutor.utils.synchronized
     def create(self):
-        if self.resource.antiSpamEnabled and not self._avp_domains.has_line(self.resource.domain.name):
-            self._avp_domains.add_line(self.resource.domain.name)
-            self._avp_domains.save()
+        if not os.path.isdir(self._maildir):
+            LOGGER.info("Creating directory {}".format(self._maildir))
+            os.makedirs(self._maildir, mode=0o755, exist_ok=True)
         else:
-            LOGGER.info("{0.name}@{0.domain.name} is not spam protected".format(self.resource))
+            LOGGER.info("Maildir {} already exists".format(self._maildir))
+        LOGGER.info("Setting owner {0.uid} for {1}".format(self.resource, self._maildir))
+        os.chown(self.resource.mailSpool, self.resource.uid, self.resource.uid)
+        os.chown(self._maildir, self.resource.uid, self.resource.uid)
 
     def update(self):
-        self.create()
-
-    @taskexecutor.utils.synchronized
-    def delete(self):
-        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-            mailboxes_remaining = api.Mailbox(query={"domain": self.resource.domain.name}).get()
-        if len(mailboxes_remaining) == 1:
-            LOGGER.info("{0.name}@{0.domain} is the last mailbox in {0.domain}".format(self.resource))
-            self._is_last = True
-        if self.resource.antiSpamEnabled and self._is_last:
-            self._avp_domains.remove_line(self.resource.domain.name)
-            self._avp_domains.save()
-
-
-class MailboxAtPopperProcessor(MailboxProcessor):
-    def create(self):
-        if not os.path.isdir(self.resource.mailSpool):
-            LOGGER.info("Creating directory {}".format(self.resource.mailSpool))
-            os.mkdir(self.resource.mailSpool)
-        else:
-            LOGGER.info("Mail spool directory {} "
-                        "already exists".format(self.resource.mailSpool))
-        LOGGER.info("Setting owner {0.unixAccount.uid} "
-                    "for {0.mailSpool}".format(self.resource))
-        os.chown(self.resource.mailSpool,
-                 self.resource.unixAccount.uid,
-                 self.resource.unixAccount.uid)
+        pass
 
     def delete(self):
-        super().delete()
-        LOGGER.info("Removing {0.mailSpool]}/{0.name} recursively".format(self.resource))
-        shutil.rmtree("{0.mailSpool]}/{0.name}".format(self.resource))
-        if self._is_last:
-            LOGGER.info("{0.mailSpool}/{0.name} was the last maildir, removing spool itself".format(self.resource))
-            os.rmdir(self.resource.mailSpool)
-
-
-class MailboxAtMxProcessor(MailboxProcessor):
-    def __init__(self, resource, service, params):
-        super().__init__(resource, service, params)
-        self._relay_domains = taskexecutor.constructor.Constructor().get_conffile(
-                "lines",
-                "/etc/exim4/etc/relay_domains{}".format(self.resource.popServer.id)
-        )
-
-    def create(self):
-        super().create()
-        if not self._relay_domains.has_line(self.resource.domain.name):
-            self._relay_domains.add_line(self.resource.domain.name)
-            self._relay_domains.save()
-        else:
-            LOGGER.info("{0} already exists in {1}, nothing to do".format(self.resource.domain.name,
-                                                                          self._relay_domains.file_path))
-
-    def delete(self):
-        super().delete()
-        if self._is_last:
-            self._relay_domains.remove_line(self.resource.domain.name)
-            self._relay_domains.save()
+        LOGGER.info("Removing {} recursively".format(self._maildir))
+        shutil.rmtree(self._maildir)
 
 
 class DatabaseUserProcessor(ResProcessor):

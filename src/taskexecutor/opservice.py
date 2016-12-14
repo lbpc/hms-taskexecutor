@@ -135,7 +135,7 @@ class ConfigurableService:
 
     def get_abstract_config(self, template_name, rel_path, config_type="templated"):
         constructor = taskexecutor.constructor.Constructor()
-        config = constructor.get_conffile(config_type, os.path.join(self.config_base_path, rel_path))
+        config = constructor.get_conffile(config_type, os.path.join(self.config_base_path, str(rel_path)))
         config.template = self.get_config_template(self.get_template_source(template_name))
         return config
 
@@ -147,7 +147,7 @@ class ConfigurableService:
 
     def add_concrete_config(self, rel_path):
         constructor = taskexecutor.constructor.Constructor()
-        config = constructor.get_conffile("templated", os.path.join(self.config_base_path, rel_path))
+        config = constructor.get_conffile("templated", os.path.join(self.config_base_path, str(rel_path)))
         self._concrete_configs_set.add(config)
 
     def get_concrete_configs_set(self):
