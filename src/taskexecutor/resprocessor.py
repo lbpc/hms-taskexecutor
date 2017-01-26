@@ -1,5 +1,4 @@
 import os
-import shutil
 import pytransliter
 import abc
 import collections
@@ -13,7 +12,7 @@ import taskexecutor.utils
 __all__ = ["Builder"]
 
 
-class BuilderTypeError:
+class BuilderTypeError(Exception):
     pass
 
 
@@ -90,170 +89,48 @@ class ResProcessor(metaclass=abc.ABCMeta):
 
 
 class UnixAccountProcessor(ResProcessor):
-    def _adduser(self):
-        LOGGER.info("Adding user {0.name} to system".format(self.resource))
-        taskexecutor.utils.exec_command("useradd "
-                                        "--comment 'Hosting account HMS ID {0.id}' "
-                                        "--uid {0.uid} "
-                                        "--home {0.homeDir} "
-                                        "--password '{0.passwordHash}' "
-                                        "--create-home "
-                                        "--shell /bin/bash "
-                                        "{0.name}".format(self.resource))
-
-    def _setquota(self, quota=None):
-        LOGGER.info("Setting quota for user {0.name}".format(self.resource))
-        if not quota:
-            quota = self.resource.quota
-        taskexecutor.utils.exec_command("setquota "
-                                        "-g {0} 0 {1} "
-                                        "0 0 /home".format(self.resource.uid, int(quota / 1024)))
-
-    def _userdel(self):
-        LOGGER.info("Deleting user {0.name}".format(self.resource))
-        taskexecutor.utils.exec_command("userdel "
-                                        "--force "
-                                        "--remove "
-                                        "{0.name}".format(self.resource))
-
-    def _killprocs(self):
-        LOGGER.info("Killing user {0.name}'s processes, "
-                    "if any".format(self.resource))
-        taskexecutor.utils.exec_command("killall -9 -u {0.name} || true".format(self.resource))
-
-    def _create_authorized_keys(self):
-        if not os.path.exists("{0.homeDir}/.ssh".format(self.resource)):
-            os.mkdir("{0.homeDir}/.ssh".format(self.resource), mode=0o700)
-        constructor = taskexecutor.constructor.Constructor()
-        authorized_keys = constructor.get_conffile("basic",
-                                                   "{0.homeDir}/.ssh/authorized_keys".format(self.resource),
-                                                   owner_uid=self.resource.uid,
-                                                   mode=0o400)
-        authorized_keys.body = self.resource.keyPair.publicKey
-        authorized_keys.save()
-
-    def _create_crontab(self):
-        crontab_string = str()
-        for entry in self.resource.crontab:
-            if entry.switchedOn:
-                crontab_string = ("{0}"
-                                  "#{1.name}\n"
-                                  "#{1.execTimeDescription}\n"
-                                  "{1.execTime} {1.command}\n").format(crontab_string, entry)
-        LOGGER.info("Installing '{0}' crontab for {1}".format(crontab_string, self.resource.name))
-        taskexecutor.utils.exec_command("crontab -u {} -".format(self.resource.name), pass_to_stdin=crontab_string)
-
-    def _delete_crontab_if_present(self):
-        if os.path.exists("/var/spool/cron/crontabs/{}".format(self.resource.name)):
-            LOGGER.info("Deleting {} crontab".format(self.resource.name))
-            taskexecutor.utils.exec_command("crontab -u {} -r".format(self.resource.name))
-
     def create(self):
-        self._adduser()
+        LOGGER.info("Adding user {0.name} to system".format(self.resource))
+        self.service.create_user(self.resource.name,
+                                 self.resource.uid,
+                                 self.resource.homeDir,
+                                 self.resource.passwordHash,
+                                 "Hosting account HMS id {}".format(self.resource.id))
         try:
-            self._setquota()
+            LOGGER.info("Setting quota for user {0.name}".format(self.resource))
+            self.service.set_quota(self.resource.quota)
         except Exception:
             LOGGER.error("Setting quota failed "
                          "for user {0.name}".format(self.resource))
-            self._userdel()
+            self.service.delete_user(self.resource.name)
             raise
         if len(self.resource.crontab) > 0:
-            self._create_crontab()
+            self.service.create_crontab(self.resource.name, [task for task in self.resource.crontab if task.switchedOn])
         if hasattr(self.resource, "keyPair") and self.resource.keyPair:
-            self._create_authorized_keys()
+            LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
+            self.service.create_authorized_keys(self.resource.keyPair.publicKey,
+                                                self.resource.uid, self.resource.homeDir)
 
     def update(self):
         LOGGER.info("Modifying user {0.name}".format(self.resource))
         if not self.resource.writable:
-            self._setquota(self.resource.quotaUsed)
+            LOGGER.info("Disabling writes by setting quota=quotaUsed for user {0.name}".format(self.resource))
+            self.service.set_quota(self.resource.uid, self.resource.quotaUsed)
         else:
-            self._setquota()
+            LOGGER.info("Setting quota for user {0.name}".format(self.resource))
+            self.service.set_quota(self.resource.uid, self.resource.quota)
         if hasattr(self.resource, "keyPair") and self.resource.keyPair:
-            self._create_authorized_keys()
+            LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
+            self.service.create_authorized_keys(self.resource.keyPair.publicKey,
+                                                self.resource.uid, self.resource.homeDir)
         if len(self.resource.crontab) > 0:
-            self._create_crontab()
+            self.service.create_crontab(self.resource.name, [task for task in self.resource.crontab if task.switchedOn])
         else:
-            self._delete_crontab_if_present()
+            self.service.delete_crontab(self.resource.name)
 
     def delete(self):
-        self._killprocs()
-        self._userdel()
-
-
-# HACK: the only purpose of this class is to process
-# UnixAccount resources at baton.intr
-# should be removed when this server is gone
-class UnixAccountProcessorBaton(UnixAccountProcessor):
-    def _update_jailed_ssh(self, action):
-        jailed_ssh_config = taskexecutor.constructor.Constructor().get_conffile(
-                "lines", "/usr/jail/usr/local/etc/ssh/sshd_clients_config"
-        )
-        allow_users = jailed_ssh_config.get_lines("^AllowUsers", count=1).split(' ')
-        getattr(allow_users, action)(self.resource.name)
-        jailed_ssh_config.replace_line("^AllowUsers", " ".join(allow_users))
-        jailed_ssh_config.save()
-        taskexecutor.utils.exec_command("jexec "
-                                        "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
-                                        "pgrep sshd | xargs kill -HUP",
-                                        shell="/usr/local/bin/bash")
-
-    def _adduser(self):
-        LOGGER.info("Adding user {0.name} to system".format(self.resource))
-        taskexecutor.utils.exec_command("jexec "
-                                        "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
-                                        "pw useradd {0.name} "
-                                        "-u {0.uid} "
-                                        "-d {0.homeDir} "
-                                        "-h - "
-                                        "-s /usr/local/bin/bash "
-                                        "-c 'Hosting account'".format(self.resource, CONFIG),
-                                        shell="/usr/local/bin/bash")
-        self._update_jailed_ssh("append")
-
-    def _setquota(self, quota=None):
-        LOGGER.info("Setting quota for user {0.name}".format(self.resource))
-        if not quota:
-            quota = self.resource.quota
-        taskexecutor.utils.exec_command("jexec "
-                                        "$(jls -ns | awk -F'[ =]' '/{2.hostname}-a/ {print $12}') "
-                                        "edquota "
-                                        "-g "
-                                        "-e /home:0:{1} "
-                                        "{0}".format(self.resource.uid, int(quota / 1024), CONFIG),
-                                        shell="/usr/local/bin/bash")
-
-    def _userdel(self):
-        LOGGER.info("Deleting user {0.name}".format(self.resource))
-        taskexecutor.utils.exec_command("jexec "
-                                        "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
-                                        "pw userdel {0.name} -r".format(self.resource, CONFIG),
-                                        shell="/usr/local/bin/bash")
-        self._update_jailed_ssh("remove")
-
-    def _killprocs(self):
-        LOGGER.info("Killing user {0.name}'s processes, if any".format(self.resource))
-        taskexecutor.utils.exec_command("killall -9 -u {0.uid} || true".format(self.resource),
-                                        shell="/usr/local/bin/bash")
-
-    def _create_crontab(self):
-        crontab_string = str()
-        for entry in self.resource.crontab:
-            if entry.switchedOn:
-                crontab_string = ("{0}"
-                                  "{1.execTime} {1.command}\n").format(crontab_string, entry)
-        LOGGER.info("Installing '{0}' crontab for {1}".format(crontab_string, self.resource.name))
-        taskexecutor.utils.exec_command("jexec "
-                                        "$(jls -ns | awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
-                                        "crontab -u {0.name} -".format(self.resource, CONFIG),
-                                        pass_to_stdin=crontab_string)
-
-    def _delete_crontab_if_present(self):
-        if os.path.exists("/usr/jail/var/cron/tabs/{}".format(self.resource.name)):
-            LOGGER.info("Deleting {} crontab".format(self.resource.name))
-            taskexecutor.utils.exec_command("jexec "
-                                            "$(jls -ns | "
-                                            "awk -F'[ =]' '/{1.hostname}-a/ {print $12}') "
-                                            "crontab -u {0.name} -r".format(self.resource, CONFIG))
+        self.service.kill_user_processes(self.resource.name)
+        self.service.delete_user(self.resource.name)
 
 
 class WebSiteProcessor(ResProcessor):
@@ -262,8 +139,7 @@ class WebSiteProcessor(ResProcessor):
         non_ssl_domains = list()
         res_dict = self.resource._asdict()
         for domain in self.resource.domains:
-            # FIXME: there is no real need in attribute presence check
-            if hasattr(domain, "sslCertificate") and domain.sslCertificate:
+            if domain.sslCertificate:
                 res_dict["domains"] = [domain, ]
                 vhosts.append(
                         collections.namedtuple("VHost", res_dict.keys())(*res_dict.values()))
@@ -345,8 +221,8 @@ class WebSiteProcessorBaton(WebSiteProcessor):
 class SSLCertificateProcessor(ResProcessor):
     def __init__(self, resource, service, params):
         super().__init__(resource, service, params)
-        cert_file_path = os.path.join(CONFIG.nginx.ssl_certs_path, "{1.name}.pem".format(self.resource))
-        key_file_path = os.path.join(CONFIG.nginx.ssl_certs_path, "{1.name}.key".format(self.resource))
+        cert_file_path = os.path.join(CONFIG.nginx.ssl_certs_path, "{0.name}.pem".format(self.resource))
+        key_file_path = os.path.join(CONFIG.nginx.ssl_certs_path, "{0.name}.key".format(self.resource))
         constructor = taskexecutor.constructor.Constructor()
         self._cert_file = constructor.get_conffile("basic", cert_file_path)
         self._key_file = constructor.get_conffile("basic", key_file_path)
@@ -367,26 +243,14 @@ class SSLCertificateProcessor(ResProcessor):
 
 
 class MailboxProcessor(ResProcessor):
-    def __init__(self, resource, service, params):
-        super().__init__(resource, service, params)
-        self._maildir = os.path.join(str(self.resource.mailSpool), str(self.resource.name))
-
     def create(self):
-        if not os.path.isdir(self._maildir):
-            LOGGER.info("Creating directory {}".format(self._maildir))
-            os.makedirs(self._maildir, mode=0o755, exist_ok=True)
-        else:
-            LOGGER.info("Maildir {} already exists".format(self._maildir))
-        LOGGER.info("Setting owner {0.uid} for {1}".format(self.resource, self._maildir))
-        os.chown(self.resource.mailSpool, self.resource.uid, self.resource.uid)
-        os.chown(self._maildir, self.resource.uid, self.resource.uid)
+        self.service.create_maildir(self.resource.mailSpool, self.resource.name, self.resource.uid)
 
     def update(self):
         pass
 
     def delete(self):
-        LOGGER.info("Removing {} recursively".format(self._maildir))
-        shutil.rmtree(self._maildir)
+        self.service.delete_maildir(self.resource.mailSpool, self.resource.name)
 
 
 class DatabaseUserProcessor(ResProcessor):
@@ -535,8 +399,6 @@ class Builder:
     def __new__(cls, res_type):
         if res_type == "service":
             return ServiceProcessor
-        elif res_type == "unix-account" and CONFIG.hostname == "baton":
-            return UnixAccountProcessorBaton
         elif res_type == "unix-account":
             return UnixAccountProcessor
         elif res_type == "database-user":

@@ -611,11 +611,11 @@ class PostgreSQL(DatabaseServer, ConfigurableService, NetworkingService, SysVSer
 
 class Builder:
     def __new__(cls, service_type):
-        if service_type == "nginx":
+        if service_type == "STAFF_NGINX":
             return Nginx
-        elif service_type.startswith("apache2"):
+        elif service_type.startswith("WEBSITE_APACHE2"):
             return Apache
-        elif service_type == "mysql":
+        elif service_type == "DATABASE_MYSQL":
             return MySQL
         else:
             raise BuilderTypeError("Unknown OpService type: {}".format(service_type))

@@ -7,7 +7,7 @@ from taskexecutor.logger import LOGGER
 LOCKS = {}
 
 
-class CommandEcecutionError(Exception):
+class CommandExecutionError(Exception):
     pass
 
 
@@ -20,7 +20,7 @@ def exec_command(command, shell="/bin/bash", pass_to_stdin=None):
                           shell=True,
                           executable=shell) as proc:
         if pass_to_stdin:
-            proc.communicate(input=pass_to_stdin.encode("UTF-8"))
+            stdout, stderr = proc.communicate(input=pass_to_stdin.encode("UTF-8"))
         else:
             stdout, stderr = proc.communicate()
         ret_code = proc.returncode
@@ -29,7 +29,7 @@ def exec_command(command, shell="/bin/bash", pass_to_stdin=None):
                 "Command '{0}' returned {1} code".format(command, ret_code))
         if stderr:
             LOGGER.error("STDERR: {}".format(stderr.decode("UTF-8")))
-        raise CommandEcecutionError("Failed to execute command '{}'".format(command))
+        raise CommandExecutionError("Failed to execute command '{}'".format(command))
 
     return stdout.decode("UTF-8")
 
@@ -39,10 +39,9 @@ def set_apparmor_mode(mode, binary):
     exec_command("aa-{0} {1}".format(mode, binary))
 
 
-def repquota(freebsd=False):
+def repquota(args, shell="/bin/bash"):
     quota = dict()
-    stdout = exec_command("repquota -vangp") if not freebsd \
-        else exec_command("repquota -vang", shell="/usr/local/bin/bash")
+    stdout = exec_command("repquota -{}".format(args), shell=shell)
     for line in stdout.split("\n"):
         parsed_line = list(filter(None, line.split(" ")))
         if len(parsed_line) == 10 and  \
