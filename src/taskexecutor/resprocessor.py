@@ -375,14 +375,11 @@ class DatabaseProcessor(ResProcessor):
             LOGGER.warning("{0} database {1} not found".format(self.service.__class__.__name__, self.resource.name))
 
 
-# TODO: reimplement using taskexecutor.constructor
 class ServiceProcessor(ResProcessor):
     def __init__(self, resource, service, params):
         super().__init__(resource, service, params)
         self.service = taskexecutor.constructor.Constructor().get_opservice(
-            self.resource.serviceType.name,
-            template_obj_list=self.resource.serviceTemplates.configTemplates,
-            socket_obj_list=self.resource.serviceSockets
+            self.resource.serviceType.name
         )
 
     def create(self):

@@ -1,140 +1,131 @@
+import abc
+import json
 import os
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
+import taskexecutor.constructor
 import taskexecutor.dbclient
 import taskexecutor.httpsclient
 import taskexecutor.utils
 
-
-class FactsGatherer:
-    def _calculate_maildirsize(self, file_path):
-        with open(file_path, "r") as f:
-            f.readline()
-            size = 0
-            line = f.readline()
-            while line:
-                size += int(line.split()[0])
-                line = f.readline()
-        return size
-
-    def _sum_directory_tree_size(self, dir_path):
-        return sum(
-                [sum(map(lambda f: os.path.getsize(os.path.join(dir, f)),
-                         files))
-                 for dir, _, files in os.walk(dir_path)]
-        )
-
-    def get_quota(self, res_type, resources=None):
-        if res_type == "unix-account" and CONFIG.hostname == "baton":
-            return taskexecutor.utils.repquota(freebsd=True)
-        elif res_type == "unix-account":
-            return taskexecutor.utils.repquota()
-        elif res_type == "mailbox":
-            result = dict()
-            for mailbox in resources:
-                maildirsize_file = \
-                    "{0.mailSpool}/{0.name}/maildirsize".format(mailbox)
-                if os.path.exists(maildirsize_file):
-                    result[mailbox.id] = \
-                        self._calculate_maildirsize(maildirsize_file)
-                else:
-                    result[mailbox.id] = \
-                        self._sum_directory_tree_size(
-                                "{0.mailSpool/{0.name}}".format(mailbox))
-            return result
+__all__ = ["Builder"]
 
 
-class FactsSender:
-    def __init__(self, res_type, fact_type):
-        self._res_type = str()
-        self._fact_type = str()
-        self._facts = dict()
-        self._resources = list()
-        self.res_type = res_type
-        self.fact_type = fact_type
+class BuilderTypeError(Exception):
+    pass
 
-    @property
-    def res_type(self):
-        return self._res_type
 
-    @res_type.setter
-    def res_type(self, value):
-        self._res_type = value
+class FactsReporter(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def get_resources(self):
+        pass
 
-    @res_type.deleter
-    def res_type(self):
-        del self._res_type
+    @abc.abstractmethod
+    def get_quota(self):
+        pass
 
-    @property
-    def fact_type(self):
-        return self._fact_type
+    @abc.abstractmethod
+    def report_quota(self):
+        pass
 
-    @fact_type.setter
-    def fact_type(self, value):
-        self._fact_type = value
 
-    @fact_type.deleter
-    def fact_type(self):
-        del self._fact_type
-
-    @property
-    def facts(self):
-        return self._facts
-
-    @facts.setter
-    def facts(self, value):
-        self._facts = value
-
-    @facts.deleter
-    def facts(self):
-        del self._facts
-
-    @property
-    def resources(self):
-        return self._resources
-
-    @resources.setter
-    def resources(self, value):
-        self._resources = value
-
-    @resources.deleter
-    def resources(self):
-        del self._resources
-
-    def get_facts(self):
-        if self.fact_type == "quota" and self.res_type == "mailbox":
-            self.facts = FactsGatherer().get_quota(self.res_type,
-                                                   resources=self.resources)
-        elif self.fact_type == "quota":
-            self.facts = FactsGatherer().get_quota(self.res_type)
-        return self.facts
-
+class UnixAccountFactsReporter(FactsReporter):
     def get_resources(self):
         with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-            Resources = getattr(api, self.res_type)
-            self.resources = Resources(
-                    query={"serverId": CONFIG.localserver.id}).get()
-        return self.resources
+            return api.UnixAccount().filter(serverId=CONFIG.localserver.id).get()
 
-    def send_facts(self):
-        LOGGER.debug("Gathered facts: {}".format(self.facts))
-        for resource in self.resources:
-            if self.res_type == "unix-account":
-                data = self.facts[resource.uid]["block_limit"]["used"]
-            elif self.res_type == "database":
-                data = self.facts[resource.name]
-            LOGGER.info("Reporting fact: {0} {1} {2} "
-                        "is {3}".format(self.res_type,
-                                        resource.name,
-                                        self.fact_type,
-                                        data))
-            with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-                ApiResource = getattr(api, self.res_type)
-                ApiResourceFact = getattr(ApiResource(resource.id),
-                                          self.fact_type)
-                ApiResourceFact(res_id=str(data)).post(None)
+    def get_quota(self):
+        resources = self.get_resources()
+        constructor = taskexecutor.constructor.Constructor()
+        if isinstance(resources, list):
+            op_service = constructor.get_opservice_by_resource(resources[0], "unix-account")
+        else:
+            op_service = constructor.get_opservice_by_resource(resources, "unix-account")
+        uid_quotaused_mapping = op_service.get_quota_used([res.uid for res in resources])
+        for res in resources:
+            LOGGER.info("UnixAccount {0} quota usage: {1} bytes".format(res.name, uid_quotaused_mapping[res.uid]))
+        return ((res.id, uid_quotaused_mapping[res.uid]) for res in resources)
 
-    def update(self):
-        taskexecutor.utils.set_thread_name("FactsSender")
-        if self.get_resources() and self.get_facts():
-            self.send_facts()
+    def report_quota(self):
+        taskexecutor.utils.set_thread_name("UnixAccountFactsReporter")
+        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+            for res_id, quota_used in self.get_quota():
+                api.UnixAccount(res_id).quota_report().post(json.dumps({"quotaUsed": quota_used}))
+
+
+class DatabaseFactsReporter(FactsReporter):
+    def __init__(self):
+        self._db_services = list()
+
+    @property
+    def db_services(self):
+        if not self._db_services:
+            for service in CONFIG.localserver.services:
+                if service.serviceType.name.startswith("DATABASE_"):
+                    self._db_services.append(service)
+        return self._db_services
+
+    def get_resources(self):
+        resources = list()
+        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+            for service in self.db_services:
+                resources.append(api.Database().filter(serviceId=service.id).get())
+        return resources
+
+    def get_quota(self):
+        quota_used = []
+        resources = self.get_resources()
+        service_resource_mapping = {service: [res for res in resources if res.serviceId == service.id]
+                                    for service in self.db_services}
+        constructor = taskexecutor.constructor.Constructor()
+        for service, resources in service_resource_mapping:
+            op_service = constructor.get_opservice(service)
+            database_quotaused_mapping = op_service.get_quota_used([res.name for res in resources])
+            for res in resources:
+                LOGGER.info("Database {0} quota usage: {1} bytes".format(res.name, database_quotaused_mapping[res.uid]))
+            quota_used += ((res.id, database_quotaused_mapping[res.name]) for res in resources)
+        return quota_used
+
+    def report_quota(self):
+        taskexecutor.utils.set_thread_name("DatabaseFactsReporter")
+        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+            for res_id, quota_used in self.get_quota():
+                api.Database(res_id).quota_report().post(json.dumps({"quotaUsed": quota_used}))
+
+
+class MailboxFactsReporter(FactsReporter):
+    def get_resources(self):
+        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+            return api.Mailbox().filter(serverId=CONFIG.localserver.id).get()
+
+    def get_quota(self):
+        resources = self.get_resources()
+        constructor = taskexecutor.constructor.Constructor()
+        if isinstance(resources, list):
+            op_service = constructor.get_opservice_by_resource(resources[0], "mailbox")
+        else:
+            op_service = constructor.get_opservice_by_resource(resources, "mailbox")
+        maildir_quotaused_mapping = \
+            op_service.get_quota_used([os.path.join(res.mailSpool, res.name) for res in resources])
+        for res in resources:
+            LOGGER.info("Mailbox {0}@{1} quota usage: "
+                        "{2} bytes".format(res.name, res.domain.name, maildir_quotaused_mapping[res.uid]))
+        return ((res.id, maildir_quotaused_mapping[os.path.join(res.mailSpool, res.name)]) for res in resources)
+
+    def report_quota(self):
+        taskexecutor.utils.set_thread_name("MailboxFactsReporter")
+        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+            for res_id, quota_used in self.get_quota():
+                api.Mailbox(res_id).quota_report().post(json.dumps({"quotaUsed": quota_used}))
+
+
+class Builder:
+    def __new__(cls, res_type):
+        if res_type == "unix-account":
+            return UnixAccountFactsReporter
+        elif res_type == "database":
+            return DatabaseFactsReporter
+        elif res_type == "mailbox":
+            return MailboxFactsReporter
+        else:
+            raise BuilderTypeError("No FactsReporter defined for {}".format(res_type))
