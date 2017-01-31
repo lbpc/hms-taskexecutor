@@ -1,27 +1,31 @@
-from concurrent.futures import ThreadPoolExecutor
-from traceback import format_exc
-from urllib.parse import urlparse
+import concurrent.futures
+import traceback
+import urllib.parse
 
 from taskexecutor.config import CONFIG
-from taskexecutor.reporter import ReporterBuilder
-from taskexecutor.resprocessor import ResProcessorBuilder
-from taskexecutor.task import Task
-from taskexecutor.httpsclient import ApiClient
-from taskexecutor.utils import set_thread_name
 from taskexecutor.logger import LOGGER
+import taskexecutor.constructor
+import taskexecutor.httpsclient
+import taskexecutor.task
+import taskexecutor.utils
+
+__all__ = ["Executors", "Executor"]
 
 
-class ThreadPoolExecutorStackTraced(ThreadPoolExecutor):
+class PropertyValidationError(Exception):
+    pass
+
+
+class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
     def submit(self, f, *args, **kwargs):
-        return super(ThreadPoolExecutorStackTraced, self).submit(
-                self._function_wrapper, f, *args, **kwargs)
+        return super(ThreadPoolExecutorStackTraced, self).submit(self._function_wrapper, f, *args, **kwargs)
 
     @staticmethod
     def _function_wrapper(fn, *args, **kwargs):
         try:
             return fn(*args, **kwargs)
-        except Exception:
-            raise Exception(format_exc())
+        except Exception as e:
+            raise type(e)(traceback.format_exc())
 
 
 class Executors:
@@ -33,9 +37,7 @@ class Executors:
 
     def __init__(self):
         if not Executors.instance:
-            Executors.instance = Executors.__Executors(
-                ThreadPoolExecutorStackTraced(CONFIG.max_workers)
-            )
+            Executors.instance = Executors.__Executors(ThreadPoolExecutorStackTraced(CONFIG.max_workers))
         else:
             self.pool = Executors.instance.pool
 
@@ -58,8 +60,8 @@ class Executor:
 
     @task.setter
     def task(self, value):
-        if type(value) != Task:
-            raise TypeError("task must be instance of Task class")
+        if not isinstance(value, taskexecutor.task.Task):
+            raise PropertyValidationError("task must be instance of Task class")
         self._task = value
 
     @task.deleter
@@ -73,7 +75,7 @@ class Executor:
     @callback.setter
     def callback(self, f):
         if not callable(f):
-            raise TypeError("callback must be callable")
+            raise PropertyValidationError("callback must be callable")
         self._callback = f
 
     @callback.deleter
@@ -87,7 +89,7 @@ class Executor:
     @args.setter
     def args(self, value):
         if not isinstance(value, (list, tuple)):
-            raise TypeError("args must be list or tuple")
+            raise PropertyValidationError("args must be list or tuple")
         self._args = value
 
     @args.deleter
@@ -95,32 +97,27 @@ class Executor:
         del self._args
 
     @staticmethod
-    def _get_resource(obj_ref):
-        with ApiClient(**CONFIG.apigw) as api:
-            return api.get(urlparse(obj_ref).path)
+    def get_resource(obj_ref):
+        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+            return api.get(urllib.parse.urlparse(obj_ref).path)
 
     def process_task(self):
-        set_thread_name("OPERATION IDENTITY: {0.opid} "
-                        "ACTION IDENTITY: {0.actid}".format(self._task))
+        taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0.opid} ACTION IDENTITY: {0.actid}".format(self.task))
+        constructor = taskexecutor.constructor.Constructor()
+        LOGGER.info("Fetching {0} resource by {1}".format(self.task.res_type, self.task.params["objRef"]))
+        resource = self.get_resource(self.task.params["objRef"])
+        processor = constructor.get_resprocessor(self.task.res_type, resource, self.task.params)
         LOGGER.info(
-            "Fetching {0} resource by "
-            "{1}".format(self._task.res_type, self._task.params["objRef"])
+                "Invoking {0}.{1} method on {2}".format(type(processor).__name__, self.task.action, processor.resource)
         )
-        resource = self._get_resource(self._task.params["objRef"])
-        processor = ResProcessorBuilder(self._task.res_type)(resource,
-                                                             self._task.params)
-        LOGGER.info(
-            "Invoking {0}.{1} method on {2}".format(type(processor).__name__,
-                                                    self._task.action,
-                                                    processor.resource)
-        )
-        getattr(processor, self._task.action)()
-        LOGGER.info("Calling back {0}{1}".format(self._callback.__name__,
-                                                 self._args))
+        getattr(processor, self.task.action)()
+        for processor in constructor.get_siding_resprocessors(processor):
+            LOGGER.info("Updating affected resource {}".format(processor.resource))
+            processor.update()
+        LOGGER.info("Calling back {0}{1}".format(self._callback.__name__, self._args))
         self._callback(*self._args)
-        reporter = ReporterBuilder("amqp")()
-        report = reporter.create_report(self._task)
-        LOGGER.info("Sending report {0} using {1}".format(report, type(
-            reporter).__name__))
+        reporter = constructor.get_reporter("amqp")
+        report = reporter.create_report(self.task)
+        LOGGER.info("Sending report {0} using {1}".format(report, type(reporter).__name__))
         reporter.send_report()
-        LOGGER.info("Done with task {}".format(self._task))
+        LOGGER.info("Done with task {}".format(self.task))

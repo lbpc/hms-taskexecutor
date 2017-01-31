@@ -1,19 +1,26 @@
+import abc
 import json
-from abc import ABCMeta, abstractmethod
 import pika
+
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 
+__all__ = ["Builder"]
 
-class Reporter(metaclass=ABCMeta):
+
+class BuilderTypeError(Exception):
+    pass
+
+
+class Reporter(metaclass=abc.ABCMeta):
     def __init__(self):
         self._report = dict()
 
-    @abstractmethod
+    @abc.abstractmethod
     def create_report(self, task):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def send_report(self):
         pass
 
@@ -77,9 +84,9 @@ class AMQPReporter(Reporter):
         self._close_channel()
 
 
-class ReporterBuilder:
+class Builder:
     def __new__(cls, reporter_type):
         if reporter_type == "amqp":
             return AMQPReporter
         else:
-            raise ValueError("Unknown Reporter type: {}".format(reporter_type))
+            raise BuilderTypeError("Unknown Reporter type: {}".format(reporter_type))

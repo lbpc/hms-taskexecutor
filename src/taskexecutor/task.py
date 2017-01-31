@@ -1,3 +1,7 @@
+class PropertyValidationError(Exception):
+    pass
+
+
 class Task:
     def __init__(self, opid, actid, res_type, action, params):
         self._opid = str()
@@ -66,7 +70,7 @@ class Task:
     @params.setter
     def params(self, value):
         if type(value) != dict:
-            raise TypeError("params must be dict")
+            raise PropertyValidationError("params must be dict")
         self._params = value
 
     @params.deleter
