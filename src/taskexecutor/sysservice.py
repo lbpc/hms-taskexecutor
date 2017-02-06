@@ -45,7 +45,7 @@ class UnixAccountManager(metaclass=abc.ABCMeta):
         pass
 
 
-class LinuxUserManager(UnixAccountManager, taskexecutor.baseservice.QuotableService):
+class LinuxUserManager(UnixAccountManager):
     def create_user(self, name, uid, home_dir, pass_hash, gecos=""):
         taskexecutor.utils.exec_command("useradd "
                                         "--comment '{0}' "
@@ -64,10 +64,9 @@ class LinuxUserManager(UnixAccountManager, taskexecutor.baseservice.QuotableServ
                                         "-g {0} 0 {1} "
                                         "0 0 /home".format(uid, int(quota_bytes / 1024)))
 
-    def get_quota_used(self, op_resource_ids):
+    def get_quota(self):
         return {k: v["block_limit"]["used"] * 1024
-                for k, v in taskexecutor.utils.repquota("vangp").items()
-                if k in op_resource_ids}
+                for k, v in taskexecutor.utils.repquota("vangp").items()}
 
     def create_authorized_keys(self, pub_key_string, uid, home_dir):
         ssh_dir = os.path.join(home_dir, ".ssh")
@@ -99,7 +98,7 @@ class LinuxUserManager(UnixAccountManager, taskexecutor.baseservice.QuotableServ
         taskexecutor.utils.exec_command("killall -9 -u {} || true".format(user_name))
 
 
-class FreebsdUserManager(UnixAccountManager, taskexecutor.baseservice.QuotableService):
+class FreebsdUserManager(UnixAccountManager):
     def _update_jailed_ssh(self, action, user_name):
         jailed_ssh_config = taskexecutor.constructor.Constructor().get_conffile(
                 "lines", "/usr/jail/usr/local/etc/ssh/sshd_clients_config"
@@ -138,13 +137,12 @@ class FreebsdUserManager(UnixAccountManager, taskexecutor.baseservice.QuotableSe
                                         "edquota "
                                         "-g "
                                         "-e /home:0:{1} "
-                                        "{0}".format(CONFIG.hostname, int(quota_bytes / 1024), uid),
+                                        "{0}".format(CONFIG.hostname, int(quota_bytes) / 1024, uid),
                                         shell="/usr/local/bin/bash")
 
-    def get_quota_used(self, op_resource_ids):
+    def get_quota(self):
         return {k: v["block_limit"]["used"]
-                for k, v in taskexecutor.utils.repquota("vang", shell="/usr/local/bin/bash").items()
-                if k in op_resource_ids}
+                for k, v in taskexecutor.utils.repquota("vang", shell="/usr/local/bin/bash").items()}
 
     def create_authorized_keys(self, pub_key_string, uid, home_dir):
         ssh_dir = os.path.join(home_dir, ".ssh")
@@ -187,7 +185,7 @@ class FreebsdUserManager(UnixAccountManager, taskexecutor.baseservice.QuotableSe
                                         shell="/usr/local/bin/bash")
 
 
-class MaildirManager(taskexecutor.baseservice.QuotableService):
+class MaildirManager:
     def create_maildir(self, spool, dir, owner_uid):
         path = os.path.join(spool, dir)
         if not os.path.isdir(path):
@@ -218,12 +216,6 @@ class MaildirManager(taskexecutor.baseservice.QuotableService):
             size = sum([sum(map(lambda f: os.path.getsize(os.path.join(dir, f)), files))
                         for dir, _, files in os.walk(path)])
         return size
-
-    def get_quota_used(self, op_resource_ids):
-        maildir_quotaused_mapping = {}
-        for maildir_path in op_resource_ids:
-            maildir_quotaused_mapping[maildir_path] = self.get_maildir_size(maildir_path)
-        return maildir_quotaused_mapping
 
 
 class Builder:

@@ -244,20 +244,15 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservice.Co
         if not name:
             return
         addrs = [] if not comma_separated_addrs else comma_separated_addrs.split(",")
-        return self.DatabaseUserClass(name, password_hash, addrs)
+        return name, password_hash, addrs
 
-    def get_database(self, name, calculate_quota_used=False):
+    def get_database(self, name):
         rows = self.dbclient.execute_query("SELECT Db, User FROM mysql.db WHERE Db = %s", (name,))
         if not rows:
             return
         name = rows[0][0]
         users = [self.get_user(row[1]) for row in set(rows)]
-        quota_used = None
-        if calculate_quota_used:
-            quota_used = self.dbclient.execute_query(
-                "SELECT SUM(data_length+index_length) FROM information_schema.tables WHERE table_schema = %s", (name,)
-            )[0][0]
-        return self.DatabaseClass(name, users, quota_used)
+        return name, users
 
     def create_user(self, name, password_hash, addrs_list):
         for address in addrs_list:
@@ -307,13 +302,11 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservice.Co
                                         "%s@%s".format(", ".join(CONFIG.mysql.common_privileges), database_name),
                                         (user_name, address))
 
-    def get_quota_used(self, op_resource_ids):
-        result = self.dbclient.execute_query(
-                "SELECT table_schema, SUM(data_length+index_length) FROM information_schema.tables WHERE "
-                "table_schema in ({}) GROUP BY table_schema".format(",".join(["%s"] * len(op_resource_ids))),
-                op_resource_ids
-        )
-        return {database: size for database, size in result}
+    def get_database_size(self, database_name):
+        return self.dbclient.execute_query(
+            "SELECT table_schema, SUM(data_length+index_length) FROM information_schema.tables WHERE table_schema=%s",
+            database_name
+        )[0][0]
 
 
 class PostgreSQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservice.ConfigurableService,
@@ -410,15 +403,12 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservi
         password_hash = rows[0][0]
         related_config_lines = self._hba_conf.get_lines(r"host\s.+\s{}\s.+\smd5".format(name)) or []
         addrs = [line[3] for line in related_config_lines]
-        return self.DatabaseUserClass(name, password_hash, addrs)
+        return name, password_hash, addrs
 
-    def get_database(self, name, calculate_quota_used=False):
+    def get_database(self, name):
         related_config_lines = self._hba_conf.get_lines(r"host\s{}\s.+\s.+\smd5".format(name)) or []
         users = [self.get_user(user_name) for user_name in [line[2] for line in related_config_lines]]
-        quota_used = None
-        if calculate_quota_used:
-            quota_used = self.dbclient.execute_query("SELECT pg_database_size(%s)", (name,))[0][0]
-        return self.DatabaseClass(name, users, quota_used)
+        return name, users
 
     def create_user(self, name, password_hash, addrs_list):
         self._dbclient.execute_query("CREATE ROLE %s WITH "
@@ -484,17 +474,17 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservi
         self._dbclient.execute_query("GRANT {} ON DATABASE %s TO %s".format(CONFIG.postgresql.common_privileges),
                                      (database_name, user_name))
 
-    def get_quota_used(self, op_resource_ids):
-        database_quotaused_mapping = {}
-        for database_name in op_resource_ids:
-            database_quotaused_mapping[database_name] = \
-                self.dbclient.execute_query("SELECT pg_database_size(%s)", (database_name,))[0][0]
-        return database_quotaused_mapping
+    def get_database_size(self, database_name):
+        return self.dbclient.execute_query("SELECT pg_database_size(%s)", (database_name,))[0][0]
 
 
 class Builder:
     def __new__(cls, service_type):
-        if service_type == "STAFF_NGINX":
+        if service_type == "STAFF_NGIX" and CONFIG.hostname == "baton":
+            return UnmanagedNginx
+        elif service_type.startswith("WEBSITE_APACHE2") and CONFIG.hostname == "baton":
+            return UnmanagedApache
+        elif service_type == "STAFF_NGINX":
             return Nginx
         elif service_type.startswith("WEBSITE_APACHE2"):
             return Apache

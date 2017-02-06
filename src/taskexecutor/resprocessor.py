@@ -98,7 +98,7 @@ class UnixAccountProcessor(ResProcessor):
                                  "Hosting account HMS id {}".format(self.resource.id))
         try:
             LOGGER.info("Setting quota for user {0.name}".format(self.resource))
-            self.service.set_quota(self.resource.quota)
+            self.service.set_quota(self.resource.uid, self.resource.quota)
         except Exception:
             LOGGER.error("Setting quota failed "
                          "for user {0.name}".format(self.resource))
@@ -188,8 +188,7 @@ class WebSiteProcessor(ResProcessor):
                 config = service.get_website_config(self.resource.id)
                 if config.is_enabled:
                     config.disable()
-                    config.write()
-                    config.confirm()
+                    config.save()
                     service.reload()
         else:
             self.create()

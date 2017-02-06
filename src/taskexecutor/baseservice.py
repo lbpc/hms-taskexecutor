@@ -89,9 +89,6 @@ class ConfigurableService:
 
 
 class DatabaseServer(metaclass=abc.ABCMeta):
-    DatabaseUserClass = collections.namedtuple("DatabaseUser", "name passowrdHash allowedIPAddresses")
-    DatabaseClass = collections.namedtuple("Database", "name databaseUsers quotaUsed")
-
     @staticmethod
     @abc.abstractmethod
     def normalize_addrs(addrs_list):
@@ -102,7 +99,7 @@ class DatabaseServer(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def get_database(self, name, calculate_quota_used=False):
+    def get_database(self, name):
         pass
 
     @abc.abstractmethod
@@ -145,8 +142,6 @@ class DatabaseServer(metaclass=abc.ABCMeta):
     def allow_database_reads(self, database_name, user_name, addrs_list):
         pass
 
-
-class QuotableService(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def get_quota_used(self, op_resource_ids):
+    def get_database_size(self, database_name):
         pass

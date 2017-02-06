@@ -4,6 +4,8 @@ import pika
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
+import taskexecutor.utils
+import taskexecutor.httpsclient
 
 __all__ = ["Builder"]
 
@@ -48,20 +50,13 @@ class AMQPReporter(Reporter):
         self._channel.close()
 
     def _declare_exchange(self, exchange, exchange_type):
-        self._channel.exchange_declare(exchange=exchange,
-                                       type=exchange_type,
-                                       auto_delete=False)
+        self._channel.exchange_declare(exchange=exchange, type=exchange_type, auto_delete=False)
 
     def _publish_message(self, message):
         self._channel.basic_publish(exchange=self._exchange,
                                     routing_key=self._routing_key,
-                                    properties=pika.BasicProperties(
-                                            headers={"provider": "te"}
-                                    ),
+                                    properties=pika.BasicProperties(headers={"provider": "te"}),
                                     body=message)
-
-    def _report_to_json(self):
-        return json.dumps(self._report)
 
     def create_report(self, task):
         self._task = task
@@ -80,13 +75,32 @@ class AMQPReporter(Reporter):
         self._connection = self._connnect()
         self._channel = self._open_channel()
         self._declare_exchange(self._exchange, CONFIG.amqp.exchange_type)
-        self._publish_message(self._report_to_json())
+        self._publish_message(json.dumps(self._report))
         self._close_channel()
 
+
+class HttpsReporter(Reporter):
+    def __init__(self):
+        super().__init__()
+        self._task = None
+        self._resource = None
+
+    def create_report(self, task):
+        self._task = task
+        self._resource = task.params["resource"]
+        self._report = task.params["data"]
+        return self._report
+
+    def send_report(self):
+        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+            Resource = getattr(api, taskexecutor.utils.to_camel_case(self._task.res_type))
+            Resource("{0}/{1}".format(self._resource.id, self._task.action)).post(json.dumps(self._report))
 
 class Builder:
     def __new__(cls, reporter_type):
         if reporter_type == "amqp":
             return AMQPReporter
+        elif reporter_type == "https":
+            return HttpsReporter
         else:
             raise BuilderTypeError("Unknown Reporter type: {}".format(reporter_type))

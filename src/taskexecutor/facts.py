@@ -36,14 +36,18 @@ class UnixAccountFactsReporter(FactsReporter):
 
     def get_quota(self):
         resources = self.get_resources()
+        if not resources:
+            return tuple()
         constructor = taskexecutor.constructor.Constructor()
-        if isinstance(resources, list):
-            op_service = constructor.get_opservice_by_resource(resources[0], "unix-account")
-        else:
-            op_service = constructor.get_opservice_by_resource(resources, "unix-account")
+        op_service = constructor.get_opservice_by_resource(resources[0], "unix-account")
         uid_quotaused_mapping = op_service.get_quota_used([res.uid for res in resources])
         for res in resources:
-            LOGGER.info("UnixAccount {0} quota usage: {1} bytes".format(res.name, uid_quotaused_mapping[res.uid]))
+            if res.uid in uid_quotaused_mapping.keys():
+                LOGGER.info("UnixAccount {0} quota usage: {1} bytes".format(res.name, uid_quotaused_mapping[res.uid]))
+            else:
+                LOGGER.warning("No data about quota usage for UnixAccount "
+                               "{0.name} (uid={0.uid}, id={0.id})".format(res))
+                resources.remove(res)
         return ((res.id, uid_quotaused_mapping[res.uid]) for res in resources)
 
     def report_quota(self):
@@ -69,20 +73,27 @@ class DatabaseFactsReporter(FactsReporter):
         resources = list()
         with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
             for service in self.db_services:
-                resources.append(api.Database().filter(serviceId=service.id).get())
+                resources += api.Database().filter(serviceId=service.id).get()
         return resources
 
     def get_quota(self):
         quota_used = []
         resources = self.get_resources()
-        service_resource_mapping = {service: [res for res in resources if res.serviceId == service.id]
-                                    for service in self.db_services}
+        if not resources:
+            return tuple()
+        service_resource_pairs = ((service, [res for res in resources if res.serviceId == service.id])
+                                  for service in self.db_services)
         constructor = taskexecutor.constructor.Constructor()
-        for service, resources in service_resource_mapping:
+        for service, resources in service_resource_pairs:
             op_service = constructor.get_opservice(service)
             database_quotaused_mapping = op_service.get_quota_used([res.name for res in resources])
             for res in resources:
-                LOGGER.info("Database {0} quota usage: {1} bytes".format(res.name, database_quotaused_mapping[res.uid]))
+                if res.name in database_quotaused_mapping.keys():
+                    LOGGER.info("Database {0} quota usage: "
+                                "{1} bytes".format(res.name, database_quotaused_mapping[res.name]))
+                else:
+                    LOGGER.warning("No data about quota usage for Database {0.name} (id={0.id})".format(res))
+                    resources.remove(res)
             quota_used += ((res.id, database_quotaused_mapping[res.name]) for res in resources)
         return quota_used
 
@@ -100,16 +111,20 @@ class MailboxFactsReporter(FactsReporter):
 
     def get_quota(self):
         resources = self.get_resources()
+        if not resources:
+            return tuple()
         constructor = taskexecutor.constructor.Constructor()
-        if isinstance(resources, list):
-            op_service = constructor.get_opservice_by_resource(resources[0], "mailbox")
-        else:
-            op_service = constructor.get_opservice_by_resource(resources, "mailbox")
+        op_service = constructor.get_opservice_by_resource(resources[0], "mailbox")
         maildir_quotaused_mapping = \
             op_service.get_quota_used([os.path.join(res.mailSpool, res.name) for res in resources])
         for res in resources:
-            LOGGER.info("Mailbox {0}@{1} quota usage: "
-                        "{2} bytes".format(res.name, res.domain.name, maildir_quotaused_mapping[res.uid]))
+            if os.path.join(res.mailSpool, res.name) in maildir_quotaused_mapping.keys():
+                LOGGER.info("Mailbox {0}@{1} quota usage: {2} bytes".format(
+                        res.name, res.domain.name, maildir_quotaused_mapping[os.path.join(res.mailSpool, res.name)]))
+            else:
+                LOGGER.warning("No data about quota usage for Mailbox "
+                               "{0.name}@{0.domain.name} (mailSpool={0.mailSpool})".format(res))
+                resources.remove(res)
         return ((res.id, maildir_quotaused_mapping[os.path.join(res.mailSpool, res.name)]) for res in resources)
 
     def report_quota(self):

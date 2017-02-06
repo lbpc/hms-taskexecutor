@@ -6,11 +6,13 @@ import taskexecutor.conffile
 import taskexecutor.baseservice
 import taskexecutor.facts
 import taskexecutor.opservice
+import taskexecutor.rescollector
 import taskexecutor.resprocessor
 import taskexecutor.sysservice
 import taskexecutor.listener
 import taskexecutor.reporter
 import taskexecutor.httpsclient
+import taskexecutor.utils
 
 
 class OpServiceNotFound(Exception):
@@ -18,13 +20,16 @@ class OpServiceNotFound(Exception):
 
 
 class Constructor:
+    __CommandExecutorsPool = None
+    __QueryExecutorsPool = None
+
     def get_conffile(self, config_type, abs_path, owner_uid=None, mode=None):
         ConfigFile = taskexecutor.conffile.Builder(config_type)
         return ConfigFile(abs_path, owner_uid, mode)
 
     def get_opservice(self, service_api_obj):
         OpService = taskexecutor.opservice.Builder(service_api_obj.serviceType.name)
-        service_name = service_api_obj.serviceType.name.lower().split("_")[1:]
+        service_name = "-".join(service_api_obj.serviceType.name.lower().split("_")[1:])
         service = OpService(service_name)
         if isinstance(service, taskexecutor.baseservice.NetworkingService):
             for socket in service_api_obj.serviceSockets:
@@ -80,6 +85,12 @@ class Constructor:
             else:
                 return []
 
+    def get_rescollector(self, resource_type, resource):
+        ResCollector = taskexecutor.rescollector.Builder(resource_type)
+        op_service = self.get_opservice_by_resource(resource, resource_type)
+        collector = ResCollector(resource, op_service)
+        return collector
+
     def get_listener(self, listener_type):
         Listener = taskexecutor.listener.Builder(listener_type)
         return Listener()
@@ -88,6 +99,14 @@ class Constructor:
         Reporter = taskexecutor.reporter.Builder(reporter_type)
         return Reporter()
 
-    def get_facts_reporter(self, resource_type):
-        FactsReporter = taskexecutor.facts.Builder(resource_type)
-        return FactsReporter()
+    def get_command_executors_pool(self):
+        if not Constructor.__CommandExecutorsPool:
+            Constructor.__CommandExecutorsPool = \
+                taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.command)
+        return Constructor.__CommandExecutorsPool
+
+    def get_query_executors_pool(self):
+        if not Constructor.__QueryExecutorsPool:
+            Constructor.__QueryExecutorsPool = \
+                taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.query)
+        return Constructor.__QueryExecutorsPool
