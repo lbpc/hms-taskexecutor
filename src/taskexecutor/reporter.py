@@ -88,19 +88,30 @@ class HttpsReporter(Reporter):
     def create_report(self, task):
         self._task = task
         self._resource = task.params["resource"]
+        del self._task.params["resource"]
         self._report = task.params["data"]
         return self._report
 
     def send_report(self):
         with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
             Resource = getattr(api, taskexecutor.utils.to_camel_case(self._task.res_type))
-            Resource("{0}/{1}".format(self._resource.id, self._task.action)).post(json.dumps(self._report))
+            endpoint = "{0}/{1}".format(self._resource.id, taskexecutor.utils.to_lower_dashed(self._task.action))
+            Resource(endpoint).post(json.dumps(self._report))
+
+
+class NullReporter(Reporter):
+    def create_report(self, task):
+        return
+
+    def send_report(self):
+        pass
+
 
 class Builder:
     def __new__(cls, reporter_type):
-        if reporter_type == "amqp":
-            return AMQPReporter
-        elif reporter_type == "https":
-            return HttpsReporter
-        else:
+        ReporterClass = {"amqp": AMQPReporter,
+                         "https": HttpsReporter,
+                         "null": NullReporter}.get(reporter_type)
+        if not ReporterClass:
             raise BuilderTypeError("Unknown Reporter type: {}".format(reporter_type))
+        return ReporterClass

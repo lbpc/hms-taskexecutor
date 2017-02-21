@@ -1,6 +1,6 @@
 import re
 import os
-from jinja2 import Environment
+import jinja2
 from taskexecutor.logger import LOGGER
 
 __all__ = ["Builder"]
@@ -47,6 +47,10 @@ class ConfigFile:
     @body.deleter
     def body(self):
         del self._body
+
+    @property
+    def exists(self):
+        return os.path.exists(self._file_path)
 
     def _read_file(self):
         with open(self._file_path, "r") as f:
@@ -155,7 +159,7 @@ class TemplatedConfigFile(ConfigFile):
 
     @staticmethod
     def _setup_jinja2_env():
-        jinja2_env = Environment()
+        jinja2_env = jinja2.Environment()
         jinja2_env.filters["path_join"] = lambda paths: os.path.join(*paths)
         return jinja2_env
 
@@ -177,9 +181,9 @@ class LineBasedConfigFile(ConfigFile):
         return line in self._body_as_list()
 
     def get_lines(self, regex, count=-1):
-        list = self._body_as_list()
+        lines_list = self._body_as_list()
         ret_list = list()
-        for line in list:
+        for line in lines_list:
             if count != 0 and re.match(regex, line):
                 ret_list.append(line)
                 count -= 1
@@ -212,13 +216,10 @@ class WebSiteConfigFile(TemplatedConfigFile, SwitchableConfigFile):
 
 class Builder:
     def __new__(cls, config_type):
-        if config_type == "website":
-            return WebSiteConfigFile
-        elif config_type == "templated":
-            return TemplatedConfigFile
-        elif config_type == "lines":
-            return LineBasedConfigFile
-        elif config_type == "basic":
-            return ConfigFile
-        else:
+        ConfigFileClass = {"website": WebSiteConfigFile,
+                           "templated": TemplatedConfigFile,
+                           "lines": LineBasedConfigFile,
+                           "basic": ConfigFile}.get(config_type)
+        if not ConfigFileClass:
             raise BuilderTypeError("Unknown config type: {}".format(config_type))
+        return ConfigFileClass

@@ -4,8 +4,8 @@ import logging
 import signal
 import threading
 
+from taskexecutor.config import CONFIG
 import taskexecutor.constructor
-import taskexecutor.scheduler
 import taskexecutor.logger
 
 sys.stderr = taskexecutor.logger.StreamToLogger(taskexecutor.logger.LOGGER, logging.ERROR)
@@ -22,6 +22,10 @@ def receive_signal(signum, unused_stack):
 def main():
     signal.signal(signal.SIGINT, receive_signal)
     constructor = taskexecutor.constructor.Constructor()
+    taskexecutor.logger.LOGGER.info("Perfoming initial Service updates")
+    for service in CONFIG.localserver.services:
+        processor = constructor.get_resprocessor("service", service)
+        processor.update()
     amqp_listener = constructor.get_listener("amqp")
     amqp_listener_thread = threading.Thread(target=amqp_listener.listen)
     amqp_listener_thread.start()

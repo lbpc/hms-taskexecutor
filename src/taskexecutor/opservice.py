@@ -1,6 +1,7 @@
-import os
-import re
 import abc
+import re
+import os
+import sys
 import ipaddress
 
 from taskexecutor.config import CONFIG
@@ -12,6 +13,9 @@ import taskexecutor.httpsclient
 import taskexecutor.utils
 
 __all__ = ["Builder"]
+
+UP = True
+DOWN = False
 
 
 class BuilderTypeError(Exception):
@@ -25,6 +29,10 @@ class ConfigValidationError(Exception):
 class OpService(metaclass=abc.ABCMeta):
     def __init__(self, name):
         self.name = name
+        self._log_base_path = "/var/log"
+        self._run_base_path = "/var/run"
+        self._lock_base_path = "/var/lock"
+        self._init_base_path = str()
 
     @property
     def name(self):
@@ -37,6 +45,54 @@ class OpService(metaclass=abc.ABCMeta):
     @name.deleter
     def name(self):
         del self._name
+
+    @property
+    def log_base_path(self):
+        return self._log_base_path
+
+    @log_base_path.setter
+    def log_base_path(self, value):
+        self._log_base_path = value
+
+    @log_base_path.deleter
+    def log_base_path(self):
+        del self._log_base_path
+
+    @property
+    def run_base_path(self):
+        return self._run_base_path
+
+    @run_base_path.setter
+    def run_base_path(self, value):
+        self._run_base_path = value
+
+    @run_base_path.deleter
+    def run_base_path(self):
+        del self._run_base_path
+
+    @property
+    def lock_base_path(self):
+        return self._lock_base_path
+
+    @lock_base_path.setter
+    def lock_base_path(self, value):
+        self._lock_base_path = value
+
+    @lock_base_path.deleter
+    def lock_base_path(self):
+        del self._lock_base_path
+
+    @property
+    def init_base_path(self):
+        return self._init_base_path
+
+    @init_base_path.setter
+    def init_base_path(self, value):
+        self._init_base_path = value
+
+    @init_base_path.deleter
+    def init_base_path(self):
+        del self._init_base_path
 
     @abc.abstractmethod
     def start(self):
@@ -54,8 +110,16 @@ class OpService(metaclass=abc.ABCMeta):
     def reload(self):
         pass
 
+    @abc.abstractmethod
+    def status(self):
+        pass
+
 
 class UpstartService(OpService):
+    def __init__(self, name):
+        super().__init__(name)
+        self.init_base_path = "/etc/init"
+
     def start(self):
         LOGGER.info("starting {} service via Upstart".format(self.name))
         taskexecutor.utils.exec_command("start {}".format(self.name))
@@ -72,8 +136,19 @@ class UpstartService(OpService):
         LOGGER.info("reloading {} service via Upstart".format(self.name))
         taskexecutor.utils.exec_command("reload {}".format(self.name))
 
+    def status(self):
+        try:
+            taskexecutor.utils.exec_command("status {}".format(self.name))
+            return UP
+        except taskexecutor.utils.CommandExecutionError:
+            return DOWN
+
 
 class SysVService(OpService):
+    def __init__(self, name):
+        super().__init__(name)
+        self.init_base_path = "/etc/init.d"
+
     def start(self):
         LOGGER.info("starting {} service via init script".format(self.name))
         taskexecutor.utils.exec_command("invoke-rc.d {} start".format(self.name))
@@ -90,51 +165,22 @@ class SysVService(OpService):
         LOGGER.info("reloading {} service via init script".format(self.name))
         taskexecutor.utils.exec_command("invoke-rc.d {} reload".format(self.name))
 
-
-class WebServer(taskexecutor.baseservice.ConfigurableService, taskexecutor.baseservice.NetworkingService):
-    def __init__(self):
-        taskexecutor.baseservice.ConfigurableService.__init__(self)
-        taskexecutor.baseservice.NetworkingService.__init__(self)
-        self._site_config_path_pattern = "sites-available/{}.conf"
-        self._site_template_name = str()
-
-    @property
-    def site_template_name(self):
-        return self._site_template_name
-
-    @site_template_name.setter
-    def site_template_name(self, value):
-        self._site_template_name = value
-
-    @site_template_name.deleter
-    def site_template_name(self):
-        del self._site_template_name
-
-    @property
-    def site_config_path_pattern(self):
-        return self._site_config_path_pattern
-
-    @site_config_path_pattern.setter
-    def site_config_path_pattern(self, value):
-        self._site_config_path_pattern = value
-
-    @site_config_path_pattern.deleter
-    def site_config_path_pattern(self):
-        del self._site_config_path_pattern
-
-    def get_website_config(self, site_id):
-        return self.get_abstract_config(self.site_template_name,
-                                        os.path.join(self.config_base_path,
-                                                     self.site_config_path_pattern.format(site_id)),
-                                        config_type="website")
+    def status(self):
+        try:
+            taskexecutor.utils.exec_command("invoke-rc.d {} status".format(self.name))
+            return UP
+        except:
+            return DOWN
 
 
-class Nginx(WebServer, SysVService):
+class Nginx(taskexecutor.baseservice.WebServer, SysVService):
     def __init__(self, name):
-        WebServer.__init__(self)
+        taskexecutor.baseservice.WebServer.__init__(self)
         SysVService.__init__(self, name)
-        self.site_template_name = "{NginxServer}.j2"
+        self.site_template_name = "@NginxServer"
         self.config_base_path = "/etc/nginx"
+        self.static_base_path = CONFIG.nginx.static_base_path
+        self.ssl_certs_base_path = CONFIG.nginx.ssl_certs_path
 
     def reload(self):
         LOGGER.info("Testing nginx config")
@@ -143,12 +189,14 @@ class Nginx(WebServer, SysVService):
         taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/nginx")
 
 
-class Apache(WebServer, UpstartService):
+class Apache(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, UpstartService):
     def __init__(self, name):
-        WebServer.__init__(self)
+        taskexecutor.baseservice.WebServer.__init__(self)
+        taskexecutor.baseservice.ApplicationServer.__init__(self)
         UpstartService.__init__(self, name)
-        self.site_template_name = "{ApacheVHost}.j2"
-        self.config_base_path = "/etc/{}".format(self.name)
+        self.site_template_name = "@ApacheVHost"
+        self.config_base_path = os.path.join("/etc", self.name)
+        self.static_base_path = CONFIG.nginx.static_base_path
 
     def reload(self):
         LOGGER.info("Testing apache2 config in {}".format(self.config_base_path))
@@ -158,11 +206,11 @@ class Apache(WebServer, UpstartService):
 
 # HACK: the two 'Unmanaged' classes below are responsible for reloading services at baton.intr only
 # would be removed when this server is gone
-class UnmanagedNginx(WebServer, OpService):
+class UnmanagedNginx(taskexecutor.baseservice.WebServer, OpService):
     def __init__(self, name):
-        WebServer.__init__(self)
+        taskexecutor.baseservice.WebServer.__init__(self)
         OpService.__init__(self, name)
-        self.site_template_name = "{BatonNginxServer}.j2"
+        self.site_template_name = "@BatonNginxServer"
         self.config_base_path = "/usr/local/nginx/conf"
 
     def start(self):
@@ -181,15 +229,16 @@ class UnmanagedNginx(WebServer, OpService):
         taskexecutor.utils.exec_command("/usr/local/nginx/sbin/nginx -s reload", shell="/usr/local/bin/bash")
 
 
-class UnmanagedApache(WebServer, OpService):
+class UnmanagedApache(taskexecutor.baseservice.WebServer, OpService):
     def __init__(self, name):
         apache_name_mangle = {"apache2-php4": "apache",
                               "apache2-php52": "apache5",
                               "apache2-php53": "apache53"}
-        WebServer.__init__(self)
+        taskexecutor.baseservice.WebServer.__init__(self)
         OpService.__init__(self, apache_name_mangle[name])
+        self.site_template_name = "@BatonApacheVHost"
         LOGGER.info("Apache name rewrited to '{}'".format(self.name))
-        self.config_base_path = "/usr/local/{}/conf".format(self.name)
+        self.config_base_path = os.path.join("/usr/local", self.name, "conf")
 
     def start(self):
         raise NotImplementedError
@@ -211,11 +260,9 @@ class UnmanagedApache(WebServer, OpService):
                                         shell="/usr/local/bin/bash")
 
 
-class MySQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservice.ConfigurableService,
-            taskexecutor.baseservice.NetworkingService, taskexecutor.baseservice.QuotableService, SysVService):
+class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     def __init__(self, name):
-        taskexecutor.baseservice.ConfigurableService.__init__(self)
-        taskexecutor.baseservice.NetworkingService.__init__(self)
+        taskexecutor.baseservice.DatabaseServer.__init__(self)
         SysVService.__init__(self, name)
         self.config_base_path = "/etc/mysql"
         self._dbclient = None
@@ -238,18 +285,49 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservice.Co
                                                 for net in CONFIG.database.default_allowed_networks + addrs_list)
         return [net.with_netmask for net in networks]
 
+    def reload(self):
+        LOGGER.info("Applying variables from config")
+        config = self.get_concrete_config(os.path.join(self.config_base_path, "my.cnf"))
+        config_vars = dict()
+        mysqld_section_started = False
+        for line in config.body.split("\n"):
+            if line.strip() == "[mysqld]":
+                mysqld_section_started = True
+                continue
+            if mysqld_section_started and line.startswith("["):
+                break
+            if mysqld_section_started and line and not line.startswith("#") and "=" in line:
+                variable, value = line.split("=")
+                if "-" not in variable:
+                    config_vars[variable.strip()] = value.strip()
+        actual_vars = {row[0]: row[1] for row in self.dbclient.execute_query("SHOW VARIABLES", ())}
+        for variable, value in config_vars.items():
+            if re.match(r"\d+(K|M|G)", value):
+                value = int(value[:-1]) * {"K": 1024, "M": 1048576, "G": 1073741824}[value[-1]]
+            if isinstance(value, str) and value.isdecimal():
+                value = int(value)
+            if actual_vars.get(variable) in ("ON", "OFF") and value in (1, 0):
+                value = {1: "ON", 0: "OFF"}[value]
+            if actual_vars.get(variable) != str(value):
+                LOGGER.info("MySQL variable: {0}, "
+                            "old value: {1}, new value: {2}".format(variable, actual_vars.get(variable), value))
+                if isinstance(value, int):
+                    self.dbclient.execute_query("SET GLOBAL {0}={1}".format(variable, value), ())
+                else:
+                    self.dbclient.execute_query("SET GLOBAL {0}=%s".format(variable), (value,))
+
     def get_user(self, name):
         name, password_hash, comma_separated_addrs = self.dbclient.execute_query(
                 "SELECT User, Password, GROUP_CONCAT(Host) FROM mysql.user WHERE User = %s", (name,))[0]
         if not name:
-            return
+            return "", "", []
         addrs = [] if not comma_separated_addrs else comma_separated_addrs.split(",")
         return name, password_hash, addrs
 
     def get_database(self, name):
         rows = self.dbclient.execute_query("SELECT Db, User FROM mysql.db WHERE Db = %s", (name,))
         if not rows:
-            return
+            return "", []
         name = rows[0][0]
         users = [self.get_user(row[1]) for row in set(rows)]
         return name, users
@@ -304,20 +382,25 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservice.Co
 
     def get_database_size(self, database_name):
         return self.dbclient.execute_query(
-            "SELECT table_schema, SUM(data_length+index_length) FROM information_schema.tables WHERE table_schema=%s",
-            database_name
+            "SELECT SUM(data_length+index_length) FROM information_schema.tables WHERE table_schema=%s",
+            (database_name,)
         )[0][0]
 
+    def get_all_databases_size(self):
+        return dict(self.dbclient.execute_query(
+            "SELECT table_schema, SUM(data_length+index_length) FROM information_schema.tables GROUP BY table_schema",
+            ()
+        ))
 
-class PostgreSQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservice.ConfigurableService,
-                 taskexecutor.baseservice.NetworkingService, taskexecutor.baseservice.QuotableService, SysVService):
+
+class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     def __init__(self, name):
-        taskexecutor.baseservice.ConfigurableService.__init__(self)
-        taskexecutor.baseservice.NetworkingService.__init__(self)
+        taskexecutor.baseservice.DatabaseServer.__init__(self)
         SysVService.__init__(self, name)
         self.config_base_path = "/etc/postgresql/9.3/main"
         self._dbclient = None
-        self._hba_conf = taskexecutor.constructor.Constructor().get_conffile("lines", "pg_hba.conf")
+        constructor = taskexecutor.constructor.Constructor()
+        self._hba_conf = constructor.get_conffile("lines", os.path.join(self.config_base_path, "pg_hba.conf"))
         self._full_privileges = CONFIG.postgresql.common_privileges + CONFIG.postgresql.write_privileges
 
     @property
@@ -399,7 +482,7 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservi
     def get_user(self, name):
         rows = self.dbclient.execute_query("SELECT rolpassword FROM pg_authid WHERE rolname = %s", (name,))
         if not rows:
-            return
+            return "", "", []
         password_hash = rows[0][0]
         related_config_lines = self._hba_conf.get_lines(r"host\s.+\s{}\s.+\smd5".format(name)) or []
         addrs = [line[3] for line in related_config_lines]
@@ -411,17 +494,17 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservi
         return name, users
 
     def create_user(self, name, password_hash, addrs_list):
-        self._dbclient.execute_query("CREATE ROLE %s WITH "
-                                     "NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB LOGIN NOREPLICATION "
-                                     "PASSWORD %s", (name, password_hash))
+        self.dbclient.execute_query("CREATE ROLE %s WITH "
+                                    "NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB LOGIN NOREPLICATION "
+                                    "PASSWORD %s", (name, password_hash))
 
     def set_password(self, user_name, password_hash, addrs_list):
-        self._dbclient.execute_query("ALTER ROLE %s WITH "
-                                     "NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB LOGIN NOREPLICATION "
-                                     "PASSWORD %s", (user_name, password_hash))
+        self.dbclient.execute_query("ALTER ROLE %s WITH "
+                                    "NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB LOGIN NOREPLICATION "
+                                    "PASSWORD %s", (user_name, password_hash))
 
     def drop_user(self, name, addrs_list):
-        self._dbclient.execute_query("DROP ROLE %s", (name,))
+        self.dbclient.execute_query("DROP ROLE %s", (name,))
         related_lines = list()
         for address in addrs_list:
             related_lines.extend(self._hba_conf.get_lines(r"host\s.+\{0}\s{1}\smd5".format(name, address)))
@@ -432,14 +515,14 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservi
         self.reload()
 
     def create_database(self, name):
-        self._dbclient.execute_query("CREATE DATABASE %", (name, ))
+        self.dbclient.execute_query("CREATE DATABASE %", (name,))
 
     def drop_database(self, name):
-        self._dbclient.execute_query("DROP DATABASE %s", (name, ))
+        self.dbclient.execute_query("DROP DATABASE %s", (name,))
 
     def allow_database_access(self, database_name, user_name, addrs_list):
-        self._dbclient.execute_query("GRANT {} ON DATABASE %s TO %s".format(self._full_privileges),
-                                     (database_name, user_name))
+        self.dbclient.execute_query("GRANT {} ON DATABASE %s TO %s".format(self._full_privileges),
+                                    (database_name, user_name))
         for addr in addrs_list:
             line = "host {0} {1} {2} md5".format(database_name, user_name, addr)
             if not self._hba_conf.has_line(line):
@@ -449,8 +532,8 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservi
         self.reload()
 
     def deny_database_access(self, database_name, user_name, addrs_list):
-        self._dbclient.execute_query("REVOKE {} ON DATABASE %s FROM %s".format(self._full_privileges),
-                                     (database_name, user_name))
+        self.dbclient.execute_query("REVOKE {} ON DATABASE %s FROM %s".format(self._full_privileges),
+                                    (database_name, user_name))
         related_lines = list()
         for address in addrs_list:
             related_lines.extend(
@@ -463,32 +546,32 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, taskexecutor.baseservi
         self.reload()
 
     def allow_database_writes(self, database_name, user_name, addrs_list):
-        self._dbclient.execute_query("GRANT {} ON DATABASE %s TO %s".format(CONFIG.postgresql.write_privileges),
-                                     (database_name, user_name))
+        self.dbclient.execute_query("GRANT {} ON DATABASE %s TO %s".format(CONFIG.postgresql.write_privileges),
+                                    (database_name, user_name))
 
     def deny_database_writes(self, database_name, user_name, addrs_list):
-        self._dbclient.execute_query("REVOKE {} ON DATABASE %s FROM %s".format(CONFIG.postgresql.write_privileges),
-                                     (database_name, user_name))
+        self.dbclient.execute_query("REVOKE {} ON DATABASE %s FROM %s".format(CONFIG.postgresql.write_privileges),
+                                    (database_name, user_name))
 
     def allow_database_reads(self, database_name, user_name, addrs_list):
-        self._dbclient.execute_query("GRANT {} ON DATABASE %s TO %s".format(CONFIG.postgresql.common_privileges),
-                                     (database_name, user_name))
+        self.dbclient.execute_query("GRANT {} ON DATABASE %s TO %s".format(CONFIG.postgresql.common_privileges),
+                                    (database_name, user_name))
 
     def get_database_size(self, database_name):
         return self.dbclient.execute_query("SELECT pg_database_size(%s)", (database_name,))[0][0]
 
+    def get_all_databases_size(self):
+        databases = [row[0] for row in
+                     self.dbclient.execute_query("SELECT datname FROM pg_database WHERE datistemplate=false", ())]
+        return {database: self.get_database_size(database) for database in databases}
+
 
 class Builder:
     def __new__(cls, service_type):
-        if service_type == "STAFF_NGIX" and CONFIG.hostname == "baton":
-            return UnmanagedNginx
-        elif service_type.startswith("WEBSITE_APACHE2") and CONFIG.hostname == "baton":
-            return UnmanagedApache
-        elif service_type == "STAFF_NGINX":
-            return Nginx
-        elif service_type.startswith("WEBSITE_APACHE2"):
-            return Apache
-        elif service_type == "DATABASE_MYSQL":
-            return MySQL
-        else:
+        OpServiceClass = {service_type == "STAFF_NGINX": Nginx if sys.platform == "linux" else UnmanagedNginx,
+                          service_type.startswith("WEBSITE_"): Apache if sys.platform == "linux" else UnmanagedApache,
+                          service_type == "DATABASE_MYSQL": MySQL,
+                          service_type == "DATABASE_POSTGRES": PostgreSQL}.get(True)
+        if not OpServiceClass:
             raise BuilderTypeError("Unknown OpService type: {}".format(service_type))
+        return OpServiceClass

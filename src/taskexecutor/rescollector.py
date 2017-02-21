@@ -1,13 +1,12 @@
 import abc
 import collections
-import json
 import os
 import time
-from taskexecutor.config import CONFIG
+
 from taskexecutor.logger import LOGGER
+from taskexecutor.config import CONFIG
+
 import taskexecutor.constructor
-import taskexecutor.dbclient
-import taskexecutor.httpsclient
 import taskexecutor.utils
 
 __all__ = ["Builder"]
@@ -25,6 +24,7 @@ class ResCollector(metaclass=abc.ABCMeta):
         self._resource = None
         self._service = None
         self._extra_services = None
+        self._ignored_properties = set()
         self.resource = resource
         self.service = service
 
@@ -64,131 +64,169 @@ class ResCollector(metaclass=abc.ABCMeta):
     def extra_services(self):
         del self._extra_services
 
-    @staticmethod
-    def initialize_resource_cache(res_type):
-        if res_type not in ResCollector._cache.keys():
-            ResCollector._cache[res_type] = collections.defaultdict(dict)
-
-    @staticmethod
-    def check_cache(res_type, res_key, property_name, ttl):
-        cached = ResCollector._cache[res_type][res_key] and \
-                 property_name in ResCollector._cache[res_type][res_key].keys()
-        expired = False
-        if cached:
-            expired = (ResCollector._cache[res_type][res_key][property_name]["timestamp"] + ttl) < time.time()
-        return cached, expired
-
-    @staticmethod
-    def add_property_to_cache(res_type, res_key, property_name, value):
-        ResCollector._cache[res_type][res_key][property_name] = {"value": value, "timestamp": time.time()}
-
-    @staticmethod
-    def get_property_from_cache(res_type, res_key, property_name):
-        return ResCollector._cache[res_type][res_key][property_name]["value"]
-
     @abc.abstractmethod
     def get_property(self, property_name, cache_ttl=0):
         pass
 
+    def get_cache_key(self, property_name, op_res_id):
+        return "{0}.{1}.{2}".format(self.__class__.__name__, op_res_id, property_name)
+
+    def check_cache(self, key, ttl):
+        cached = key in ResCollector._cache.keys() and ResCollector._cache[key]
+        expired = False
+        if cached:
+            expired = (ResCollector._cache[key]["timestamp"] + ttl) < time.time()
+        return cached, expired
+
+    def add_property_to_cache(self, key, value):
+        ResCollector._cache[key] = {"value": value, "timestamp": time.time()}
+
+    def get_property_from_cache(self, key):
+        return ResCollector._cache[key]["value"]
+
+    def ignore_property(self, property_name):
+        self._ignored_properties.add(property_name)
+
     def get(self, cache_ttl=0):
         op_resource = dict()
-        properties_list = vars(self.resource).keys()
-        for property_name in properties_list:
-            op_resource[property_name] = \
-                self.get_property(property_name, cache_ttl) or getattr(self.resource, property_name)
+        properties_set = set(vars(self.resource).keys())
+        properties_set.difference_update(self._ignored_properties)
+        start_collecting_time = time.time()
+        for property_name in properties_set:
+            op_resource[property_name] = self.get_property(property_name, cache_ttl=cache_ttl)
+            cache_ttl += time.time() - start_collecting_time
+        if not any(op_resource.values()):
+            LOGGER.warning("No resource available, ID: {0.id}, name: {0.name}".format(self.resource))
+            return
         return collections.namedtuple("OpResource", op_resource.keys())(*op_resource.values())
 
 
 class UnixAccountCollector(ResCollector):
-    def __init__(self, resource, service):
-        super().__init__(resource, service)
-        self.initialize_resource_cache("unix-account")
-
+    @taskexecutor.utils.synchronized
     def get_property(self, property_name, cache_ttl=0):
-        cached, expired = self.check_cache("unix-account", self.resource.uid, property_name, cache_ttl)
-        if not cached or expired:
-            if property_name == "quotaUsed":
-                for uid, quota_used_bytes in self.service.get_quota().items():
-                    self.add_property_to_cache("unix-account", uid, property_name, quota_used_bytes)
-            else:
+        key = self.get_cache_key(property_name, self.resource.uid)
+        cached, expired = self.check_cache(key, cache_ttl)
+        if cached and not expired:
+            return self.get_property_from_cache(key)
+        if property_name == "quotaUsed":
+            uid_quota_used_mapping = self.service.get_quota()
+            for uid, quota_used_bytes in uid_quota_used_mapping.items():
+                LOGGER.debug("UID: {0} quota used: {1} bytes".format(uid, quota_used_bytes))
+                self.add_property_to_cache(self.get_cache_key(property_name, uid), quota_used_bytes)
+            return uid_quota_used_mapping.get(self.resource.uid)
+        else:
+            etc_passwd = taskexecutor.constructor.Constructor().get_conffile("lines", "/etc/passwd")
+            matched_lines = etc_passwd.get_lines("^{}:".format(self.resource.name))
+            if len(matched_lines) != 1:
+                LOGGER.warning("Cannot determine user {0}, "
+                               "lines found in /etc/passwd: {1}".format(self.resource.name, matched_lines))
                 return
-        return self.get_property_from_cache("unix-account", self.resource.uid, property_name)
+            name, _, uid, _, _, home_dir, _ = matched_lines[0].split(":")
+            self.add_property_to_cache(self.get_cache_key("name", self.resource.uid), name)
+            self.add_property_to_cache(self.get_cache_key("uid", self.resource.uid), uid)
+            self.add_property_to_cache(self.get_cache_key("homeDir", self.resource.uid), home_dir)
+            return {"name": name,
+                    "uid": uid,
+                    "homeDir": home_dir}.get(property_name)
 
 
 class MailboxCollector(ResCollector):
-    def __init__(self, resource, service):
-        super().__init__(resource, service)
-        self.initialize_resource_cache("mailbox")
-
     def get_property(self, property_name, cache_ttl=0):
-        cached, expired = self.check_cache("mailbox", self.resource.uid, property_name, cache_ttl)
         maildir_path = os.path.join(self.resource.mailSpool, self.resource.name)
-        if not cached or expired:
-            if property_name == "quotaUsed":
-                maildir_size = self.service.get_maildir_size(maildir_path)
-                self.add_property_to_cache("mailbox", maildir_path, property_name, maildir_size)
-            else:
-                return
-        return self.get_property_from_cache("mailbox", maildir_path, property_name)
+        key = self.get_cache_key(property_name, maildir_path)
+        cached, expired = self.check_cache(key, cache_ttl)
+        if cached and not expired:
+            return self.get_property_from_cache(key)
+        if property_name == "quotaUsed":
+            maildir_size = self.service.get_maildir_size(maildir_path)
+            if maildir_size:
+                self.add_property_to_cache(key, maildir_size)
+                return maildir_size
 
 
 class DatabaseUserCollector(ResCollector):
-    def __init__(self, resource, service):
-        super().__init__(resource, service)
-        self.initialize_resource_cache("database-user")
-
     def get_property(self, property_name, cache_ttl=0):
-        cached, expired = self.check_cache("database-user", self.resource.name, property_name, cache_ttl)
-        if not cached or expired:
-            name, password_hash, addrs = self.service.get_user(self.resource.name)
-            self.add_property_to_cache("database-user", self.resource.name, "name", name)
-            self.add_property_to_cache("database-user", self.resource.name, "passowrdHash", password_hash)
-            self.add_property_to_cache("database-user", self.resource.name, "allowedIPAddresses", addrs)
-        if property_name not in ("name", "passowrdHash" "allowedIPAddresses"):
-            return
-        return self.get_property_from_cache("database-user", self.resource.name, property_name)
+        key = self.get_cache_key(property_name, self.resource.name)
+        cached, expired = self.check_cache(key, cache_ttl)
+        if cached and not expired:
+            return self.get_property_from_cache(key)
+        name, password_hash, addrs = self.service.get_user(self.resource.name)
+        if name:
+            self.add_property_to_cache(self.get_cache_key("name", self.resource.name), name)
+            self.add_property_to_cache(self.get_cache_key("passwordHash", self.resource.name), password_hash)
+            self.add_property_to_cache(self.get_cache_key("allowedIPAddresses", self.resource.name), addrs or [])
+            return {"name": name,
+                    "passwordHash": password_hash,
+                    "allowedIPAddresses": addrs or []}.get(property_name)
 
 
 class DatabaseCollector(ResCollector):
-    def __init__(self, resource, service):
-        super().__init__(resource, service)
-        self.initialize_resource_cache("database")
-
+    @taskexecutor.utils.synchronized
     def get_property(self, property_name, cache_ttl=0):
-        cached, expired = self.check_cache("database", self.resource.name, property_name, cache_ttl)
-        if not cached or expired:
-            if property_name == "quotaUsed":
-                database_size = self.service.get_database_size(self.resource.name)
-                self.add_property_to_cache("database", self.resource.name, property_name, database_size)
-            elif property_name == "name" or property_name == "databaseUsers":
-                db_users = list()
-                name, users = self.service.get_database(self.resource.name)
-                self.add_property_to_cache("database", self.resource.name, "name", name)
-                for user_name, password_hash, addrs in users:
-                    OpDatabaseUser = collections.namedtuple("OpResource", "name passowrdHash allowedIPAddresses")
-                    db_user = None
-                    for user in self.resource.databaseUsers:
-                        if user.name == user_name:
-                            db_user = user
-                    if not db_user:
-                        db_user = OpDatabaseUser(name, password_hash, addrs)
-                    user_collector = DatabaseUserCollector(db_user, self.service)
-                    db_users.append(user_collector.get())
-                self.add_property_to_cache("database", self.resource.name, "databaseUsers", db_users)
-            else:
+        key = self.get_cache_key(property_name, self.resource.name)
+        cached, expired = self.check_cache(key, cache_ttl)
+        if cached and not expired:
+            return self.get_property_from_cache(key)
+        if property_name == "quotaUsed" and not cache_ttl:
+            database_size = self.service.get_database_size(self.resource.name)
+            if isinstance(database_size, None):
                 return
-        return self.get_property_from_cache("database", self.resource.name, property_name)
+            self.add_property_to_cache(key, database_size)
+        elif property_name == "quotaUsed":
+            database_size_mapping = self.service.get_all_databases_size()
+            for database_name, size in database_size_mapping.items():
+                LOGGER.debug("Database: {0} Size: {1} bytes".format(database_name, size))
+                self.add_property_to_cache(self.get_cache_key(property_name, database_name), size)
+            return database_size_mapping.get(self.resource.name)
+        elif property_name in ("name", "databaseUsers"):
+            db_users = list()
+            name, users = self.service.get_database(self.resource.name)
+            if name:
+                self.add_property_to_cache(self.get_cache_key("name", self.resource.name), name)
+                for user_name, password_hash, addrs in users:
+                    OpDatabaseUser = collections.namedtuple("OpDatabaseUser", "name passwordHash allowedIPAddresses")
+                    db_user = next((user for user in self.resource.databaseUsers if user.name == user_name),
+                                   OpDatabaseUser(name, password_hash, addrs))
+                    collected_db_user = DatabaseUserCollector(db_user, self.service).get()
+                    if collected_db_user:
+                        db_users.append(collected_db_user)
+                self.add_property_to_cache(self.get_cache_key("databaseUsers", self.resource.name), db_users)
+                return {"name": name,
+                        "databaseUsers": db_users}.get(property_name)
+
+
+class WebsiteCollector(ResCollector):
+    def get_property(self, property_name, cache_ttl=0):
+        if property_name == "serviceId":
+            constructor = taskexecutor.constructor.Constructor()
+            for service in CONFIG.localserver.services:
+                if service.serviceType.name.startswith("WEBSITE_"):
+                    app_server = constructor.get_opservice(service)
+                    config = app_server.get_website_config(self.resource.id)
+                    if config.exists:
+                        return service.id
+
+
+class SSLCertificateCollector(ResCollector):
+    def get_property(self, property_name, cache_ttl=0):
+        return
+
+
+class ServiceCollector(ResCollector):
+    def get_property(self, property_name, cache_ttl=0):
+        if property_name == "name" and self.service:
+            return "{0}@{1}".format(self.service.name, CONFIG.hostname)
 
 
 class Builder:
     def __new__(cls, res_type):
-        if res_type == "unix-account":
-            return UnixAccountCollector
-        elif res_type == "database-user":
-            return DatabaseUserCollector
-        elif res_type == "database":
-            return DatabaseCollector
-        elif res_type == "mailbox":
-            return MailboxCollector
-        else:
+        ResCollectorClass = {"unix-account": UnixAccountCollector,
+                             "database-user": DatabaseUserCollector,
+                             "database": DatabaseCollector,
+                             "mailbox": MailboxCollector,
+                             "website": WebsiteCollector,
+                             "sslcertificate": SSLCertificateCollector,
+                             "service": ServiceCollector}.get(res_type)
+        if not ResCollectorClass:
             raise BuilderTypeError("Unknown resource type: {}".format(res_type))
+        return ResCollectorClass

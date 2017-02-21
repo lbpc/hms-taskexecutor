@@ -290,7 +290,10 @@ class ApiObjectMapper:
             if not k.isidentifier():
                 mapping[re.sub('\W|^(?=\d)', '_', k)] = v
                 del mapping[k]
-        return collections.namedtuple("ApiObject", mapping.keys())(**mapping)
+        type_name = "ApiObject"
+        if "_class" in mapping.keys():
+            type_name = mapping["_class"]
+        return collections.namedtuple(type_name, mapping.keys())(**mapping)
 
     def cast_to_numeric_recursively(self, dct):
         for k, v in dct.items():

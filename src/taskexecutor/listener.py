@@ -177,7 +177,6 @@ class AMQPListener(Listener):
             for future, tag in self._futures_tags_mapping.copy().items():
                 if not future.running():
                     if future.exception():
-                        LOGGER.error(future.exception())
                         self._reject_message(tag)
                     del self._futures_tags_mapping[future]
             self._connection.ioloop.poll()
@@ -234,23 +233,22 @@ class TimeListener(Listener):
         taskexecutor.utils.set_thread_name("TimeListener")
         self._schedule()
         while not self._stopping:
-            schedule.run_pending()
             for future in self._futures:
                 if not future.running():
-                    if future.exception():
-                        LOGGER.error(future.exception())
                     self._futures.remove(future)
+            schedule.run_pending()
             if schedule.jobs and not self._stopping:
                 time.sleep(abs(schedule.idle_seconds()))
             else:
                 time.sleep(.1)
 
     def take_event(self, context, message):
-        task = self.create_task(None, None, context["res_type"], context["action"], message["params"])
+        action_id = taskexecutor.utils.create_action_id("{0}.{1}".format(context["res_type"], context["action"]))
+        task = self.create_task(None, action_id, context["res_type"], context["action"], message["params"])
         self._futures.append(self.pass_task(task=task, callback=None, args=None))
 
     def create_task(self, opid, actid, res_type, action, params):
-        task = taskexecutor.task.Task(opid, actid, res_type, action, vars(params))
+        task = taskexecutor.task.Task(opid, actid, res_type, action, dict(vars(params)))
         LOGGER.info("New task created from locally scheduled event: {}".format(task))
         return task
 
@@ -267,9 +265,8 @@ class TimeListener(Listener):
 
 class Builder:
     def __new__(cls, listener_type):
-        if listener_type == "amqp":
-            return AMQPListener
-        elif listener_type == "time":
-            return TimeListener
-        else:
+        ListenerClass = {"amqp": AMQPListener,
+                         "time": TimeListener}.get(listener_type)
+        if not ListenerClass:
             raise BuilderTypeError("Unknown Listener type: {}".format(listener_type))
+        return ListenerClass

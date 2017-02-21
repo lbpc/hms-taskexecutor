@@ -1,6 +1,5 @@
-import concurrent.futures
+import copy
 import time
-import traceback
 import urllib.parse
 
 from taskexecutor.config import CONFIG
@@ -10,7 +9,7 @@ import taskexecutor.httpsclient
 import taskexecutor.task
 import taskexecutor.utils
 
-__all__ = ["Executors", "Executor"]
+__all__ = ["Executor"]
 
 
 class PropertyValidationError(Exception):
@@ -19,36 +18,6 @@ class PropertyValidationError(Exception):
 
 class UnknownTaskAction(Exception):
     pass
-
-
-class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
-    def submit(self, f, *args, **kwargs):
-        return super(ThreadPoolExecutorStackTraced, self).submit(self._function_wrapper, f, *args, **kwargs)
-
-    @staticmethod
-    def _function_wrapper(fn, *args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except Exception as e:
-            raise type(e)(traceback.format_exc())
-
-
-class Executors:
-    class __Executors:
-        def __init__(self, pool):
-            self.pool = pool
-
-    command_instance = None
-    query_instance = None
-
-    def __init__(self):
-        if not Executors.command_instance:
-            Executors.command_instance = Executors.__Executors(ThreadPoolExecutorStackTraced(CONFIG.max_workers))
-        else:
-            self.pool = Executors.command_instance.pool
-
-    def __getattr__(self, name):
-        return getattr(self.command_instance, name)
 
 
 class Executor:
@@ -80,7 +49,7 @@ class Executor:
 
     @callback.setter
     def callback(self, f):
-        if not callable(f):
+        if f and not callable(f):
             raise PropertyValidationError("callback must be callable")
         self._callback = f
 
@@ -94,7 +63,7 @@ class Executor:
 
     @args.setter
     def args(self, value):
-        if not isinstance(value, (list, tuple)):
+        if value and not isinstance(value, (list, tuple)):
             raise PropertyValidationError("args must be list or tuple")
         self._args = value
 
@@ -122,15 +91,16 @@ class Executor:
     def create_subtasks(self, resources):
         subtasks = list()
         for resource in resources:
+            params = copy.copy(self.task.params)
+            params.update({"resource": resource})
             subtasks.append(taskexecutor.task.Task(self.task.opid, self.task.actid, self.task.res_type,
-                                                   self.task.action, self.task.params.update({"resource": resource})))
+                                                   self.task.action, params))
         return subtasks
 
     def spawn_subexecutors(self, tasks, pool):
         futures = list()
         for task in tasks:
             subexecutor = Executor(task)
-            LOGGER.debug("Spawning subexecutor for subtask: {}".format(task))
             futures.append(pool.submit(subexecutor.process_task))
         return futures
 
@@ -154,25 +124,26 @@ class Executor:
             LOGGER.info("Invoking {0}.{1} method on {2}".format(type(processor).__name__,
                                                                 self.task.action, processor.resource))
             getattr(processor, self.task.action)()
-            for processor in constructor.get_siding_resprocessors(processor):
+            for processor in constructor.get_siding_resprocessors(processor, params={self.task.action: resource}):
                 LOGGER.info("Updating affected resource {}".format(processor.resource))
                 processor.update()
         elif self.task.action == "quota_report":
+            reporter = constructor.get_reporter("https")
+            all_resources = list()
             if "resource" not in self.task.params.keys():
-                LOGGER.info("Fetching all local {0} resources by type}".format(self.task.res_type))
-                resources = self.get_all_resources()
+                LOGGER.info("Fetching all local {0} resources by type".format(self.task.res_type))
+                all_resources = self.get_all_resources()
+                self.task.params["resource"] = all_resources.pop()
+            collector = constructor.get_rescollector(self.task.res_type, self.task.params["resource"])
+            LOGGER.info("Collecting 'quotaUsed' property for '{0}' resource {1} "
+                        "by {2}".format(self.task.res_type, collector.resource.name, type(collector).__name__))
+            self.task.params["data"] = dict()
+            self.task.params["data"]["quotaUsed"] = \
+                collector.get_property("quotaUsed", cache_ttl=self.task.params["interval"] - 1)
+            if all_resources:
                 query_pool = constructor.get_query_executors_pool()
-                subexecutors = self.spawn_subexecutors(self.create_subtasks(resources), query_pool)
+                subexecutors = self.spawn_subexecutors(self.create_subtasks(all_resources), query_pool)
                 self.wait_for_subexecutors(subexecutors)
-                return
-            else:
-                collector = constructor.get_rescollector(self.task.res_type, self.task.params["resource"])
-                reporter = constructor.get_reporter("https")
-                LOGGER.info("Collecting 'quotaUsed' property for resource {0} "
-                            "by {1}".format(collector.resource, type(collector).__name__))
-                self.task.params.data = dict()
-                self.task.params["data"]["quotaUsed"] = \
-                    collector.get_property("quotaUsed", cache_ttl=self.task.params["interval"] - 1)
         else:
             raise UnknownTaskAction(self.task.action)
         if self.callback:

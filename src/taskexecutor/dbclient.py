@@ -36,8 +36,15 @@ class MySQLClient(DBClient):
     def execute_query(self, query, values):
         LOGGER.info("Executing query: '{}'".format(query % values))
         self._connection.ping(reconnect=True)
-        self._cursor.execute(query, values)
-        return self._cursor.fetchall()
+        try:
+            self._cursor.execute(query, values)
+            return self._cursor.fetchall()
+        except pymysql.InternalError as e:
+            code, message = e.args
+            if code in (1290, 1238):
+                LOGGER.warning("{}, MySQL restart needed".format(message))
+            else:
+                raise
 
 
 class PostgreSQLClient(DBClient):
