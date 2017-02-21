@@ -1,12 +1,15 @@
 import os
 import pytransliter
+import sys
 import abc
 import collections
+import time
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.constructor
 import taskexecutor.httpsclient
+import taskexecutor.opservice
 import taskexecutor.utils
 
 __all__ = ["Builder"]
@@ -23,6 +26,7 @@ class ResProcessor(metaclass=abc.ABCMeta):
         self._service = None
         self._params = dict()
         self._extra_services = None
+        self._op_resource = None
         self.resource = resource
         self.service = service
         self.params = params
@@ -75,6 +79,18 @@ class ResProcessor(metaclass=abc.ABCMeta):
     def extra_services(self):
         del self._extra_services
 
+    @property
+    def op_resource(self):
+        return self._op_resource
+
+    @op_resource.setter
+    def op_resource(self, value):
+        self._op_resource = value
+
+    @op_resource.deleter
+    def op_resource(self):
+        del self._op_resource
+
     @abc.abstractmethod
     def create(self):
         pass
@@ -98,7 +114,7 @@ class UnixAccountProcessor(ResProcessor):
                                  "Hosting account HMS id {}".format(self.resource.id))
         try:
             LOGGER.info("Setting quota for user {0.name}".format(self.resource))
-            self.service.set_quota(self.resource.quota)
+            self.service.set_quota(self.resource.uid, self.resource.quota)
         except Exception:
             LOGGER.error("Setting quota failed "
                          "for user {0.name}".format(self.resource))
@@ -112,21 +128,33 @@ class UnixAccountProcessor(ResProcessor):
                                                 self.resource.uid, self.resource.homeDir)
 
     def update(self):
-        LOGGER.info("Modifying user {0.name}".format(self.resource))
-        if not self.resource.writable:
-            LOGGER.info("Disabling writes by setting quota=quotaUsed for user {0.name}".format(self.resource))
-            self.service.set_quota(self.resource.uid, self.resource.quotaUsed)
+        if self.op_resource:
+            LOGGER.info("Modifying user {0.name}".format(self.resource))
+            if self.resource.uid != self.op_resource.uid:
+                LOGGER.warning("UnixAccount {0} has wrong UID {1}, "
+                               "expected: {2}".format(self.resource.name, self.op_resource.uid, self.resource.uid))
+            if self.resource.sendmailAllowed:
+                self.service.enable_sendmail(self.resource.uid)
+            else:
+                self.service.disable_sendmail(self.resource.uid)
+            if not self.resource.writable:
+                LOGGER.info("Disabling writes by setting quota=quotaUsed for user {0.name}".format(self.resource))
+                self.service.set_quota(self.resource.uid, self.resource.quotaUsed)
+            else:
+                LOGGER.info("Setting quota for user {0.name}".format(self.resource))
+                self.service.set_quota(self.resource.uid, self.resource.quota)
+            if hasattr(self.resource, "keyPair") and self.resource.keyPair:
+                LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
+                self.service.create_authorized_keys(self.resource.keyPair.publicKey,
+                                                    self.resource.uid, self.resource.homeDir)
+            if len(self.resource.crontab) > 0:
+                self.service.create_crontab(self.resource.name,
+                                            [task for task in self.resource.crontab if task.switchedOn])
+            else:
+                self.service.delete_crontab(self.resource.name)
         else:
-            LOGGER.info("Setting quota for user {0.name}".format(self.resource))
-            self.service.set_quota(self.resource.uid, self.resource.quota)
-        if hasattr(self.resource, "keyPair") and self.resource.keyPair:
-            LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
-            self.service.create_authorized_keys(self.resource.keyPair.publicKey,
-                                                self.resource.uid, self.resource.homeDir)
-        if len(self.resource.crontab) > 0:
-            self.service.create_crontab(self.resource.name, [task for task in self.resource.crontab if task.switchedOn])
-        else:
-            self.service.delete_crontab(self.resource.name)
+            LOGGER.warning("UnixAccount {0} not found, creating".format(self.resource.name))
+            self.create()
 
     def delete(self):
         self.service.kill_user_processes(self.resource.name)
@@ -151,16 +179,12 @@ class WebSiteProcessor(ResProcessor):
 
     @taskexecutor.utils.synchronized
     def create(self):
-        self.params.update({
-            "app_server_name": self.service.name,
-            "error_pages": [(code, "http_{}.html".format(code)) for code in (403, 404, 502, 503, 504)],
-            "static_base": CONFIG.nginx.static_base_path,
-            "ssl_path": CONFIG.nginx.ssl_certs_path,
-            "anti_ddos_location": CONFIG.nginx.anti_ddos_location,
-            "anti_ddos_set_cookie_file": CONFIG.nginx.anti_ddos_set_cookie_file,
-            "anti_ddos_check_cookie_file": CONFIG.nginx.anti_ddos_check_cookie_file,
-            "subdomains_document_root": "/".join(self.resource.documentRoot.split("/")[:-1])
-        })
+        self.params.update(app_server_name=self.service.name,
+                           error_pages=[(code, "http_{}.html".format(code)) for code in (403, 404, 502, 503, 504)],
+                           anti_ddos_location=CONFIG.nginx.anti_ddos_location,
+                           anti_ddos_set_cookie_file=CONFIG.nginx.anti_ddos_set_cookie_file,
+                           anti_ddos_check_cookie_file=CONFIG.nginx.anti_ddos_check_cookie_file,
+                           subdomains_document_root="/".join(self.resource.documentRoot.split("/")[:-1]))
         vhosts_list = self._build_vhost_obj_list()
         home_dir = os.path.normpath(str(self.resource.unixAccount.homeDir))
         document_root = os.path.normpath(str(self.resource.documentRoot))
@@ -170,7 +194,7 @@ class WebSiteProcessor(ResProcessor):
             os.chown(os.path.join(home_dir, directory), self.resource.unixAccount.uid, self.resource.unixAccount.uid)
         for service in (self.service, self.extra_services.http_proxy):
             config = service.get_website_config(self.resource.id)
-            config.render_template(socket=service.socket, vhosts=vhosts_list, params=self.params)
+            config.render_template(service=service, vhosts=vhosts_list, params=self.params)
             config.write()
             if self.resource.switchedOn and not config.is_enabled:
                 config.enable()
@@ -188,8 +212,7 @@ class WebSiteProcessor(ResProcessor):
                 config = service.get_website_config(self.resource.id)
                 if config.is_enabled:
                     config.disable()
-                    config.write()
-                    config.confirm()
+                    config.save()
                     service.reload()
         else:
             self.create()
@@ -210,7 +233,7 @@ class WebSiteProcessor(ResProcessor):
 # HACK: the only purpose of this class is to process
 # WebSite resources at baton.intr
 # should be removed when this server is gone
-class WebSiteProcessorBaton(WebSiteProcessor):
+class WebSiteProcessorFreeBsd(WebSiteProcessor):
     def __init__(self, resource, service, params):
         super().__init__(resource, service, params)
         res_dict = self.resource._asdict()
@@ -254,12 +277,8 @@ class MailboxProcessor(ResProcessor):
 
 
 class DatabaseUserProcessor(ResProcessor):
-    def __init__(self, resource, service, params):
-        super().__init__(resource, service, params)
-        self._current_user = self.service.get_user(self.resource.name)
-
     def create(self):
-        if not self._current_user:
+        if not self.op_resource:
             addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
             LOGGER.info("Creating {0} user {1} with addresses {2}".format(self.service.__class__.__name__,
                                                                           self.resource.name,
@@ -271,8 +290,8 @@ class DatabaseUserProcessor(ResProcessor):
             self.update()
 
     def update(self):
-        if self._current_user:
-            current_addrs_set = set(self.service.normalize_addrs(self._current_user.allowedIPAddresses))
+        if self.op_resource:
+            current_addrs_set = set(self.service.normalize_addrs(self.op_resource.allowedIPAddresses))
             staging_addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
             LOGGER.info("Updating {0} user {1}".format(self.service.__class__.__name__, self.resource.name))
             self.service.drop_user(self.resource.name, list(current_addrs_set.difference(staging_addrs_set)))
@@ -286,9 +305,9 @@ class DatabaseUserProcessor(ResProcessor):
             self.create()
 
     def delete(self):
-        if self._current_user:
+        if self.op_resource:
             LOGGER.info("Dropping {0} user {1}".format(self.service.__class__.__name__, self.resource.name))
-            self.service.drop_user(self.resource.name, self._current_user.allowedIPAddresses)
+            self.service.drop_user(self.resource.name, self.op_resource.allowedIPAddresses)
         else:
             LOGGER.warning("{0} user {1} not found".format(self.service.__class__.__name__, self.resource.name))
 
@@ -296,10 +315,10 @@ class DatabaseUserProcessor(ResProcessor):
 class DatabaseProcessor(ResProcessor):
     def __init__(self, resource, service, params):
         super().__init__(resource, service, params)
-        self._current_database = self.service.get_database(self.resource.name)
+        self._constructor = taskexecutor.constructor.Constructor()
 
     def create(self):
-        if not self._current_database:
+        if not self.op_resource:
             LOGGER.info("Creating {0} database {1}".format(self.service.__class__.__name__, self.resource.name))
             self.service.create_database(self.resource.name)
             for user in self.resource.databaseUsers:
@@ -314,14 +333,17 @@ class DatabaseProcessor(ResProcessor):
             self.update()
 
     def update(self):
-        if self._current_database:
-            current_usernames_set = set([user.name for user in self._current_database.databaseUsers])
-            staging_usernames_set = set([user.name for user in self.resource.databaseUsers])
-            new_users_list = [user for user in self.resource.databaseUsers
+        database_users = self.resource.databaseUsers
+        if "delete" in self.params.keys():
+            database_users.remove(self.params["delete"])
+        if self.op_resource:
+            current_usernames_set = set((user.name for user in self.op_resource.databaseUsers))
+            staging_usernames_set = set((user.name for user in database_users))
+            new_users_list = [user for user in database_users
                               if user.name in staging_usernames_set.difference(current_usernames_set)]
-            old_users_list = [user for user in self._current_database.databaseUsers
+            old_users_list = [user for user in self.op_resource.databaseUsers
                               if user.name in current_usernames_set.difference(staging_usernames_set)]
-            spare_users_list = [user for user in self.resource.databaseUsers
+            spare_users_list = [user for user in database_users
                                 if user.name in current_usernames_set.intersection(staging_usernames_set)]
             if self.resource.writable:
                 for user in new_users_list:
@@ -332,7 +354,7 @@ class DatabaseProcessor(ResProcessor):
                 for user in spare_users_list:
                     LOGGER.info("Granting access on {0} database {1} to "
                                 "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
-                    current_user = self.service.get_user(user.name)
+                    current_user = self._constructor.get_rescollector("database-user", user).get()
                     current_addrs_set = set(current_user.allowedIPAddresses)
                     staging_addrs_set = set(user.allowedIPAddresses)
                     addrs_set = self.service.normalize_addrs(list(staging_addrs_set.difference(current_addrs_set)))
@@ -364,8 +386,8 @@ class DatabaseProcessor(ResProcessor):
             self.create()
 
     def delete(self):
-        if self._current_database:
-            for user in self._current_database.databaseUsers:
+        if self.op_resource:
+            for user in self.op_resource.databaseUsers:
                 LOGGER.info("Revoking access on {0} database {1} from "
                             "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
                 self.service.deny_database_access(self.resource.name, user.name, user.allowedIPAddresses)
@@ -376,17 +398,42 @@ class DatabaseProcessor(ResProcessor):
 
 
 class ServiceProcessor(ResProcessor):
-    def __init__(self, resource, service, params):
-        super().__init__(resource, service, params)
-        self.service = taskexecutor.constructor.Constructor().get_opservice(
-            self.resource.serviceType.name
-        )
+    def _wait_for_service(self):
+        while not self.service.status() == taskexecutor.opservice.UP:
+            time.sleep(1)
+
+    def _create_error_pages(self):
+        self.params.update(error_pages=list())
+        for code in (403, 404, 502, 503, 504):
+            self.params["error_pages"].append((code, "http_{}.html".format(code)))
+            error_page_path = os.path.join(self.service.static_base_path, "http_{}.html".format(code))
+            error_page = self.service.get_abstract_config("@HTTPErrorPage", error_page_path)
+            error_page.render_template(code=code)
+            error_page.save()
 
     def create(self):
-        pass
+        self.update()
 
     def update(self):
-        pass
+        self._wait_for_service()
+        self.params.update(hostname=CONFIG.hostname)
+        if isinstance(self.service, taskexecutor.opservice.Nginx):
+            self._create_error_pages()
+            self.params.update(
+                    app_servers=taskexecutor.constructor.Constructor().get_all_opservices_by_res_type("website")
+            )
+        configs = self.service.get_concrete_configs_set()
+        for config in configs:
+            config.render_template(service=self.service, params=self.params)
+            config.write()
+        try:
+            self.service.reload()
+        except:
+            for config in configs:
+                config.revert()
+            raise
+        for config in configs:
+            config.confirm()
 
     def delete(self):
         pass
@@ -394,21 +441,13 @@ class ServiceProcessor(ResProcessor):
 
 class Builder:
     def __new__(cls, res_type):
-        if res_type == "service":
-            return ServiceProcessor
-        elif res_type == "unix-account":
-            return UnixAccountProcessor
-        elif res_type == "database-user":
-            return DatabaseUserProcessor
-        elif res_type == "database":
-            return DatabaseProcessor
-        elif res_type == "website" and CONFIG.hostname == "baton":
-            return WebSiteProcessorBaton
-        elif res_type == "website":
-            return WebSiteProcessor
-        elif res_type == "sslcertificate":
-            return SSLCertificateProcessor
-        elif res_type == "mailbox":
-            return MailboxProcessor
-        else:
+        ResProcessorClass = {"service": ServiceProcessor,
+                             "unix-account": UnixAccountProcessor,
+                             "database-user": DatabaseUserProcessor,
+                             "database": DatabaseProcessor,
+                             "website": WebSiteProcessor if sys.platform != "freebsd9" else WebSiteProcessorFreeBsd,
+                             "sslcertificate": SSLCertificateProcessor,
+                             "mailbox": MailboxProcessor}.get(res_type)
+        if not ResProcessorClass:
             raise BuilderTypeError("Unknown resource type: {}".format(res_type))
+        return ResProcessorClass

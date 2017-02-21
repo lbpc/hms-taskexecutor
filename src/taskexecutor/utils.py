@@ -1,7 +1,11 @@
+import concurrent.futures
+import traceback
 import re
 import subprocess
 import functools
 import threading
+import uuid
+
 from taskexecutor.logger import LOGGER
 
 LOCKS = {}
@@ -9,6 +13,19 @@ LOCKS = {}
 
 class CommandExecutionError(Exception):
     pass
+
+
+class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
+    def submit(self, f, *args, **kwargs):
+        return super(ThreadPoolExecutorStackTraced, self).submit(self._function_wrapper, f, *args, **kwargs)
+
+    @staticmethod
+    def _function_wrapper(fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            LOGGER.error(traceback.format_exc())
+            raise e
 
 
 def exec_command(command, shell="/bin/bash", pass_to_stdin=None):
@@ -74,11 +91,22 @@ def set_thread_name(name):
     threading.current_thread().name = name
 
 
+def to_camel_case(name):
+    return re.sub(
+            r"([^A-Za-z0-9])*", "",
+            (re.sub(r"([A-Za-z0-9])+", lambda m: m.group(0).capitalize(), name))
+    )
+
+
 def to_lower_dashed(name):
     return re.sub(
             "([a-z0-9])([A-Z])", r"\1-\2",
             re.sub("(.)([A-Z][a-z]+)", r"\1-\2", name)
     ).lower().replace("_", "-")
+
+
+def create_action_id(action):
+    return "LOCAL.{0}.{1}".format(action.upper(), uuid.uuid4())
 
 
 def synchronized(f):

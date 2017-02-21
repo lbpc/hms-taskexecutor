@@ -1,3 +1,1 @@
-{
-  "test/test_listener.py::TestAMQPListener::test_take_event": true
-}
+{}

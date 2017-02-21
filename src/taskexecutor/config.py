@@ -31,6 +31,10 @@ class __Config:
             LOGGER.warning("There is no SPRING_PROFILES_ACTIVE env variable set, falling back to 'dev' profile")
             self.profile = "dev"
         self._amqp_host = os.environ["SPRING_RABBITMQ_HOST"]
+        if "APIGW_HOST" in os.environ.keys():
+            self.apigw["host"] = os.environ["APIGW_HOST"]
+        if "APIGW_PORT" in os.environ.keys():
+            self.apigw["port"] = os.environ["APIGW_PORT"]
 
     def _fetch_remote_properties(self):
         LOGGER.info("Fetching properties from config server")

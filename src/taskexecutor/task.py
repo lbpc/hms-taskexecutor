@@ -1,3 +1,6 @@
+import collections
+
+
 class PropertyValidationError(Exception):
     pass
 
@@ -69,8 +72,8 @@ class Task:
 
     @params.setter
     def params(self, value):
-        if type(value) != dict:
-            raise PropertyValidationError("params must be dict")
+        if not isinstance(value, collections.Mapping):
+            raise PropertyValidationError("params must be mapping")
         self._params = value
 
     @params.deleter

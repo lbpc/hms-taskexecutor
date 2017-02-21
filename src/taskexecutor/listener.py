@@ -3,9 +3,12 @@ import json
 import abc
 import itertools
 import pika
+import time
+import schedule
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.executor
+import taskexecutor.constructor
 import taskexecutor.task
 import taskexecutor.utils
 
@@ -44,7 +47,7 @@ class Listener(metaclass=abc.ABCMeta):
 
 class AMQPListener(Listener):
     def __init__(self):
-        self._futures_tags_map = dict()
+        self._futures_tags_mapping = dict()
         self._exchange_list = list(itertools.product(CONFIG.enabled_resources, ("create", "update", "delete")))
         self._connection = None
         self._channel = None
@@ -171,12 +174,11 @@ class AMQPListener(Listener):
         taskexecutor.utils.set_thread_name("AMQPListener")
         self._connection = self._connect()
         while not self._connection.ioloop._stopping:
-            for future, tag in self._futures_tags_map.copy().items():
+            for future, tag in self._futures_tags_mapping.copy().items():
                 if not future.running():
                     if future.exception():
-                        LOGGER.error(future.exception())
                         self._reject_message(tag)
-                    del self._futures_tags_map[future]
+                    del self._futures_tags_mapping[future]
             self._connection.ioloop.poll()
             self._connection.ioloop.process_timeouts()
 
@@ -191,7 +193,7 @@ class AMQPListener(Listener):
                                 context["action"],
                                 message["params"])
         future = self.pass_task(task=task, callback=self.acknowledge_message, args=(context["delivery_tag"],))
-        self._futures_tags_map[future] = context["delivery_tag"]
+        self._futures_tags_mapping[future] = context["delivery_tag"]
 
     def create_task(self, opid, actid, res_type, action, params):
         taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0} ACTION IDENTITY: {1}".format(opid, actid))
@@ -201,9 +203,10 @@ class AMQPListener(Listener):
         return task
 
     def pass_task(self, task, callback, args):
-        executors = taskexecutor.executor.Executors()
+        constructor = taskexecutor.constructor.Constructor()
+        executors_pool = constructor.get_command_executors_pool()
         executor = taskexecutor.executor.Executor(task, callback, args)
-        return executors.pool.submit(executor.process_task)
+        return executors_pool.submit(executor.process_task)
 
     def stop(self):
         self._closing = True
@@ -211,9 +214,59 @@ class AMQPListener(Listener):
         return not self._connection
 
 
+class TimeListener(Listener):
+    def __init__(self):
+        self._stopping = False
+        self._futures = list()
+
+    def _schedule(self):
+        for action, res_types in vars(CONFIG.schedule).items():
+            for res_type, params in vars(res_types).items():
+                res_type = taskexecutor.utils.to_lower_dashed(res_type)
+                if res_type in CONFIG.enabled_resources:
+                    context = {"res_type": res_type, "action": action}
+                    message = {"params": params}
+                    job = schedule.every(params.interval).seconds.do(self.take_event, context, message)
+                    LOGGER.info(job)
+
+    def listen(self):
+        taskexecutor.utils.set_thread_name("TimeListener")
+        self._schedule()
+        while not self._stopping:
+            for future in self._futures:
+                if not future.running():
+                    self._futures.remove(future)
+            schedule.run_pending()
+            if schedule.jobs and not self._stopping:
+                time.sleep(abs(schedule.idle_seconds()))
+            else:
+                time.sleep(.1)
+
+    def take_event(self, context, message):
+        action_id = taskexecutor.utils.create_action_id("{0}.{1}".format(context["res_type"], context["action"]))
+        task = self.create_task(None, action_id, context["res_type"], context["action"], message["params"])
+        self._futures.append(self.pass_task(task=task, callback=None, args=None))
+
+    def create_task(self, opid, actid, res_type, action, params):
+        task = taskexecutor.task.Task(opid, actid, res_type, action, dict(vars(params)))
+        LOGGER.info("New task created from locally scheduled event: {}".format(task))
+        return task
+
+    def pass_task(self, task, callback, args):
+        constructor = taskexecutor.constructor.Constructor()
+        executors_pool = constructor.get_query_executors_pool()
+        executor = taskexecutor.executor.Executor(task)
+        return executors_pool.submit(executor.process_task)
+
+    def stop(self):
+        schedule.clear()
+        self._stopping = True
+
+
 class Builder:
     def __new__(cls, listener_type):
-        if listener_type == "amqp":
-            return AMQPListener
-        else:
+        ListenerClass = {"amqp": AMQPListener,
+                         "time": TimeListener}.get(listener_type)
+        if not ListenerClass:
             raise BuilderTypeError("Unknown Listener type: {}".format(listener_type))
+        return ListenerClass
