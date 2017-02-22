@@ -392,6 +392,13 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
             ()
         ))
 
+    def get_database_dump_stream(self, name):
+        stdout, stderr = taskexecutor.utils.exec_command(
+            "mysqldump -h{0.address} -P{0.port} "
+            "-u{1.user} -p{1.password} {2}".format(self.socket.mysql, CONFIG.mysql, name), return_raw_streams=True
+        )
+        return stdout, stderr
+
 
 class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     def __init__(self, name):
@@ -564,6 +571,13 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         databases = [row[0] for row in
                      self.dbclient.execute_query("SELECT datname FROM pg_database WHERE datistemplate=false", ())]
         return {database: self.get_database_size(database) for database in databases}
+
+    def get_database_dump_stream(self, name):
+        stdout, stderr = taskexecutor.utils.exec_command(
+                "pg_dump --host {0.address} --port {0.port} --user {1.user} --password {1.password} "
+                "{2}".format(self.socket.psql, CONFIG.postgresql, name), return_raw_streams=True
+        )
+        return stdout, stderr
 
 
 class Builder:

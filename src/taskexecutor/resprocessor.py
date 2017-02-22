@@ -8,6 +8,7 @@ import time
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.constructor
+import taskexecutor.ftpclient
 import taskexecutor.httpsclient
 import taskexecutor.opservice
 import taskexecutor.utils
@@ -16,6 +17,10 @@ __all__ = ["Builder"]
 
 
 class BuilderTypeError(Exception):
+    pass
+
+
+class ResourceProcessingError(Exception):
     pass
 
 
@@ -439,6 +444,53 @@ class ServiceProcessor(ResProcessor):
         pass
 
 
+class WebsiteArchiveProcessor(ResProcessor):
+    def create(self):
+        ftp = taskexecutor.ftpclient.FTPClient(**CONFIG.ftp._asdict())
+        LOGGER.info("Archiving {}".format(os.path.join(self.resource.website.unixAccount.homeDir,
+                                                       self.resource.website.documentRoot)))
+        cmd = "cd {0} && tar czf - {1}".format(self.resource.website.unixAccount.homeDir,
+                                               self.resource.website.documentRoot)
+        stdout, stderr = taskexecutor.utils.exec_command(cmd, return_raw_streams=True)
+        LOGGER.info("Uploading {0} archive to {1} as {2}".format(os.path.join(self.resource.website.unixAccount.homeDir,
+                                                                              self.resource.website.documentRoot),
+                                                                 CONFIG.ftp.host, self.resource.outputFileName))
+        ftp.upload(stdout, self.resource.outputFileName)
+        error = stderr.read().decode("UTF-8")
+        if error:
+            raise ResourceProcessingError("Failed to archive website document root {0}: "
+                                          "{1}".format(self.resource.website.documentRoot, error))
+
+    def update(self):
+        self.create()
+
+    def delete(self):
+        ftp = taskexecutor.ftpclient.FTPClient(**CONFIG.ftp._asdict())
+        LOGGER.info("Deleting {0} file at {1}".format(self.resource.outputFileName, CONFIG.ftp.host))
+        ftp.delete(self.resource.outputFileName)
+
+
+class DatabaseArchiveProcessor(ResProcessor):
+    def create(self):
+        ftp = taskexecutor.ftpclient.FTPClient(**CONFIG.ftp._asdict())
+        LOGGER.info("Dumping databse {}".format(self.resource.database.name))
+        dump_stream, error_stream = self.service.get_database_dump_stream(self.resource.database.name)
+        LOGGER.info("Uploading database {0} dump "
+                    "to {1} as {2}".format(self.resource.database.name, CONFIG.ftp.host, self.resource.outputFileName))
+        ftp.upload(dump_stream, self.resource.outputFileName)
+        error = error_stream.read().decode("UTF-8")
+        if error:
+            raise ResourceProcessingError("Failed to dump database {0}: {1}".format(self.resource.database.name, error))
+
+    def update(self):
+        self.create()
+
+    def delete(self):
+        ftp = taskexecutor.ftpclient.FTPClient(**CONFIG.ftp._asdict())
+        LOGGER.info("Deleting {0} file at {1}".format(self.resource.outputFileName, CONFIG.ftp.host))
+        ftp.delete(self.resource.outputFileName)
+
+
 class Builder:
     def __new__(cls, res_type):
         ResProcessorClass = {"service": ServiceProcessor,
@@ -447,7 +499,9 @@ class Builder:
                              "database": DatabaseProcessor,
                              "website": WebSiteProcessor if sys.platform != "freebsd9" else WebSiteProcessorFreeBsd,
                              "sslcertificate": SSLCertificateProcessor,
-                             "mailbox": MailboxProcessor}.get(res_type)
+                             "mailbox": MailboxProcessor,
+                             "website-archive": WebsiteArchiveProcessor,
+                             "database-archive": DatabaseArchiveProcessor}.get(res_type)
         if not ResProcessorClass:
             raise BuilderTypeError("Unknown resource type: {}".format(res_type))
         return ResProcessorClass

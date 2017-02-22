@@ -28,22 +28,19 @@ class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
             raise e
 
 
-def exec_command(command, shell="/bin/bash", pass_to_stdin=None):
+def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_streams=False):
     LOGGER.info("Running shell command: {}".format(command))
-    with subprocess.Popen(command,
-                          stdin=subprocess.PIPE,
-                          stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE,
-                          shell=True,
-                          executable=shell) as proc:
-        if pass_to_stdin:
-            stdout, stderr = proc.communicate(input=pass_to_stdin.encode("UTF-8"))
-        else:
-            stdout, stderr = proc.communicate()
-        ret_code = proc.returncode
+    proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            shell=True, executable=shell)
+    if return_raw_streams:
+        return proc.stdout, proc.stderr
+    if pass_to_stdin:
+        stdout, stderr = proc.communicate(input=pass_to_stdin.encode("UTF-8"))
+    else:
+        stdout, stderr = proc.communicate()
+    ret_code = proc.returncode
     if ret_code != 0:
-        LOGGER.error(
-                "Command '{0}' returned {1} code".format(command, ret_code))
+        LOGGER.error("Command '{0}' returned {1} code".format(command, ret_code))
         if stderr:
             LOGGER.error("STDERR: {}".format(stderr.decode("UTF-8")))
         raise CommandExecutionError("Failed to execute command '{}'".format(command))

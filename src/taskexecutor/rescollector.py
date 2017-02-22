@@ -218,6 +218,16 @@ class ServiceCollector(ResCollector):
             return "{0}@{1}".format(self.service.name, CONFIG.hostname)
 
 
+class WebsiteArchiveCollector(ResCollector):
+    def get_property(self, property_name, cache_ttl=0):
+        return
+
+
+class DatabaseArchiveCollector(ResCollector):
+    def get_property(self, property_name, cache_ttl=0):
+        return
+
+
 class Builder:
     def __new__(cls, res_type):
         ResCollectorClass = {"unix-account": UnixAccountCollector,
@@ -226,7 +236,9 @@ class Builder:
                              "mailbox": MailboxCollector,
                              "website": WebsiteCollector,
                              "sslcertificate": SSLCertificateCollector,
-                             "service": ServiceCollector}.get(res_type)
+                             "service": ServiceCollector,
+                             "website-archive": WebsiteArchiveCollector,
+                             "database-archive": DatabaseArchiveCollector}.get(res_type)
         if not ResCollectorClass:
             raise BuilderTypeError("Unknown resource type: {}".format(res_type))
         return ResCollectorClass
