@@ -1,6 +1,7 @@
 import io
 import ftplib
 
+
 class FTPClient:
     def __init__(self, host, user, password):
         self._host = host
@@ -33,6 +34,3 @@ class FTPClient:
     def delete(self, remote_filename):
         self._test_connection()
         self._server.delete(remote_filename)
-
-
-

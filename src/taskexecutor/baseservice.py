@@ -233,10 +233,6 @@ class DatabaseServer(ConfigurableService, NetworkingService, ArchivableService, 
         pass
 
     @abc.abstractmethod
-    def get_database_dump_stream(self, name):
-        pass
-
-    @abc.abstractmethod
     def allow_database_access(self, database_name, user_name, addrs_list):
         pass
 
