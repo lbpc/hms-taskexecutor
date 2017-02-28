@@ -218,12 +218,7 @@ class ServiceCollector(ResCollector):
             return "{0}@{1}".format(self.service.name, CONFIG.hostname)
 
 
-class WebsiteArchiveCollector(ResCollector):
-    def get_property(self, property_name, cache_ttl=0):
-        return
-
-
-class DatabaseArchiveCollector(ResCollector):
+class ResourceArchiveCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
         return
 
@@ -237,8 +232,7 @@ class Builder:
                              "website": WebsiteCollector,
                              "sslcertificate": SSLCertificateCollector,
                              "service": ServiceCollector,
-                             "website-archive": WebsiteArchiveCollector,
-                             "database-archive": DatabaseArchiveCollector}.get(res_type)
+                             "website-archive": ResourceArchiveCollector}.get(res_type)
         if not ResCollectorClass:
             raise BuilderTypeError("Unknown resource type: {}".format(res_type))
         return ResCollectorClass
