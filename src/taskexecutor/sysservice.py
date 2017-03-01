@@ -262,7 +262,7 @@ class Builder:
     def __new__(cls, service_type):
         SysServiceClass = {service_type == "LINUX_USER_MANAGER": LinuxUserManager,
                            service_type == "FREEBSD9_USER_MANAGER": FreebsdUserManager,
-                           service_type.startswith("MAILDIR_"): MaildirManager}.get(True)
+                           service_type.split("_")[1] == "MAILDIR": MaildirManager}.get(True)
         if not SysServiceClass:
             raise BuilderTypeError("Unknown SysService type: {}".format(service_type))
         return SysServiceClass
