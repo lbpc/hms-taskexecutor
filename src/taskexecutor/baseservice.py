@@ -7,6 +7,7 @@ import re
 from taskexecutor.config import CONFIG
 import taskexecutor.constructor
 import taskexecutor.httpsclient
+import taskexecutor.utils
 
 
 class ConfigConstructionError(Exception):
@@ -169,7 +170,13 @@ class WebServer(ConfigurableService, NetworkingService):
                                         config_type="website")
 
 
-class ApplicationServer:
+class ArchivableService(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def get_archive_stream(self, source):
+        pass
+
+
+class ApplicationServer(ArchivableService):
     @property
     def interpreter(self):
         if not hasattr(self, "name") or not self.name or "-" not in self.name:
@@ -182,8 +189,12 @@ class ApplicationServer:
         Interpreter = collections.namedtuple("Interpreter", "name version_major version_minor suffix")
         return Interpreter(name, version_major, version_minor, suffix)
 
+    def get_archive_stream(self, source):
+        stdout, stderr = taskexecutor.utils.exec_command("tar czf - {}".format(source), return_raw_streams=True)
+        return stdout, stderr
 
-class DatabaseServer(ConfigurableService, NetworkingService, metaclass=abc.ABCMeta):
+
+class DatabaseServer(ConfigurableService, NetworkingService, ArchivableService, metaclass=abc.ABCMeta):
     def __init__(self):
         ConfigurableService.__init__(self)
         NetworkingService.__init__(self)

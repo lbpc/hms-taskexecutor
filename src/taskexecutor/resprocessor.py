@@ -4,10 +4,12 @@ import sys
 import abc
 import collections
 import time
+import urllib.parse
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.constructor
+import taskexecutor.ftpclient
 import taskexecutor.httpsclient
 import taskexecutor.opservice
 import taskexecutor.utils
@@ -16,6 +18,10 @@ __all__ = ["Builder"]
 
 
 class BuilderTypeError(Exception):
+    pass
+
+
+class ResourceProcessingError(Exception):
     pass
 
 
@@ -439,6 +445,34 @@ class ServiceProcessor(ResProcessor):
         pass
 
 
+class ResourceArchiveProcessor(ResProcessor):
+    def __init__(self, resource, service, params):
+        super().__init__(resource, service, params)
+        self._archive_storage = taskexecutor.ftpclient.FTPClient(**CONFIG.ftp._asdict())
+        self._archive_filename = urllib.parse.urlparse(self.resource.fileLink).path.lstrip("/")
+
+    def create(self):
+        archive_source = {"WEBSITE": os.path.join(self.resource.resource.unixAccount.homeDir,
+                                                  self.resource.resource.documentRoot),
+                          "DATABASE": self.resource.resource.name}[self.resource.resourceType]
+        LOGGER.info("Archiving {0} {1}".format(self.resource.resourceType.lower(), archive_source))
+        data_stream, error_stream = self.service.get_archive_stream(archive_source)
+        LOGGER.info("Uploading {0} archive "
+                    "to {1} as {2}".format(archive_source, self._archive_storage.host, self._archive_filename))
+        self._archive_storage.upload(data_stream, self._archive_filename)
+        error = error_stream.read().decode("UTF-8")
+        if error:
+            raise ResourceProcessingError("Failed to archive {0} {1}: "
+                                          "{2}".format(self.resource.resourceType.lower(), archive_source, error))
+
+    def update(self):
+        self.create()
+
+    def delete(self):
+        LOGGER.info("Deleting {0} file at {1}".format(self._archive_filename, self._archive_storage.host))
+        self._archive_storage.delete(self._archive_filename)
+
+
 class Builder:
     def __new__(cls, res_type):
         ResProcessorClass = {"service": ServiceProcessor,
@@ -447,7 +481,8 @@ class Builder:
                              "database": DatabaseProcessor,
                              "website": WebSiteProcessor if sys.platform != "freebsd9" else WebSiteProcessorFreeBsd,
                              "sslcertificate": SSLCertificateProcessor,
-                             "mailbox": MailboxProcessor}.get(res_type)
+                             "mailbox": MailboxProcessor,
+                             "resource-archive": ResourceArchiveProcessor}.get(res_type)
         if not ResProcessorClass:
             raise BuilderTypeError("Unknown resource type: {}".format(res_type))
         return ResProcessorClass
