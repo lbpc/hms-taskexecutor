@@ -232,7 +232,7 @@ class Builder:
                              "website": WebsiteCollector,
                              "sslcertificate": SSLCertificateCollector,
                              "service": ServiceCollector,
-                             "website-archive": ResourceArchiveCollector}.get(res_type)
+                             "resource-archive": ResourceArchiveCollector}.get(res_type)
         if not ResCollectorClass:
             raise BuilderTypeError("Unknown resource type: {}".format(res_type))
         return ResCollectorClass
