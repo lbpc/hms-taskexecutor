@@ -200,7 +200,7 @@ class WebsiteCollector(ResCollector):
         if property_name == "serviceId":
             constructor = taskexecutor.constructor.Constructor()
             for service in CONFIG.localserver.services:
-                if service.serviceType.name.startswith("WEBSITE_"):
+                if service.serviceTemplate.serviceType.name.startswith("WEBSITE_"):
                     app_server = constructor.get_opservice(service)
                     config = app_server.get_website_config(self.resource.id)
                     if config.exists:

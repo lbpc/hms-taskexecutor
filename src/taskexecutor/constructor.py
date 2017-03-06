@@ -31,8 +31,8 @@ class Constructor:
     def get_opservice(self, service_api_obj):
         service = Constructor.__service_id_opservice_mapping.get(service_api_obj.id)
         if not service:
-            OpService = taskexecutor.opservice.Builder(service_api_obj.serviceType.name)
-            service_name = "-".join(service_api_obj.serviceType.name.lower().split("_")[1:])
+            OpService = taskexecutor.opservice.Builder(service_api_obj.serviceTemplate.serviceType.name)
+            service_name = "-".join(service_api_obj.serviceTemplate.serviceType.name.lower().split("_")[1:])
             service = OpService(service_name)
             if isinstance(service, taskexecutor.baseservice.NetworkingService):
                 LOGGER.debug("{} is networking service".format(service_name))
@@ -57,7 +57,7 @@ class Constructor:
             if not service:
                 with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
                     service = self.get_opservice(api.Service(resource.serviceId).get())
-        elif hasattr(resource, "serviceType"):
+        elif hasattr(resource, "serviceTemplate"):
             service = self.get_opservice(resource)
         else:
             raise OpServiceNotFound("Cannot find operational service for given "
@@ -66,13 +66,13 @@ class Constructor:
 
     def get_all_opservices_by_res_type(self, resource_type):
         return [self.get_opservice(local_service) for local_service in CONFIG.localserver.services
-                if local_service.serviceType.name.split("_")[0] == resource_type.upper()]
+                if local_service.serviceTemplate.serviceType.name.split("_")[0] == resource_type.upper()]
 
     def get_extra_services(self, res_processor):
         extra_services = {}
         if isinstance(res_processor, taskexecutor.resprocessor.WebSiteProcessor):
             for local_service in CONFIG.localserver.services:
-                if local_service.serviceType.name == "STAFF_NGINX":
+                if local_service.serviceTemplate.serviceType.name == "STAFF_NGINX":
                     nginx = self.get_opservice(local_service)
                     extra_services["http_proxy"] = nginx
                     break

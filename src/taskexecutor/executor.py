@@ -84,7 +84,7 @@ class Executor:
             elif self.task.res_type == "database":
                 resources = list()
                 for service in CONFIG.localserver.services:
-                    if service.serviceType.name.startswith("DATABASE_"):
+                    if service.serviceTemplate.serviceType.name.startswith("DATABASE_"):
                         resources += api.Database().filter(serviceId=service.id).get()
                 return resources
 

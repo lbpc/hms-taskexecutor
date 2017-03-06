@@ -70,15 +70,16 @@ class AMQPListener(Listener):
         self._connection.add_on_close_callback(self._on_connection_closed)
 
     def _on_connection_closed(self, unused_connection, unused_reply_code, unused_reply_text):
-        self._channel = None
         if self._closing:
             self._connection.ioloop._stopping = True
         else:
             self._connection.add_timeout(CONFIG.amqp.connection_timeout, self._reconnect)
+            self._reconnect()
 
     def _reconnect(self):
-        self._connection.ioloop._stopping = True
         if not self._closing:
+            del self._connection
+            time.sleep(CONFIG.amqp.connection_timeout)
             self.listen()
 
     def _open_channel(self):
@@ -152,10 +153,12 @@ class AMQPListener(Listener):
         self.take_event(context, body)
 
     def acknowledge_message(self, delivery_tag):
-        self._channel.basic_ack(delivery_tag)
+        if self._connection:
+            self._channel.basic_ack(delivery_tag)
 
     def _reject_message(self, delivery_tag):
-        self._channel.basic_nack(delivery_tag)
+        if self._connection:
+            self._channel.basic_nack(delivery_tag)
 
     def _stop_consuming(self):
         if self._channel:
@@ -237,10 +240,10 @@ class TimeListener(Listener):
                 if not future.running():
                     self._futures.remove(future)
             schedule.run_pending()
-            if schedule.jobs and not self._stopping:
-                time.sleep(abs(schedule.idle_seconds()))
-            else:
-                time.sleep(.1)
+            sleep_interval = abs(schedule.idle_seconds()) if schedule.jobs else 10
+            if not self._stopping:
+                LOGGER.debug("Sleeping for {} s".format(sleep_interval))
+                time.sleep(sleep_interval)
 
     def take_event(self, context, message):
         action_id = taskexecutor.utils.create_action_id("{0}.{1}".format(context["res_type"], context["action"]))
