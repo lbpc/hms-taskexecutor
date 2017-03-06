@@ -392,7 +392,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
             ()
         ))
 
-    def get_archive_stream(self, source):
+    def get_archive_stream(self, source, params={}):
         stdout, stderr = taskexecutor.utils.exec_command(
                 "mysqldump -h{0.address} -P{0.port} "
                 "-u{1.user} -p{1.password} {2} | gzip -9c".format(self.socket.mysql, CONFIG.mysql, source),
@@ -573,7 +573,7 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                      self.dbclient.execute_query("SELECT datname FROM pg_database WHERE datistemplate=false", ())]
         return {database: self.get_database_size(database) for database in databases}
 
-    def get_archive_stream(self, source):
+    def get_archive_stream(self, source, params={}):
         stdout, stderr = taskexecutor.utils.exec_command(
                 "pg_dump --host {0.address} --port {0.port} --user {1.user} --password {1.password} "
                 "{2} | gzip -9c".format(self.socket.psql, CONFIG.postgresql, source), return_raw_streams=True

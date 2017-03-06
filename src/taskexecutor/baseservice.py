@@ -172,7 +172,7 @@ class WebServer(ConfigurableService, NetworkingService):
 
 class ArchivableService(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def get_archive_stream(self, source):
+    def get_archive_stream(self, source, params={}):
         pass
 
 
@@ -189,8 +189,9 @@ class ApplicationServer(ArchivableService):
         Interpreter = collections.namedtuple("Interpreter", "name version_major version_minor suffix")
         return Interpreter(name, version_major, version_minor, suffix)
 
-    def get_archive_stream(self, source):
-        stdout, stderr = taskexecutor.utils.exec_command("tar czf - {}".format(source), return_raw_streams=True)
+    def get_archive_stream(self, source, params={}):
+        stdout, stderr = taskexecutor.utils.exec_command("tar czf - -C {0} {1}".format(params.get("basedir"), source),
+                                                         return_raw_streams=True)
         return stdout, stderr
 
 
