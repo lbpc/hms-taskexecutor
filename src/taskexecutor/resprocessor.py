@@ -21,6 +21,10 @@ class BuilderTypeError(Exception):
     pass
 
 
+class ResourceValidationError(Exception):
+    pass
+
+
 class ResourceProcessingError(Exception):
     pass
 
@@ -452,11 +456,13 @@ class ResourceArchiveProcessor(ResProcessor):
         self._archive_filename = urllib.parse.urlparse(self.resource.fileLink).path.lstrip("/")
 
     def create(self):
-        archive_source = {"WEBSITE": os.path.join(self.resource.resource.unixAccount.homeDir,
-                                                  self.resource.resource.documentRoot),
-                          "DATABASE": self.resource.resource.name}[self.resource.resourceType]
+        archive_source = {"WEBSITE": self.resource.resource.documentRoot,
+                          "DATABASE": self.resource.resource.name}.get(self.resource.resourceType)
+        if not archive_source:
+            raise ResourceValidationError("Unknown resource type: {}".format(self.resource.resourceType))
+        params = {"WEBSITE": {"basedir": self.resource.resource.unixAccount.homeDir}}.get(self.resource.resourceType)
         LOGGER.info("Archiving {0} {1}".format(self.resource.resourceType.lower(), archive_source))
-        data_stream, error_stream = self.service.get_archive_stream(archive_source)
+        data_stream, error_stream = self.service.get_archive_stream(archive_source, params=params)
         LOGGER.info("Uploading {0} archive "
                     "to {1} as {2}".format(archive_source, self._archive_storage.host, self._archive_filename))
         self._archive_storage.upload(data_stream, self._archive_filename)
