@@ -57,20 +57,14 @@ class __Config:
             self.localserver = result[0]
 
     def _declare_enabled_resources(self):
+        if not hasattr(self, "role"):
+            raise PropertyValidationError("No role descriptions found")
         enabled_resources = list()
-        resource_to_server_role_mapping = {"shared-hosting": ["service",
-                                                              "unix-account",
-                                                              "database-user",
-                                                              "database",
-                                                              "website",
-                                                              "sslcertificate"],
-                                           "mail-storage": ["mailbox"],
-                                           "mail-exchanger": ["mailbox"],
-                                           "mail-checker": ["mailbox"],
-                                           "database-server": ["database-user",
-                                                               "database"]}
         for server_role in self.localserver.serverRoles:
-            enabled_resources.extend(resource_to_server_role_mapping[server_role.name])
+            server_role_attr = server_role.name.replace("-", "_")
+            if hasattr(self.role, server_role_attr):
+                config_role = getattr(self.role, server_role_attr)
+                enabled_resources.extend(config_role.resources)
         self.enabled_resources = set(enabled_resources)
         LOGGER.info("Server roles: {0}, "
                     "manageable resources: {1}".format(self.localserver.serverRoles, enabled_resources))
