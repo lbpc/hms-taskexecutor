@@ -460,7 +460,7 @@ class ResourceArchiveProcessor(ResProcessor):
                           "DATABASE": self.resource.resource.name}.get(self.resource.resourceType)
         if not archive_source:
             raise ResourceValidationError("Unknown resource type: {}".format(self.resource.resourceType))
-        params = {"WEBSITE": {"basedir": self.resource.unixAccount.homeDir}}.get(self.resource.resourceType)
+        params = {"WEBSITE": {"basedir": self.resource.resource.unixAccount.homeDir}}.get(self.resource.resourceType)
         LOGGER.info("Archiving {0} {1}".format(self.resource.resourceType.lower(), archive_source))
         data_stream, error_stream = self.service.get_archive_stream(archive_source, params=params)
         LOGGER.info("Uploading {0} archive "
