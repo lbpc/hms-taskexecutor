@@ -64,7 +64,10 @@ class __Config:
             server_role_attr = server_role.name.replace("-", "_")
             if hasattr(self.role, server_role_attr):
                 config_role = getattr(self.role, server_role_attr)
-                enabled_resources.extend(config_role.resources)
+                if isinstance(config_role.resources, list):
+                    enabled_resources.extend(config_role.resources)
+                else:
+                    enabled_resources.append(config_role.resources)
         self.enabled_resources = set(enabled_resources)
         LOGGER.info("Server roles: {0}, "
                     "manageable resources: {1}".format(self.localserver.serverRoles, enabled_resources))
