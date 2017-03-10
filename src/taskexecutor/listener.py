@@ -6,9 +6,9 @@ import pika
 import time
 import schedule
 from taskexecutor.config import CONFIG
+from taskexecutor.constructor import CONSTRUCTOR
 from taskexecutor.logger import LOGGER
 import taskexecutor.executor
-import taskexecutor.constructor
 import taskexecutor.task
 import taskexecutor.utils
 
@@ -206,8 +206,7 @@ class AMQPListener(Listener):
         return task
 
     def pass_task(self, task, callback, args):
-        constructor = taskexecutor.constructor.Constructor()
-        executors_pool = constructor.get_command_executors_pool()
+        executors_pool = CONSTRUCTOR.get_command_executors_pool()
         executor = taskexecutor.executor.Executor(task, callback, args)
         return executors_pool.submit(executor.process_task)
 
@@ -238,7 +237,7 @@ class TimeListener(Listener):
         while not self._stopping:
             for future in self._futures:
                 if not future.running():
-                    self._futures.remove(future)
+                    del self._futures[future]
             schedule.run_pending()
             sleep_interval = abs(schedule.idle_seconds()) if schedule.jobs else 10
             if not self._stopping:
@@ -256,8 +255,7 @@ class TimeListener(Listener):
         return task
 
     def pass_task(self, task, callback, args):
-        constructor = taskexecutor.constructor.Constructor()
-        executors_pool = constructor.get_query_executors_pool()
+        executors_pool = CONSTRUCTOR.get_query_executors_pool()
         executor = taskexecutor.executor.Executor(task)
         return executors_pool.submit(executor.process_task)
 

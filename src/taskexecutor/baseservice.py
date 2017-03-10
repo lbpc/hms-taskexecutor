@@ -5,7 +5,7 @@ import os
 import re
 
 from taskexecutor.config import CONFIG
-import taskexecutor.constructor
+from taskexecutor.constructor import CONSTRUCTOR
 import taskexecutor.httpsclient
 import taskexecutor.utils
 
@@ -65,8 +65,7 @@ class ConfigurableService:
             self.add_concrete_config(path)
 
     def get_abstract_config(self, template_name, path, config_type="templated"):
-        constructor = taskexecutor.constructor.Constructor()
-        config = constructor.get_conffile(config_type, self.construct_path(path))
+        config = CONSTRUCTOR.get_conffile(config_type, self.construct_path(path))
         template_source = self.get_template_source(template_name)
         if not template_source:
             raise ConfigConstructionError("No '{0}' config defined for service {1}".format(template_name, self))
@@ -80,8 +79,7 @@ class ConfigurableService:
         self._template_sources_map[name] = value
 
     def add_concrete_config(self, path):
-        constructor = taskexecutor.constructor.Constructor()
-        config = constructor.get_conffile("templated", self.construct_path(path))
+        config = CONSTRUCTOR.get_conffile("templated", self.construct_path(path))
         self._concrete_configs_set.add(config)
 
     def get_concrete_configs_set(self):

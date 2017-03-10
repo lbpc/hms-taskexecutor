@@ -127,3 +127,6 @@ class Constructor:
             Constructor.__query_executors_pool = \
                 taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.query)
         return Constructor.__query_executors_pool
+
+
+CONSTRUCTOR = Constructor()

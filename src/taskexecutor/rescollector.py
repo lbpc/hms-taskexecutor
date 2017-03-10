@@ -4,9 +4,9 @@ import os
 import time
 
 from taskexecutor.logger import LOGGER
+from taskexecutor.constructor import CONSTRUCTOR
 from taskexecutor.config import CONFIG
 
-import taskexecutor.constructor
 import taskexecutor.utils
 
 __all__ = ["Builder"]
@@ -115,7 +115,7 @@ class UnixAccountCollector(ResCollector):
                 self.add_property_to_cache(self.get_cache_key(property_name, uid), quota_used_bytes)
             return uid_quota_used_mapping.get(self.resource.uid)
         else:
-            etc_passwd = taskexecutor.constructor.Constructor().get_conffile("lines", "/etc/passwd")
+            etc_passwd = CONSTRUCTOR.get_conffile("lines", "/etc/passwd")
             matched_lines = etc_passwd.get_lines("^{}:".format(self.resource.name))
             if len(matched_lines) != 1:
                 LOGGER.warning("Cannot determine user {0}, "
@@ -198,10 +198,9 @@ class DatabaseCollector(ResCollector):
 class WebsiteCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
         if property_name == "serviceId":
-            constructor = taskexecutor.constructor.Constructor()
             for service in CONFIG.localserver.services:
                 if service.serviceTemplate.serviceType.name.startswith("WEBSITE_"):
-                    app_server = constructor.get_opservice(service)
+                    app_server = CONSTRUCTOR.get_opservice(service)
                     config = app_server.get_website_config(self.resource.id)
                     if config.exists:
                         return service.id

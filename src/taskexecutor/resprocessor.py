@@ -7,8 +7,8 @@ import time
 import urllib.parse
 
 from taskexecutor.config import CONFIG
+from taskexecutor.constructor import CONSTRUCTOR
 from taskexecutor.logger import LOGGER
-import taskexecutor.constructor
 import taskexecutor.ftpclient
 import taskexecutor.httpsclient
 import taskexecutor.opservice
@@ -256,9 +256,8 @@ class SSLCertificateProcessor(ResProcessor):
         super().__init__(resource, service, params)
         cert_file_path = os.path.join(CONFIG.nginx.ssl_certs_path, "{0.name}.pem".format(self.resource))
         key_file_path = os.path.join(CONFIG.nginx.ssl_certs_path, "{0.name}.key".format(self.resource))
-        constructor = taskexecutor.constructor.Constructor()
-        self._cert_file = constructor.get_conffile("basic", cert_file_path)
-        self._key_file = constructor.get_conffile("basic", key_file_path)
+        self._cert_file = CONSTRUCTOR.get_conffile("basic", cert_file_path)
+        self._key_file = CONSTRUCTOR.get_conffile("basic", key_file_path)
 
     @taskexecutor.utils.synchronized
     def create(self):
@@ -323,10 +322,6 @@ class DatabaseUserProcessor(ResProcessor):
 
 
 class DatabaseProcessor(ResProcessor):
-    def __init__(self, resource, service, params):
-        super().__init__(resource, service, params)
-        self._constructor = taskexecutor.constructor.Constructor()
-
     def create(self):
         if not self.op_resource:
             LOGGER.info("Creating {0} database {1}".format(self.service.__class__.__name__, self.resource.name))
@@ -364,7 +359,7 @@ class DatabaseProcessor(ResProcessor):
                 for user in spare_users_list:
                     LOGGER.info("Granting access on {0} database {1} to "
                                 "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
-                    current_user = self._constructor.get_rescollector("database-user", user).get()
+                    current_user = CONSTRUCTOR.get_rescollector("database-user", user).get()
                     current_addrs_set = set(current_user.allowedIPAddresses)
                     staging_addrs_set = set(user.allowedIPAddresses)
                     addrs_set = self.service.normalize_addrs(list(staging_addrs_set.difference(current_addrs_set)))
@@ -430,7 +425,7 @@ class ServiceProcessor(ResProcessor):
         if isinstance(self.service, taskexecutor.opservice.Nginx):
             self._create_error_pages()
             self.params.update(
-                    app_servers=taskexecutor.constructor.Constructor().get_all_opservices_by_res_type("website")
+                    app_servers=CONSTRUCTOR.get_all_opservices_by_res_type("website")
             )
         configs = self.service.get_concrete_configs_set()
         for config in configs:

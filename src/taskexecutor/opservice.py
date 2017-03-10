@@ -5,9 +5,9 @@ import sys
 import ipaddress
 
 from taskexecutor.config import CONFIG
+from taskexecutor.constructor import CONSTRUCTOR
 from taskexecutor.logger import LOGGER
 import taskexecutor.baseservice
-import taskexecutor.constructor
 import taskexecutor.dbclient
 import taskexecutor.httpsclient
 import taskexecutor.utils
@@ -407,8 +407,7 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         SysVService.__init__(self, name)
         self.config_base_path = "/etc/postgresql/9.3/main"
         self._dbclient = None
-        constructor = taskexecutor.constructor.Constructor()
-        self._hba_conf = constructor.get_conffile("lines", os.path.join(self.config_base_path, "pg_hba.conf"))
+        self._hba_conf = CONSTRUCTOR.get_conffile("lines", os.path.join(self.config_base_path, "pg_hba.conf"))
         self._full_privileges = CONFIG.postgresql.common_privileges + CONFIG.postgresql.write_privileges
 
     @property
