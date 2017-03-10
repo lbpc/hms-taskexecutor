@@ -3,9 +3,9 @@ import os
 import shutil
 
 from taskexecutor.config import CONFIG
+from taskexecutor.constructor import CONSTRUCTOR
 from taskexecutor.logger import LOGGER
 import taskexecutor.baseservice
-import taskexecutor.constructor
 import taskexecutor.utils
 
 __all__ = ["Builder"]
@@ -83,8 +83,7 @@ class LinuxUserManager(UnixAccountManager):
         authorized_keys_path = os.path.join(ssh_dir, "authorized_keys")
         if not os.path.exists(ssh_dir):
             os.mkdir(ssh_dir, mode=0o700)
-        constructor = taskexecutor.constructor.Constructor()
-        authorized_keys = constructor.get_conffile("basic",
+        authorized_keys = CONSTRUCTOR.get_conffile("basic",
                                                    authorized_keys_path,
                                                    owner_uid=uid,
                                                    mode=0o400)
@@ -119,7 +118,6 @@ class LinuxUserManager(UnixAccountManager):
 class FreebsdUserManager(UnixAccountManager):
     def __init__(self):
         self._jail_id = int()
-        self._constructor = taskexecutor.constructor.Constructor()
 
     @property
     def jail_id(self):
@@ -178,8 +176,7 @@ class FreebsdUserManager(UnixAccountManager):
         authorized_keys_path = os.path.join(ssh_dir, "authorized_keys")
         if not os.path.exists(ssh_dir):
             os.mkdir(ssh_dir, mode=0o700)
-        constructor = taskexecutor.constructor.Constructor()
-        authorized_keys = constructor.get_conffile("basic",
+        authorized_keys = CONSTRUCTOR.get_conffile("basic",
                                                    authorized_keys_path,
                                                    owner_uid=uid,
                                                    mode=0o400)

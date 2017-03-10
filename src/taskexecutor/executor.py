@@ -3,8 +3,8 @@ import time
 import urllib.parse
 
 from taskexecutor.config import CONFIG
+from taskexecutor.constructor import CONSTRUCTOR
 from taskexecutor.logger import LOGGER
-import taskexecutor.constructor
 import taskexecutor.httpsclient
 import taskexecutor.task
 import taskexecutor.utils
@@ -115,33 +115,32 @@ class Executor:
 
     def process_task(self):
         taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0.opid} ACTION IDENTITY: {0.actid}".format(self.task))
-        constructor = taskexecutor.constructor.Constructor()
         if self.task.action in ("create", "update", "delete") and self.task.actid:
             LOGGER.info("Fetching {0} resource by {1}".format(self.task.res_type, self.task.params["objRef"]))
             resource = self.get_resource()
-            processor = constructor.get_resprocessor(self.task.res_type, resource, self.task.params)
-            reporter = constructor.get_reporter("amqp")
+            processor = CONSTRUCTOR.get_resprocessor(self.task.res_type, resource, self.task.params)
+            reporter = CONSTRUCTOR.get_reporter("amqp")
             LOGGER.info("Invoking {0}.{1} method on {2}".format(type(processor).__name__,
                                                                 self.task.action, processor.resource))
             getattr(processor, self.task.action)()
-            for processor in constructor.get_siding_resprocessors(processor, params={self.task.action: resource}):
+            for processor in CONSTRUCTOR.get_siding_resprocessors(processor, params={self.task.action: resource}):
                 LOGGER.info("Updating affected resource {}".format(processor.resource))
                 processor.update()
         elif self.task.action == "quota_report":
-            reporter = constructor.get_reporter("https")
+            reporter = CONSTRUCTOR.get_reporter("https")
             all_resources = list()
             if "resource" not in self.task.params.keys():
                 LOGGER.info("Fetching all local {0} resources by type".format(self.task.res_type))
                 all_resources = self.get_all_resources()
                 self.task.params["resource"] = all_resources.pop()
-            collector = constructor.get_rescollector(self.task.res_type, self.task.params["resource"])
+            collector = CONSTRUCTOR.get_rescollector(self.task.res_type, self.task.params["resource"])
             LOGGER.info("Collecting 'quotaUsed' property for '{0}' resource {1} "
                         "by {2}".format(self.task.res_type, collector.resource.name, type(collector).__name__))
             self.task.params["data"] = dict()
             self.task.params["data"]["quotaUsed"] = \
                 collector.get_property("quotaUsed", cache_ttl=self.task.params["interval"] - 1)
             if all_resources:
-                query_pool = constructor.get_query_executors_pool()
+                query_pool = CONSTRUCTOR.get_query_executors_pool()
                 subexecutors = self.spawn_subexecutors(self.create_subtasks(all_resources), query_pool)
                 self.wait_for_subexecutors(subexecutors)
         else:
