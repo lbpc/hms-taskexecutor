@@ -103,12 +103,13 @@ def to_lower_dashed(name):
 
 
 def create_action_id(action):
-    return "LOCAL.{0}.{1}".format(action.upper(), uuid.uuid4())
+    return "{0}.{1}".format(action.upper(), uuid.uuid4())
 
 
 def synchronized(f):
     @functools.wraps(f)
     def wrapper(self, *args, **kwargs):
+        global LOCKS
         if f not in LOCKS.keys():
             LOCKS[f] = threading.RLock()
         with LOCKS[f]:
