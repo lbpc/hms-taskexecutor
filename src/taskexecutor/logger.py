@@ -14,6 +14,9 @@ class StreamToLogger:
             msg += line.strip() + "\n\t"
         self.logger.log(self.log_level, msg)
 
+    def flush(self):
+        pass
+
 
 logging.basicConfig(
     format="%(threadName)s LOG LEVEL: %(levelname)s "
