@@ -4,5 +4,5 @@ RUN bash -c "virtualenv -p `which python3` te && \
 				source te/bin/activate && \
 				pip install --find-links file://`pwd`/${sdistName} taskexecutor"
 ENV LANG=en_US.UTF-8
-CMD mknod /dev/loop0 b 7 0; /usr/local/te/bin/taskexecutor
+CMD ln -sf /bin/true /usr/sbin/setquota; /usr/local/te/bin/taskexecutor
 

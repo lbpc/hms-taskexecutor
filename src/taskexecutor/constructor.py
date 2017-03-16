@@ -29,6 +29,11 @@ def get_conffile(config_type, abs_path, owner_uid=None, mode=None):
     return ConfigFile(abs_path, owner_uid, mode)
 
 
+def get_http_proxy_service():
+    return next((get_opservice(local_service) for local_service in CONFIG.localserver.services
+                 if local_service.serviceTemplate.serviceType.name == "STAFF_NGINX"), None)
+
+
 def get_opservice(service_api_obj):
     global SERVICE_ID_TO_OPSERVICE_MAPPING
     service = SERVICE_ID_TO_OPSERVICE_MAPPING.get(service_api_obj.id)
@@ -63,6 +68,8 @@ def get_opservice_by_resource(resource, resource_type):
                 service = get_opservice(api.Service(resource.serviceId).get())
     elif hasattr(resource, "serviceTemplate"):
         service = get_opservice(resource)
+    elif resource_type == "ssl-certificate":
+        service = get_http_proxy_service()
     else:
         raise OpServiceNotFound("Cannot find operational service for given "
                                 "'{0}' resource: {1}".format(resource_type, resource))
@@ -77,12 +84,8 @@ def get_all_opservices_by_res_type(resource_type):
 def get_extra_services(res_processor):
     extra_services = {}
     if isinstance(res_processor, taskexecutor.resprocessor.WebSiteProcessor):
-        for local_service in CONFIG.localserver.services:
-            if local_service.serviceTemplate.serviceType.name == "STAFF_NGINX":
-                nginx = get_opservice(local_service)
-                extra_services["http_proxy"] = nginx
-                break
-        if "http_proxy" not in extra_services.keys():
+        extra_services["http_proxy"] = get_http_proxy_service()
+        if not extra_services["http_proxy"]:
             raise OpServiceNotFound("Local server has no HTTP proxy service")
     return collections.namedtuple("ServiceContainer", extra_services.keys())(**extra_services)
 
@@ -100,17 +103,18 @@ def get_resprocessor(resource_type, resource, params=None):
 
 def get_prequestive_resprocessors(processor, params=None):
     if isinstance(processor, taskexecutor.resprocessor.WebSiteProcessor):
-        return [get_resprocessor("sslcertificate", domain.SSLCertificate)
-                for domain in processor.resource.domains]
+        return [get_resprocessor("ssl-certificate", domain.sslCertificate)
+                for domain in processor.resource.domains if domain.sslCertificate]
     else:
         return []
+
 
 def get_siding_resprocessors(processor, params=None):
     with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
         if isinstance(processor, taskexecutor.resprocessor.DatabaseUserProcessor):
             return [get_resprocessor("database", database, params=params)
                     for database in api.Database().filter(databaseUserId=processor.resource.id).get()]
-        elif isinstance(processor, taskexecutor.resprocessor.SSLCertificateProcessor):
+        elif isinstance(processor, taskexecutor.resprocessor.SslCertificateProcessor):
             domain = api.Domain().filter(sslCertificateId=processor.resource.id).get()
             website = api.Website().filter(domainId=domain.id).get()
             return [get_resprocessor("website", website)]

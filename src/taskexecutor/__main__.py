@@ -52,7 +52,7 @@ def main():
             time_listener_thread.join()
             taskexecutor.logger.LOGGER.info("Scheduler stopped")
             break
-        time.sleep(.1)
+        time.sleep(.5)
 
 if __name__ == "__main__":
     main()
