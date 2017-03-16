@@ -206,7 +206,7 @@ class WebsiteCollector(ResCollector):
                         return service.id
 
 
-class SSLCertificateCollector(ResCollector):
+class SslCertificateCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
         return
 
@@ -229,7 +229,7 @@ class Builder:
                              "database": DatabaseCollector,
                              "mailbox": MailboxCollector,
                              "website": WebsiteCollector,
-                             "sslcertificate": SSLCertificateCollector,
+                             "ssl-certificate": SslCertificateCollector,
                              "service": ServiceCollector,
                              "resource-archive": ResourceArchiveCollector}.get(res_type)
         if not ResCollectorClass:

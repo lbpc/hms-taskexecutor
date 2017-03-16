@@ -3,6 +3,7 @@ import json
 import abc
 import itertools
 import pika
+import pika.exceptions
 import time
 import schedule
 from taskexecutor.config import CONFIG
@@ -73,7 +74,6 @@ class AMQPListener(Listener):
         if self._closing:
             self._connection.ioloop._stopping = True
         else:
-            self._connection.add_timeout(CONFIG.amqp.connection_timeout, self._reconnect)
             self._reconnect()
 
     def _reconnect(self):
@@ -153,11 +153,17 @@ class AMQPListener(Listener):
         self.take_event(context, body)
 
     def acknowledge_message(self, delivery_tag):
-        if self._connection:
+        try:
+            self._channel.basic_ack(delivery_tag)
+        except pika.exceptions.ConnectionClosed:
+            time.sleep(CONFIG.amqp.retry_delay + 1)
             self._channel.basic_ack(delivery_tag)
 
     def _reject_message(self, delivery_tag):
-        if self._connection:
+        try:
+            self._channel.basic_nack(delivery_tag)
+        except pika.exceptions.ConnectionClosed:
+            time.sleep(CONFIG.amqp.retry_delay + 1)
             self._channel.basic_nack(delivery_tag)
 
     def _stop_consuming(self):

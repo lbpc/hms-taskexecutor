@@ -183,8 +183,9 @@ class WebSiteProcessor(ResProcessor):
                         collections.namedtuple("VHost", res_dict.keys())(*res_dict.values()))
             else:
                 non_ssl_domains.append(domain)
-        res_dict["domains"] = non_ssl_domains
-        vhosts.append(collections.namedtuple("VHost", res_dict.keys())(*res_dict.values()))
+        if non_ssl_domains:
+            res_dict["domains"] = non_ssl_domains
+            vhosts.append(collections.namedtuple("VHost", res_dict.keys())(*res_dict.values()))
         return vhosts
 
     @taskexecutor.utils.synchronized
@@ -251,27 +252,22 @@ class WebSiteProcessorFreeBsd(WebSiteProcessor):
         self.resource = collections.namedtuple("ApiObject", res_dict.keys())(*res_dict.values())
 
 
-class SSLCertificateProcessor(ResProcessor):
-    def __init__(self, resource, service, params):
-        super().__init__(resource, service, params)
-        cert_file_path = os.path.join(CONFIG.nginx.ssl_certs_path, "{0.name}.pem".format(self.resource))
-        key_file_path = os.path.join(CONFIG.nginx.ssl_certs_path, "{0.name}.key".format(self.resource))
-        self._cert_file = taskexecutor.constructor.get_conffile("basic", cert_file_path)
-        self._key_file = taskexecutor.constructor.get_conffile("basic", key_file_path)
-
+class SslCertificateProcessor(ResProcessor):
     @taskexecutor.utils.synchronized
     def create(self):
-        self._cert_file.body = self.resource.certificate
-        self._key_file.body = self.resource.key
-        self._cert_file.save()
-        self._key_file.save()
+        cert_file, key_file = self.service.get_ssl_key_pair_files(self.resource.name)
+        cert_file.body = self.resource.cert
+        key_file.body = self.resource.key
+        cert_file.save()
+        key_file.save()
 
     def update(self):
-        self.create(self)
+        self.create()
 
     def delete(self):
-        self._cert_file.delete()
-        self._key_file.delete()
+        cert_file, key_file = self.service.get_ssl_key_pair_files(self.resource.name)
+        cert_file.delete()
+        key_file.delete()
 
 
 class MailboxProcessor(ResProcessor):
@@ -484,7 +480,7 @@ class Builder:
                              "database-user": DatabaseUserProcessor,
                              "database": DatabaseProcessor,
                              "website": WebSiteProcessor if sys.platform != "freebsd9" else WebSiteProcessorFreeBsd,
-                             "sslcertificate": SSLCertificateProcessor,
+                             "ssl-certificate": SslCertificateProcessor,
                              "mailbox": MailboxProcessor,
                              "resource-archive": ResourceArchiveProcessor}.get(res_type)
         if not ResProcessorClass:

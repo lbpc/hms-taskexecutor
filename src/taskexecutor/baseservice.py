@@ -109,8 +109,8 @@ class WebServer(ConfigurableService, NetworkingService):
         ConfigurableService.__init__(self)
         NetworkingService.__init__(self)
         self._site_template_name = str()
-        self._static_base_path = str()
-        self._ssl_certs_base_path = str()
+        self._static_base_path = "/var/www/html"
+        self._ssl_certs_base_path = "/usr/share/ssl-cert"
         self._site_config_path_pattern = "sites-available/{}.conf"
 
     @property
@@ -166,6 +166,13 @@ class WebServer(ConfigurableService, NetworkingService):
                                         os.path.join(self.config_base_path,
                                                      self.site_config_path_pattern.format(site_id)),
                                         config_type="website")
+
+    def get_ssl_key_pair_files(self, basename):
+        cert_file_path = os.path.join(self.ssl_certs_base_path, "{}.pem".format(basename))
+        key_file_path = os.path.join(self.ssl_certs_base_path, "{}.key".format(basename))
+        cert_file = taskexecutor.constructor.get_conffile("basic", cert_file_path)
+        key_file = taskexecutor.constructor.get_conffile("basic", key_file_path)
+        return cert_file, key_file
 
 
 class ArchivableService(metaclass=abc.ABCMeta):
