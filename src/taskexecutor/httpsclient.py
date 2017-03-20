@@ -82,10 +82,10 @@ class ApiClient(HttpsClient):
     _access_token = None
     _expires_at = 0
 
-    def _build_resource(self, res_name, res_id):
+    def _build_resource_uri(self, res_name, res_id):
         self.uri_path = "{0}/{1}/{2}".format(self.uri_path, res_name, res_id)
 
-    def _build_collection(self, res_name, query=None):
+    def _build_collection_uri(self, res_name, query=None):
         if query:
             self.uri_path = "{0}/{1}?{2}".format(self.uri_path, res_name, urllib.parse.urlencode(query))
         else:
@@ -140,7 +140,11 @@ class ApiClient(HttpsClient):
         raise NotImplementedError
 
     def filter(self, **query):
-        self._build_collection("filter", query)
+        self._build_collection_uri("filter", query)
+        return self
+
+    def find(self, **query):
+        self._build_collection_uri("find", query)
         return self
 
     def __getattr__(self, name):
@@ -148,11 +152,11 @@ class ApiClient(HttpsClient):
 
         def constructor(res_id=None, query=None):
             if res_id:
-                self._build_resource(name, res_id)
+                self._build_resource_uri(name, res_id)
             elif query:
-                self._build_collection(name, query)
+                self._build_collection_uri(name, query)
             else:
-                self._build_collection(name)
+                self._build_collection_uri(name)
             return self
 
         return constructor

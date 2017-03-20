@@ -115,8 +115,8 @@ def get_siding_resprocessors(processor, params=None):
             return [get_resprocessor("database", database, params=params)
                     for database in api.Database().filter(databaseUserId=processor.resource.id).get()]
         elif isinstance(processor, taskexecutor.resprocessor.SslCertificateProcessor):
-            domain = api.Domain().filter(sslCertificateId=processor.resource.id).get()
-            website = api.Website().filter(domainId=domain.id).get()
+            domain = api.Domain().find(sslCertificateId=processor.resource.id).get()
+            website = api.Website().find(domainId=domain.id).get()
             return [get_resprocessor("website", website)]
         else:
             return []
