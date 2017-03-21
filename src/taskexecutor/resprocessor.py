@@ -182,7 +182,10 @@ class WebSiteProcessor(ResProcessor):
                 vhosts.append(
                         collections.namedtuple("VHost", res_dict.keys())(*res_dict.values()))
             else:
-                non_ssl_domains.append(domain)
+                domain_dict = domain._asdict()
+                if "sslCertificate" in domain_dict.keys():
+                    del domain_dict["sslCertificate"]
+                non_ssl_domains.append(collections.namedtuple("Domain", domain_dict.keys())(*domain_dict.values()))
         if non_ssl_domains:
             res_dict["domains"] = non_ssl_domains
             vhosts.append(collections.namedtuple("VHost", res_dict.keys())(*res_dict.values()))
