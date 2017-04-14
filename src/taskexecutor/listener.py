@@ -6,10 +6,10 @@ import pika
 import pika.exceptions
 import time
 import schedule
+import queue
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.constructor
-import taskexecutor.executor
 import taskexecutor.task
 import taskexecutor.utils
 
@@ -25,6 +25,16 @@ class ContextValidationError(Exception):
 
 
 class Listener(metaclass=abc.ABCMeta):
+    __processed_task_queue = None
+
+    def __init__(self, new_task_queue):
+        self._new_task_queue = new_task_queue
+
+    @classmethod
+    @abc.abstractmethod
+    def get_processed_task_queue(cls):
+        pass
+
     @abc.abstractmethod
     def listen(self):
         pass
@@ -34,21 +44,15 @@ class Listener(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def create_task(self, opid, actid, res_type, action, params):
-        pass
-
-    @abc.abstractmethod
-    def pass_task(self, task, callback, args):
-        pass
-
-    @abc.abstractmethod
     def stop(self):
         pass
 
 
 class AMQPListener(Listener):
-    def __init__(self):
-        self._futures_tags_mapping = dict()
+    __processed_task_queue = queue.Queue()
+
+    def __init__(self, new_task_queue):
+        super().__init__(new_task_queue)
         self._exchange_list = list(itertools.product(CONFIG.enabled_resources, ("create", "update", "delete")))
         self._connection = None
         self._channel = None
@@ -59,6 +63,10 @@ class AMQPListener(Listener):
                     "?heartbeat_interval={0.heartbeat_interval}" \
                     "&connection_attempts={0.connection_attempts}" \
                     "&retry_delay={0.retry_delay}".format(CONFIG.amqp)
+
+    @classmethod
+    def get_processed_task_queue(cls):
+        return cls.__processed_task_queue
 
     def _connect(self):
         return pika.SelectConnection(pika.URLParameters(self._url), self._on_connection_open)
@@ -78,7 +86,6 @@ class AMQPListener(Listener):
 
     def _reconnect(self):
         if not self._closing:
-            del self._connection
             time.sleep(CONFIG.amqp.connection_timeout)
             self.listen()
 
@@ -152,7 +159,7 @@ class AMQPListener(Listener):
         context["provider"] = properties.headers["provider"]
         self.take_event(context, body)
 
-    def acknowledge_message(self, delivery_tag):
+    def _acknowledge_message(self, delivery_tag):
         try:
             self._channel.basic_ack(delivery_tag)
         except pika.exceptions.ConnectionClosed:
@@ -182,12 +189,13 @@ class AMQPListener(Listener):
     def listen(self):
         taskexecutor.utils.set_thread_name("AMQPListener")
         self._connection = self._connect()
+        queue = self.get_processed_task_queue()
         while not self._connection.ioloop._stopping:
-            for future, tag in self._futures_tags_mapping.copy().items():
-                if not future.running():
-                    if future.exception():
-                        self._reject_message(tag)
-                    del self._futures_tags_mapping[future]
+            while queue.qsize() > 0:
+                task = queue.get_nowait()
+                method = {task.state is taskexecutor.task.DONE: self._acknowledge_message,
+                          task.state is taskexecutor.task.FAILED: self._reject_message}[True]
+                method(task.tag)
             self._connection.ioloop.poll()
             self._connection.ioloop.process_timeouts()
 
@@ -196,25 +204,18 @@ class AMQPListener(Listener):
         message["params"]["objRef"] = message["objRef"]
         message["params"]["provider"] = context["provider"]
         message.pop("objRef")
-        task = self.create_task(message["operationIdentity"],
-                                message["actionIdentity"],
-                                context["res_type"],
-                                context["action"],
-                                message["params"])
-        future = self.pass_task(task, self.acknowledge_message, (context["delivery_tag"],))
-        self._futures_tags_mapping[future] = context["delivery_tag"]
-
-    def create_task(self, opid, actid, res_type, action, params):
-        taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0} ACTION IDENTITY: {1}".format(opid, actid))
-        task = taskexecutor.task.Task(opid, actid, res_type, action, params)
+        taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0[operationIdentity]} "
+                                           "ACTION IDENTITY: {0[actionIdentity]}".format(message))
+        task = taskexecutor.task.Task(tag=context["delivery_tag"],
+                                      origin=self.__class__,
+                                      opid=message["operationIdentity"],
+                                      actid=message["actionIdentity"],
+                                      res_type=context["res_type"],
+                                      action=context["action"],
+                                      params=message["params"])
+        self._new_task_queue.put(task)
         LOGGER.info("New task created: {}".format(task))
         taskexecutor.utils.set_thread_name("AMQPListener")
-        return task
-
-    def pass_task(self, task, callback, args):
-        executors_pool = taskexecutor.constructor.get_command_executors_pool()
-        executor = taskexecutor.executor.Executor(task, callback, args)
-        return executors_pool.submit(executor.process_task)
 
     def stop(self):
         self._closing = True
@@ -223,9 +224,16 @@ class AMQPListener(Listener):
 
 
 class TimeListener(Listener):
-    def __init__(self):
+    __processed_task_queue = queue.Queue()
+
+    def __init__(self, new_task_queue):
+        super().__init__(new_task_queue)
         self._stopping = False
         self._futures = dict()
+
+    @classmethod
+    def get_processed_task_queue(cls):
+        return cls.__processed_task_queue
 
     def _schedule(self):
         for action, res_types in vars(CONFIG.schedule).items():
@@ -241,31 +249,29 @@ class TimeListener(Listener):
         taskexecutor.utils.set_thread_name("TimeListener")
         self._schedule()
         while not self._stopping:
-            futures_tmp = self._futures.copy()
-            for action_id, future in futures_tmp.items():
-                if not future.running():
-                    del self._futures[action_id]
-            del futures_tmp
             schedule.run_pending()
+            queue = self.get_processed_task_queue()
+            while queue.qsize() > 0:
+                task = queue.get_nowait()
+                if task.state == taskexecutor.task.FAILED:
+                    LOGGER.warning("Got failed scheduled task: {}")
+                    del task
             sleep_interval = abs(schedule.idle_seconds()) if schedule.jobs else 10
             if not self._stopping:
                 LOGGER.debug("Sleeping for {} s".format(sleep_interval))
                 time.sleep(sleep_interval)
 
     def take_event(self, context, message):
-        action_id = taskexecutor.utils.create_action_id("{0}.{1}".format(context["res_type"], context["action"]))
-        task = self.create_task("LOCAL-SCHED", action_id, context["res_type"], context["action"], message["params"])
-        self._futures[action_id] = self.pass_task(task, self.take_event, None)
-
-    def create_task(self, opid, actid, res_type, action, params):
-        task = taskexecutor.task.Task(opid, actid, res_type, action, params)
+        action_id = "{0}.{1}".format(context["res_type"], context["action"])
+        task = taskexecutor.task.Task(tag=action_id,
+                                      origin=self.__class__,
+                                      opid="LOCAL-SCHED",
+                                      actid=action_id,
+                                      res_type=context["res_type"],
+                                      action=context["action"],
+                                      params=message["params"])
+        self._new_task_queue.put(task)
         LOGGER.info("New task created from locally scheduled event: {}".format(task))
-        return task
-
-    def pass_task(self, task, callback, args):
-        executors_pool = taskexecutor.constructor.get_query_executors_pool()
-        executor = taskexecutor.executor.Executor(task, callback)
-        return executors_pool.submit(executor.process_task)
 
     def stop(self):
         schedule.clear()

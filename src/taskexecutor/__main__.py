@@ -6,6 +6,8 @@ import threading
 
 from taskexecutor.config import CONFIG
 import taskexecutor.constructor
+import taskexecutor.executor
+import taskexecutor.task
 import taskexecutor.logger
 
 sys.stderr = taskexecutor.logger.StreamToLogger(taskexecutor.logger.LOGGER, logging.ERROR)
@@ -21,10 +23,21 @@ def receive_signal(signum, unused_stack):
 
 def main():
     signal.signal(signal.SIGINT, receive_signal)
+    executor = taskexecutor.executor.Executor()
+    executor_thread = threading.Thread(target=executor.run)
+    executor_thread.start()
+    taskexecutor.logger.LOGGER.info("Executor thread started")
     taskexecutor.logger.LOGGER.info("Perfoming initial Service updates")
+    new_task_queue = executor.get_new_task_queue()
     for service in CONFIG.localserver.services:
-        processor = taskexecutor.constructor.get_resprocessor("service", service)
-        processor.update()
+        task = taskexecutor.task.Task(None,
+                                      type(None),
+                                      "LOCAL-INIT",
+                                      "{}.update".format(service.name),
+                                      "service",
+                                      "update",
+                                      params={"resource": service})
+        new_task_queue.put(task)
     amqp_listener = taskexecutor.constructor.get_listener("amqp")
     amqp_listener_thread = threading.Thread(target=amqp_listener.listen)
     amqp_listener_thread.start()
@@ -41,6 +54,9 @@ def main():
             time_listener.stop()
             time_listener_thread.join()
             taskexecutor.logger.LOGGER.info("Scheduler stopped")
+            executor.stop()
+            executor_thread.join()
+            taskexecutor.logger.LOGGER.info("Executor stopped")
             sys.exit(1)
         if STOP:
             taskexecutor.logger.LOGGER.info("Stopping AMQP listener")
@@ -51,8 +67,11 @@ def main():
             time_listener.stop()
             time_listener_thread.join()
             taskexecutor.logger.LOGGER.info("Scheduler stopped")
+            executor.stop()
+            executor_thread.join()
+            taskexecutor.logger.LOGGER.info("Executor stopped")
             break
-        time.sleep(.5)
+        time.sleep(1)
 
 if __name__ == "__main__":
     main()

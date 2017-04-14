@@ -139,6 +139,9 @@ class ApiClient(HttpsClient):
     def delete(self, uri_path=None, headers=None):
         raise NotImplementedError
 
+    def resource(self, resource_type):
+        return getattr(self, resource_type)()
+
     def filter(self, **query):
         self._build_collection_uri("filter", query)
         return self

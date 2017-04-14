@@ -40,6 +40,10 @@ class ResProcessor(metaclass=abc.ABCMeta):
         self.resource = resource
         self.service = service
         self.params = params
+        if isinstance(self.service, taskexecutor.opservice.OpService):
+            while self.service.status() is not taskexecutor.opservice.UP:
+                LOGGER.warning("{} is down, waiting for it".format(self.service.name))
+                time.sleep(1)
 
     @property
     def resource(self):
@@ -112,6 +116,9 @@ class ResProcessor(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def delete(self):
         pass
+
+    def __str__(self):
+        return "{0}(resource=(name={1.name}, id={1.id}))".format(self.__class__.__name__, self.resource)
 
 
 class UnixAccountProcessor(ResProcessor):
@@ -212,11 +219,12 @@ class WebSiteProcessor(ResProcessor):
             config.write()
             if self.resource.switchedOn and not config.is_enabled:
                 config.enable()
-            try:
-                service.reload()
-            except:
-                config.revert()
-                raise
+            if self.params.get("required_for", [None])[0] != "service":
+                try:
+                    service.reload()
+                except:
+                    config.revert()
+                    raise
             config.confirm()
 
     @taskexecutor.utils.synchronized
@@ -340,7 +348,7 @@ class DatabaseProcessor(ResProcessor):
 
     def update(self):
         database_users = self.resource.databaseUsers
-        if "delete" in self.params.keys():
+        if self.params.get("delete"):
             database_users.remove(self.params["delete"])
         if self.op_resource:
             current_usernames_set = set((user.name for user in self.op_resource.databaseUsers))
@@ -404,10 +412,6 @@ class DatabaseProcessor(ResProcessor):
 
 
 class ServiceProcessor(ResProcessor):
-    def _wait_for_service(self):
-        while not self.service.status() == taskexecutor.opservice.UP:
-            time.sleep(1)
-
     def _create_error_pages(self):
         self.params.update(error_pages=list())
         for code in (403, 404, 502, 503, 504):
@@ -421,7 +425,6 @@ class ServiceProcessor(ResProcessor):
         self.update()
 
     def update(self):
-        self._wait_for_service()
         self.params.update(hostname=CONFIG.hostname)
         if isinstance(self.service, taskexecutor.opservice.Nginx):
             self._create_error_pages()

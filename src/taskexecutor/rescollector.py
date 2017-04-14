@@ -96,7 +96,8 @@ class ResCollector(metaclass=abc.ABCMeta):
             op_resource[property_name] = self.get_property(property_name, cache_ttl=cache_ttl)
             cache_ttl += time.time() - start_collecting_time
         if not any(op_resource.values()):
-            LOGGER.warning("No resource available, ID: {0.id}, name: {0.name}".format(self.resource))
+            LOGGER.warning("No resource available, ID: {0}, name: {1}".format(getattr(self.resource, "id", None),
+                                                                              self.resource.name))
             return
         return collections.namedtuple("OpResource", op_resource.keys())(*op_resource.values())
 
@@ -132,7 +133,7 @@ class UnixAccountCollector(ResCollector):
 
 class MailboxCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
-        maildir_path = os.path.join(self.resource.mailSpool, self.resource.name)
+        maildir_path = os.path.join(str(self.resource.mailSpool), str(self.resource.name))
         key = self.get_cache_key(property_name, maildir_path)
         cached, expired = self.check_cache(key, cache_ttl)
         if cached and not expired:
