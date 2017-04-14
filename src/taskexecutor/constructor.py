@@ -5,6 +5,7 @@ from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.conffile
 import taskexecutor.baseservice
+import taskexecutor.executor
 import taskexecutor.opservice
 import taskexecutor.rescollector
 import taskexecutor.resprocessor
@@ -19,8 +20,6 @@ class OpServiceNotFound(Exception):
     pass
 
 
-COMMAND_EXECUTORS_POOL = None
-QUERY_EXECUTORS_POOL = None
 SERVICE_ID_TO_OPSERVICE_MAPPING = dict()
 
 
@@ -82,12 +81,9 @@ def get_all_opservices_by_res_type(resource_type):
 
 
 def get_extra_services(res_processor):
-    extra_services = {}
     if isinstance(res_processor, taskexecutor.resprocessor.WebSiteProcessor):
-        extra_services["http_proxy"] = get_http_proxy_service()
-        if not extra_services["http_proxy"]:
-            raise OpServiceNotFound("Local server has no HTTP proxy service")
-    return collections.namedtuple("ServiceContainer", extra_services.keys())(**extra_services)
+        return collections.namedtuple("ServiceContainer", "http_proxy")(http_proxy=get_http_proxy_service())
+    return list()
 
 
 def get_resprocessor(resource_type, resource, params=None):
@@ -101,27 +97,6 @@ def get_resprocessor(resource_type, resource, params=None):
     return processor
 
 
-def get_prequestive_resprocessors(processor, params=None):
-    if isinstance(processor, taskexecutor.resprocessor.WebSiteProcessor):
-        return [get_resprocessor("ssl-certificate", domain.sslCertificate)
-                for domain in processor.resource.domains if domain.sslCertificate]
-    else:
-        return []
-
-
-def get_siding_resprocessors(processor, params=None):
-    with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-        if isinstance(processor, taskexecutor.resprocessor.DatabaseUserProcessor):
-            return [get_resprocessor("database", database, params=params)
-                    for database in api.Database().filter(databaseUserId=processor.resource.id).get()]
-        elif isinstance(processor, taskexecutor.resprocessor.SslCertificateProcessor):
-            domain = api.Domain().find(sslCertificateId=processor.resource.id).get()
-            website = api.Website().find(domainId=domain.id).get()
-            return [get_resprocessor("website", website)]
-        else:
-            return []
-
-
 def get_rescollector(resource_type, resource):
     ResCollector = taskexecutor.rescollector.Builder(resource_type)
     op_service = get_opservice_by_resource(resource, resource_type)
@@ -131,23 +106,10 @@ def get_rescollector(resource_type, resource):
 
 def get_listener(listener_type):
     Listener = taskexecutor.listener.Builder(listener_type)
-    return Listener()
+    out_queue = taskexecutor.executor.Executor.get_new_task_queue()
+    return Listener(out_queue)
 
 
 def get_reporter(reporter_type):
     Reporter = taskexecutor.reporter.Builder(reporter_type)
     return Reporter()
-
-
-def get_command_executors_pool():
-    global COMMAND_EXECUTORS_POOL
-    if not COMMAND_EXECUTORS_POOL:
-        COMMAND_EXECUTORS_POOL = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.command)
-    return COMMAND_EXECUTORS_POOL
-
-
-def get_query_executors_pool():
-    global QUERY_EXECUTORS_POOL
-    if not QUERY_EXECUTORS_POOL:
-        QUERY_EXECUTORS_POOL = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.query)
-    return QUERY_EXECUTORS_POOL

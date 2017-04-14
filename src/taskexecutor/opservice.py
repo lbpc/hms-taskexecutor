@@ -267,6 +267,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         self.config_base_path = "/etc/mysql"
         self._dbclient = None
         self._full_privileges = CONFIG.mysql.common_privileges + CONFIG.mysql.write_privileges
+        self._ignored_config_variables = CONFIG.mysql.ignored_config_variables
 
     @property
     def dbclient(self):
@@ -302,6 +303,8 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                     config_vars[variable.strip()] = value.strip()
         actual_vars = {row[0]: row[1] for row in self.dbclient.execute_query("SHOW VARIABLES", ())}
         for variable, value in config_vars.items():
+            if variable in self._ignored_config_variables:
+                continue
             if re.match(r"\d+(K|M|G)", value):
                 value = int(value[:-1]) * {"K": 1024, "M": 1048576, "G": 1073741824}[value[-1]]
             if isinstance(value, str) and value.isdecimal():

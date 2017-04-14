@@ -30,7 +30,8 @@ class MySQLClient(DBClient):
                                            port=self._port,
                                            user=self._user,
                                            password=self._password,
-                                           autocommit=True)
+                                           autocommit=True,
+                                           charset='utf8')
         self._cursor = self._connection.cursor()
 
     def execute_query(self, query, values):

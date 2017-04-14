@@ -4,7 +4,6 @@ import re
 import subprocess
 import functools
 import threading
-import uuid
 
 from taskexecutor.logger import LOGGER
 
@@ -57,7 +56,7 @@ def repquota(args, shell="/bin/bash"):
     quota = dict()
     stdout = exec_command("repquota -{}".format(args), shell=shell)
     for line in stdout.split("\n"):
-        parsed_line = list(filter(None, line.split(" ")))
+        parsed_line = list(filter(None, line.replace("\t", " ").split(" ")))
         if len(parsed_line) == 10 and  \
                 parsed_line[1] in ("--", "+-", "-+", "++"):
             parsed_line.pop(1)
@@ -100,10 +99,6 @@ def to_lower_dashed(name):
             "([a-z0-9])([A-Z])", r"\1-\2",
             re.sub("(.)([A-Z][a-z]+)", r"\1-\2", name)
     ).lower().replace("_", "-")
-
-
-def create_action_id(action):
-    return "{0}.{1}".format(action.upper(), uuid.uuid4())
 
 
 def synchronized(f):

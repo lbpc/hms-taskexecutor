@@ -83,6 +83,7 @@ class LinuxUserManager(UnixAccountManager):
         authorized_keys_path = os.path.join(ssh_dir, "authorized_keys")
         if not os.path.exists(ssh_dir):
             os.mkdir(ssh_dir, mode=0o700)
+            os.chown(ssh_dir, uid, uid)
         authorized_keys = taskexecutor.constructor.get_conffile("basic",
                                                                 authorized_keys_path, owner_uid=uid, mode=0o400)
         authorized_keys.body = pub_key_string
@@ -231,20 +232,19 @@ class MaildirManager:
         os.chown(path, owner_uid, owner_uid)
 
     def delete_maildir(self, spool, dir):
-        path = os.path.join(spool, dir)
-        LOGGER.info("Removing {} recursively".format(path))
-        shutil.rmtree(path)
+        path = os.path.join(str(spool), str(dir))
+        if os.path.exists(path):
+            LOGGER.info("Removing {} recursively".format(path))
+            shutil.rmtree(path)
+        else:
+            LOGGER.warning("{} does not exist".format(path))
 
     def get_maildir_size(self, path):
         maildirsize_file = os.path.join(path, "maildirsize")
-        size = 0
         if os.path.exists(maildirsize_file):
             with open(maildirsize_file, "r") as f:
                 f.readline()
-                line = f.readline()
-                while line:
-                    size += int(line.split()[0])
-                    line = f.readline()
+                size = sum([int(l.split()[0]) for l in f.readlines()])
         else:
             size = sum([sum(map(lambda f: os.path.getsize(os.path.join(dir, f)), files))
                         for dir, _, files in os.walk(path)])

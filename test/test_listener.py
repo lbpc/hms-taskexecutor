@@ -1,5 +1,6 @@
 import unittest
 import unittest.mock
+import queue
 import json
 import sys
 import pika
@@ -30,24 +31,15 @@ class TestAMQPListener(unittest.TestCase):
                                                      "database-user",
                                                      "database",
                                                      "website",
-                                                     "sslcertificate"]
+                                                     "ssl-certificate"]
         sys.modules["taskexecutor.config"] = self.mock_config
         import taskexecutor.task
         import taskexecutor.listener
         self.mock_task = unittest.mock.MagicMock(spec=taskexecutor.task.Task)
-        self.mock_executor = unittest.mock.Mock()
-        self.mock_executor_executor = unittest.mock.Mock()
-        self.mock_executor.Executor = unittest.mock.Mock(return_value=self.mock_executor_executor)
-        self.mock_executor.Executor.process_task = unittest.mock.Mock()
-        self.mock_executors_instance = unittest.mock.Mock()
-        self.mock_executor.Executors = unittest.mock.Mock(return_value=self.mock_executors_instance)
-        self.mock_future = unittest.mock.Mock()
-        self.mock_executors_instance.pool.submit = unittest.mock.Mock(return_value=self.mock_future)
-        sys.modules["taskexecutor"] = unittest.mock.MagicMock()
-        sys.modules["taskexecutor.executor"] = self.mock_executor
-        self.amqp_listener = taskexecutor.listener.AMQPListener()
+        self.mock_new_task_queue = unittest.mock.MagicMock(spec=queue.Queue)
+        self.amqp_listener = taskexecutor.listener.AMQPListener(self.mock_new_task_queue)
 
-    def test_listen(self):
+    def no_test_listen(self):
         self.poll_count = 0
 
         def ioloop_poll_side_effect():
@@ -105,38 +97,9 @@ class TestAMQPListener(unittest.TestCase):
                                                                test_context["action"],
                                                                test_params)
         self.amqp_listener.pass_task.assert_called_once_with(self.mock_task,
-                                                             self.amqp_listener.acknowledge_message,
+                                                             self.amqp_listener._acknowledge_message,
                                                              args=(test_context["delivery_tag"],))
         self.assertEqual(self.amqp_listener._futures_tags_mapping[self.mock_future], test_context["delivery_tag"])
-
-    def notest_create_task(self):
-        self.amqp_listener.set_thread_name = unittest.mock.Mock()
-        test_operationIdentity = "testOpId"
-        test_actionIdentity = "testActId"
-        test_res_type = "unix-account"
-        test_action = "create"
-        test_params = {"provider": "rc-user", "objRef": "http://host/path/to/resource"}
-        task = self.amqp_listener.create_task(test_operationIdentity,
-                                              test_actionIdentity,
-                                              test_res_type,
-                                              test_action,
-                                              test_params)
-        self.assertEqual(task.opid, test_operationIdentity)
-        self.assertEqual(task.actid, test_actionIdentity)
-        self.assertEqual(task.res_type, test_res_type)
-        self.assertEqual(task.action, test_action)
-        self.assertEqual(task.params["provider"], test_params["provider"])
-        self.assertEqual(task.params["objRef"], test_params["objRef"])
-
-    def notest_pass_task(self):
-        test_callback = lambda x: True
-        test_args = ("testarg",)
-        future = self.amqp_listener.pass_task(self.mock_task, test_callback, test_args)
-        self.mock_executor.Executors.assert_called_once_with()
-        self.mock_executor.Executor.assert_called_once_with(self.mock_task, test_callback, test_args)
-        self.assertEqual(self.mock_executors_instance.method_calls,
-                         [unittest.mock.call.pool.submit(self.mock_executor_executor.process_task)])
-        self.assertEqual(future, self.mock_future)
 
     def test_stop(self):
         pass
