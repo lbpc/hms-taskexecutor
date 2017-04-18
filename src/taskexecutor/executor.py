@@ -14,6 +14,10 @@ import taskexecutor.utils
 __all__ = ["Executor"]
 
 
+class ResourceBuildingError(Exception):
+    pass
+
+
 class PropertyValidationError(Exception):
     pass
 
@@ -35,7 +39,11 @@ class ResourceBulider:
             with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
                 if obj_ref:
                     LOGGER.info("Fetching {0} resource by {1}".format(self._res_type, obj_ref))
-                    self._resources.append(api.get(obj_ref))
+                    resource = api.get(obj_ref)
+                    if not resource:
+                        raise ResourceBuildingError("Failed to fetch resource "
+                                                    "by directly provided objRef: {}".format(obj_ref))
+                    self._resources.append(resource)
                 elif self._res_type in ("unix-account", "mailbox"):
                     self._resources.extend(api.resource(self._res_type).filter(serverId=CONFIG.localserver.id).get())
                 else:
@@ -77,7 +85,9 @@ class ResourceBulider:
                 elif self._res_type == "ssl-certificate":
                     LOGGER.debug("ssl-certificate affects website")
                     domain = api.Domain().find(sslCertificateId=resource.id).get()
-                    affected_resources.append(("website", api.Website().find(domainId=domain.id).get()))
+                    website = api.Website().find(domainId=domain.id).get()
+                    if website:
+                        affected_resources.append(("website", website))
         return affected_resources
 
 
