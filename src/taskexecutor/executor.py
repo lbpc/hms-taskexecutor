@@ -168,7 +168,7 @@ class Executor:
             sequence.extend(self.build_processing_sequence(req_r_type, req_resource, "update", req_r_params))
         processor = taskexecutor.constructor.get_resprocessor(res_type, resource, params)
         sequence.append((processor, getattr(processor, action)))
-        causer_resource = None if "required_for" not in params.keys() else params["required_for"][1]
+        causer_resource = resource if "required_for" not in params.keys() else params["required_for"][1]
         for aff_r_type, aff_resource in [(t, r) for t, r in res_builder.get_affected_resources(resource)
                                          if r.id != causer_resource.id]:
             aff_r_params = {"caused_by": (res_type, resource)}
