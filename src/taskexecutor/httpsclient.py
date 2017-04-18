@@ -124,6 +124,9 @@ class ApiClient(HttpsClient):
         self._connection.request("GET", uri_path, headers=headers)
         response = self._connection.getresponse()
         self.uri_path = None
+        if response.status == 404:
+            LOGGER.warning("API gateway returned {0.status} {0.reason} {1}".format(response, response.read()))
+            return
         if response.status != 200:
             raise RequestError("GET failed, API gateway returned "
                                "{0.status} {0.reason} {1}".format(response, response.read()))
