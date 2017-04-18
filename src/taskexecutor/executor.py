@@ -150,17 +150,19 @@ class Executor:
         in_queue = self.get_new_task_queue()
         in_queue.put(task)
 
-    def build_processing_sequence(self, task, required_resources, resource, affected_resources):
+    def build_processing_sequence(self, res_type, resource, action, params):
+        res_builder = ResourceBulider(res_type)
         sequence = list()
-        for req_r_type, req_resource in required_resources:
-            params = {"required_for": (task.res_type, resource)}
-            processor = taskexecutor.constructor.get_resprocessor(req_r_type, req_resource, params=params)
-            sequence.append((processor, getattr(processor, "update")))
-        processor = taskexecutor.constructor.get_resprocessor(task.res_type, resource, task.params)
-        sequence.append((processor, getattr(processor, task.action)))
-        for aff_r_type, aff_resource in affected_resources:
-            params = {"caused_by": (task.res_type, resource)}
-            processor = taskexecutor.constructor.get_resprocessor(aff_r_type, aff_resource, params=params)
+        for req_r_type, req_resource in res_builder.get_required_resources(resource):
+            req_r_params = {"required_for": (res_type, resource)}
+            sequence.extend(self.build_processing_sequence(req_r_type, req_resource, "update", req_r_params))
+        processor = taskexecutor.constructor.get_resprocessor(res_type, resource, params)
+        sequence.append((processor, getattr(processor, action)))
+        causer_resource = None if "required_for" not in params.keys() else params["required_for"][1]
+        for aff_r_type, aff_resource in [(t, r) for t, r in res_builder.get_affected_resources(resource)
+                                         if r.id != causer_resource.id]:
+            aff_r_params = {"caused_by": (res_type, resource)}
+            processor = taskexecutor.constructor.get_resprocessor(aff_r_type, aff_resource, params=aff_r_params)
             sequence.append((processor, getattr(processor, "update")))
         return sequence
 
@@ -180,10 +182,7 @@ class Executor:
         else:
             task.params["resource"] = task.params.get("resource") or res_builder.resources[0]
         if task.action in ("create", "update", "delete"):
-            sequence = self.build_processing_sequence(task,
-                                                      res_builder.get_required_resources(task.params["resource"]),
-                                                      task.params["resource"],
-                                                      res_builder.get_affected_resources(task.params["resource"]))
+            sequence = self.build_processing_sequence(task.res_type, task.params["resource"], task.action, task.params)
             for processor, method in sequence:
                 LOGGER.info("Calling {0} {1}".format(method, processor))
                 method()
