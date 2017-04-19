@@ -16,6 +16,11 @@ class BuilderTypeError(Exception):
 
 
 class UnixAccountManager(metaclass=abc.ABCMeta):
+    @property
+    @abc.abstractmethod
+    def default_shell(self):
+        return
+
     @abc.abstractmethod
     def create_user(self, name, uid, home_dir, pass_hash, gecos=""):
         pass
@@ -52,8 +57,16 @@ class UnixAccountManager(metaclass=abc.ABCMeta):
     def disable_sendmail(self, uid):
         pass
 
+    @abc.abstractmethod
+    def set_shell(self, user_name, path):
+        pass
+
 
 class LinuxUserManager(UnixAccountManager):
+    @property
+    def default_shell(self):
+        return "/bin/bash"
+
     def create_user(self, name, uid, home_dir, pass_hash, gecos=""):
         if os.path.exists(home_dir):
             os.chown(home_dir, uid, uid)
@@ -113,10 +126,18 @@ class LinuxUserManager(UnixAccountManager):
         taskexecutor.utils.exec_command("/usr/bin/postfix_dbs_ctrl --db map --uid {0} --get || "
                                         "/usr/bin/postfix_dbs_ctrl --db map --uid {0} --add".format(uid))
 
+    def set_shell(self, user_name, path):
+        path = path or "/usr/sbin/nologin"
+        taskexecutor.utils.exec_command("usermod --shell {0} {1}".format(user_name, path))
+
 
 class FreebsdUserManager(UnixAccountManager):
     def __init__(self):
         self._jail_id = int()
+
+    @property
+    def default_shell(self):
+        return "/usr/local/bin/bash"
 
     @property
     def jail_id(self):
@@ -130,16 +151,15 @@ class FreebsdUserManager(UnixAccountManager):
         return "{0}@{1}-a.majordomo.ru".format(username, CONFIG.hostname)
 
     def _update_jailed_ssh(self, action, user_name):
-        jailed_ssh_config = taskexecutor.constructor.Constructor().get_conffile(
-                "lines", "/usr/jail/usr/local/etc/ssh/sshd_clients_config"
-        )
+        jailed_ssh_config = taskexecutor.constructor.get_conffile("lines",
+                                                                  "/usr/jail/usr/local/etc/ssh/sshd_clients_config")
         allow_users = jailed_ssh_config.get_lines("^AllowUsers", count=1).split(' ')
         getattr(allow_users, action)(user_name)
         jailed_ssh_config.replace_line("^AllowUsers", " ".join(allow_users))
         jailed_ssh_config.save()
         taskexecutor.utils.exec_command("jexec {} "
                                         "pgrep sshd | xargs kill -HUP".format(self.jail_id),
-                                        shell="/usr/local/bin/bash")
+                                        shell=self.default_shell)
 
     def create_user(self, name, uid, home_dir, pass_hash, gecos=""):
         taskexecutor.utils.exec_command("jexec {0} "
@@ -149,13 +169,13 @@ class FreebsdUserManager(UnixAccountManager):
                                         "-h - "
                                         "-s /usr/local/bin/bash "
                                         "-c '{4}'".format(self.jail_id, name, uid, home_dir, gecos),
-                                        shell="/usr/local/bin/bash")
+                                        shell=self.default_shell)
         self._update_jailed_ssh("append", name)
 
     def delete_user(self, name):
         taskexecutor.utils.exec_command("jexec {0} "
                                         "pw userdel {1} -r".format(self.jail_id, name),
-                                        shell="/usr/local/bin/bash")
+                                        shell=self.default_shell)
         self._update_jailed_ssh("remove", name)
 
     def set_quota(self, uid, quota_bytes):
@@ -164,11 +184,11 @@ class FreebsdUserManager(UnixAccountManager):
                                         "-g "
                                         "-e /home:0:{1} "
                                         "{0}".format(self.jail_id, int(quota_bytes) / 1024, uid),
-                                        shell="/usr/local/bin/bash")
+                                        shell=self.default_shell)
 
     def get_quota(self):
         return {k: v["block_limit"]["used"]
-                for k, v in taskexecutor.utils.repquota("vang", shell="/usr/local/bin/bash").items()}
+                for k, v in taskexecutor.utils.repquota("vang", shell=self.default_shell).items()}
 
     def create_authorized_keys(self, pub_key_string, uid, home_dir):
         ssh_dir = os.path.join(home_dir, ".ssh")
@@ -188,35 +208,43 @@ class FreebsdUserManager(UnixAccountManager):
         LOGGER.info("Installing '{0}' crontab for {1}".format(crontab_string, user_name))
         taskexecutor.utils.exec_command("jexec {0} "
                                         "crontab -u {1} -".format(self.jail_id, user_name),
-                                        shell="/usr/local/bin/bash",
+                                        shell=self.default_shell,
                                         pass_to_stdin=crontab_string)
 
     def delete_crontab(self, user_name):
         if os.path.exists(os.path.join("/usr/jail/var/cron/tabs", user_name)):
             taskexecutor.utils.exec_command("jexec {0} "
                                             "crontab -u {1} -r".format(self.jail_id, user_name),
-                                            shell="/usr/local/bin/bash")
+                                            shell=self.default_shell)
 
     def kill_user_processes(self, user_name):
         taskexecutor.utils.exec_command("jexec {0} "
                                         "killall -9 -u {1} || true".format(self.jail_id, user_name),
-                                        shell="/usr/local/bin/bash")
+                                        shell=self.default_shell)
 
     def enable_sendmail(self, uid):
         local_sender = self._uid_to_mail_sender(uid)
-        deny_local_senders_file = self._constructor.get_conffile("lines",
-                                                                 "/usr/jail/usr/local/etc/exim/deny_local_senders")
+        deny_local_senders_file = taskexecutor.constructor.get_conffile(
+                "lines", "/usr/jail/usr/local/etc/exim/deny_local_senders"
+        )
         if deny_local_senders_file.has_line(local_sender):
             deny_local_senders_file.remove_line(local_sender)
             deny_local_senders_file.save()
 
     def disable_sendmail(self, uid):
         local_sender = self._uid_to_mail_sender(uid)
-        deny_local_senders_file = self._constructor.get_conffile("lines",
-                                                                 "/usr/jail/usr/local/etc/exim/deny_local_senders")
+        deny_local_senders_file = taskexecutor.constructor.get_conffile(
+                "lines", "/usr/jail/usr/local/etc/exim/deny_local_senders"
+        )
         if not deny_local_senders_file.has_line(local_sender):
             deny_local_senders_file.add_line(local_sender)
             deny_local_senders_file.save()
+
+    def set_shell(self, user_name, path):
+        path = path or "/usr/sbin/nologin"
+        taskexecutor.utils.exec_command("jexec {0} "
+                                        "pw usermod -s {1} -n {2}".format(self.jail_id, path, user_name),
+                                        shell=self.default_shell)
 
 
 class MaildirManager:

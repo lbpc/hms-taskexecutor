@@ -150,6 +150,8 @@ class UnixAccountProcessor(ResProcessor):
             if self.resource.uid != self.op_resource.uid:
                 LOGGER.warning("UnixAccount {0} has wrong UID {1}, "
                                "expected: {2}".format(self.resource.name, self.op_resource.uid, self.resource.uid))
+            self.service.set_shell(self.resource.name,
+                                   {True: self.service.default_shell, False: None}[self.resource.switchedOn])
             if self.resource.sendmailAllowed:
                 self.service.enable_sendmail(self.resource.uid)
             else:
@@ -164,7 +166,7 @@ class UnixAccountProcessor(ResProcessor):
                 LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
                 self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                     self.resource.uid, self.resource.homeDir)
-            if len(self.resource.crontab) > 0:
+            if len(self.resource.crontab) > 0 and self.resource.switchedOn:
                 self.service.create_crontab(self.resource.name,
                                             [task for task in self.resource.crontab if task.switchedOn])
             else:
@@ -308,6 +310,9 @@ class DatabaseUserProcessor(ResProcessor):
             self.update()
 
     def update(self):
+        if not self.resource.switchedOn:
+            self.delete()
+            return
         if self.op_resource:
             current_addrs_set = set(self.service.normalize_addrs(self.op_resource.allowedIPAddresses))
             staging_addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
