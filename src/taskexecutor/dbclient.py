@@ -35,7 +35,7 @@ class MySQLClient(DBClient):
         self._cursor = self._connection.cursor()
 
     def execute_query(self, query, values):
-        LOGGER.info("Executing query: '{}'".format(query % values))
+        LOGGER.debug("Executing query: '{}'".format(query % values))
         self._connection.ping(reconnect=True)
         try:
             self._cursor.execute(query, values)
@@ -62,7 +62,7 @@ class PostgreSQLClient(DBClient):
         self._cursor = self._connection.cursor()
 
     def execute_query(self, query, values):
-        LOGGER.info("Executing query: '{}'".format(query % values))
+        LOGGER.debug("Executing query: '{}'".format(query % values))
         try:
             self._cursor.execute(query, values)
         except pg8000.core.OperationalError:

@@ -19,9 +19,9 @@ class StreamToLogger:
 
 
 logging.basicConfig(
-    format="%(threadName)s LOG LEVEL: %(levelname)s (%(module)s:%(lineno)d %(funcName)s) %(message)s",
+    format="%(levelname)s\t(%(module)s:%(lineno)d %(funcName)s) --- %(threadName)s\t: %(message)s",
     stream=sys.stdout,
 )
 LOGGER = logging.getLogger("taskexecutor")
-LOGGER.setLevel(logging.DEBUG)
+LOGGER.setLevel(logging.INFO)
 logging.getLogger("pika").setLevel(logging.ERROR)

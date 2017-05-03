@@ -28,7 +28,7 @@ class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
 
 
 def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_streams=False):
-    LOGGER.info("Running shell command: {}".format(command))
+    LOGGER.debug("Running shell command: {}".format(command))
     proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             shell=True, executable=shell)
     if return_raw_streams:
@@ -48,7 +48,7 @@ def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_stre
 
 
 def set_apparmor_mode(mode, binary):
-    LOGGER.info("Applying {0} AppArmor mode on {1}".format(mode, binary))
+    LOGGER.debug("Applying {0} AppArmor mode on {1}".format(mode, binary))
     exec_command("aa-{0} {1}".format(mode, binary))
 
 

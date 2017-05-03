@@ -3,7 +3,6 @@ import pytransliter
 import sys
 import abc
 import collections
-import time
 import urllib.parse
 
 from taskexecutor.config import CONFIG
@@ -40,10 +39,6 @@ class ResProcessor(metaclass=abc.ABCMeta):
         self.resource = resource
         self.service = service
         self.params = params
-        if isinstance(self.service, taskexecutor.opservice.OpService):
-            while self.service.status() is not taskexecutor.opservice.UP:
-                LOGGER.warning("{} is down, waiting for it".format(self.service.name))
-                time.sleep(1)
 
     @property
     def resource(self):
@@ -122,12 +117,19 @@ class ResProcessor(metaclass=abc.ABCMeta):
 
 
 class UnixAccountProcessor(ResProcessor):
+    @taskexecutor.utils.synchronized
     def create(self):
+        if self.op_resource:
+            LOGGER.warning("User {0.name} already exists, updating".format(self.resource))
+            self.update()
+            return
         LOGGER.info("Adding user {0.name} to system".format(self.resource))
+        shell = {True: self.service.default_shell, False: self.service.disabled_shell}[self.resource.switchedOn]
         self.service.create_user(self.resource.name,
                                  self.resource.uid,
                                  self.resource.homeDir,
                                  self.resource.passwordHash,
+                                 shell,
                                  "Hosting account HMS id {}".format(self.resource.id))
         try:
             LOGGER.info("Setting quota for user {0.name}".format(self.resource))
@@ -144,6 +146,7 @@ class UnixAccountProcessor(ResProcessor):
             self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                 self.resource.uid, self.resource.homeDir)
 
+    @taskexecutor.utils.synchronized
     def update(self):
         if self.op_resource:
             LOGGER.info("Modifying user {0.name}".format(self.resource))
@@ -175,6 +178,7 @@ class UnixAccountProcessor(ResProcessor):
             LOGGER.warning("UnixAccount {0} not found, creating".format(self.resource.name))
             self.create()
 
+    @taskexecutor.utils.synchronized
     def delete(self):
         self.service.kill_user_processes(self.resource.name)
         self.service.delete_user(self.resource.name)
@@ -240,6 +244,11 @@ class WebSiteProcessor(ResProcessor):
                     service.reload()
         else:
             self.create()
+            if self.extra_services.old_app_server and self.extra_services.old_app_server.name != self.service.name:
+                config = self.extra_services.old_app_server.get_website_config(self.resource.id)
+                config.disable()
+                config.delete()
+                self.extra_services.old_app_server.reload()
 
     @taskexecutor.utils.synchronized
     def delete(self):
@@ -290,7 +299,8 @@ class MailboxProcessor(ResProcessor):
         self.service.create_maildir(self.resource.mailSpool, self.resource.name, self.resource.uid)
 
     def update(self):
-        pass
+        if not self.op_resource:
+            self.create()
 
     def delete(self):
         self.service.delete_maildir(self.resource.mailSpool, self.resource.name)

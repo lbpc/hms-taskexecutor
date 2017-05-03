@@ -214,7 +214,7 @@ class AMQPListener(Listener):
                                       action=context["action"],
                                       params=message["params"])
         self._new_task_queue.put(task)
-        LOGGER.info("New task created: {}".format(task))
+        LOGGER.debug("New task created: {}".format(task))
         taskexecutor.utils.set_thread_name("AMQPListener")
 
     def stop(self):
@@ -236,14 +236,14 @@ class TimeListener(Listener):
         return cls.__processed_task_queue
 
     def _schedule(self):
-        for action, res_types in vars(CONFIG.schedule).items():
-            for res_type, params in vars(res_types).items():
+        for action, res_types in CONFIG.schedule._asdict().items():
+            for res_type, params in res_types._asdict().items():
                 res_type = taskexecutor.utils.to_lower_dashed(res_type)
                 if res_type in CONFIG.enabled_resources:
                     context = {"res_type": res_type, "action": action}
-                    message = {"params": dict(vars(params))}
+                    message = {"params": dict(params._asdict())}
                     job = schedule.every(params.interval).seconds.do(self.take_event, context, message)
-                    LOGGER.info(job)
+                    LOGGER.debug(job)
 
     def listen(self):
         taskexecutor.utils.set_thread_name("TimeListener")
@@ -271,7 +271,7 @@ class TimeListener(Listener):
                                       action=context["action"],
                                       params=message["params"])
         self._new_task_queue.put(task)
-        LOGGER.info("New task created from locally scheduled event: {}".format(task))
+        LOGGER.debug("New task created from locally scheduled event: {}".format(task))
 
     def stop(self):
         schedule.clear()

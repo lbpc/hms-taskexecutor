@@ -312,8 +312,8 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
             if actual_vars.get(variable) in ("ON", "OFF") and value in (1, 0):
                 value = {1: "ON", 0: "OFF"}[value]
             if actual_vars.get(variable) != str(value):
-                LOGGER.info("MySQL variable: {0}, "
-                            "old value: {1}, new value: {2}".format(variable, actual_vars.get(variable), value))
+                LOGGER.debug("MySQL variable: {0}, "
+                             "old value: {1}, new value: {2}".format(variable, actual_vars.get(variable), value))
                 if isinstance(value, int):
                     self.dbclient.execute_query("SET GLOBAL {0}={1}".format(variable, value), ())
                 else:
