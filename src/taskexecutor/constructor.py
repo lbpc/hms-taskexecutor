@@ -82,7 +82,10 @@ def get_all_opservices_by_res_type(resource_type):
 
 def get_extra_services(res_processor):
     if isinstance(res_processor, taskexecutor.resprocessor.WebSiteProcessor):
-        return collections.namedtuple("ServiceContainer", "http_proxy")(http_proxy=get_http_proxy_service())
+        ServiceContainer = collections.namedtuple("ServiceContainer", "http_proxy old_app_server")
+        return ServiceContainer(http_proxy=get_http_proxy_service(),
+                                old_app_server=get_opservice_by_resource(res_processor.op_resource, "website")
+                                if res_processor.op_resource else None)
     return list()
 
 

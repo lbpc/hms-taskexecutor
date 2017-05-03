@@ -38,7 +38,7 @@ class ResourceBulider:
             obj_ref = urllib.parse.urlparse(self._obj_ref).path
             with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
                 if obj_ref:
-                    LOGGER.info("Fetching {0} resource by {1}".format(self._res_type, obj_ref))
+                    LOGGER.debug("Fetching {0} resource by {1}".format(self._res_type, obj_ref))
                     resource = api.get(obj_ref)
                     if not resource:
                         raise ResourceBuildingError("Failed to fetch resource "
@@ -46,6 +46,8 @@ class ResourceBulider:
                     self._resources.append(resource)
                 elif self._res_type in ("unix-account", "mailbox"):
                     self._resources.extend(api.resource(self._res_type).filter(serverId=CONFIG.localserver.id).get())
+                elif self._res_type == "service":
+                    self._resources.extend(CONFIG.localserver.services)
                 else:
                     service_type_resource = taskexecutor.utils.to_camel_case(self._res_type).upper()
                     for service in CONFIG.localserver.services:
@@ -184,11 +186,14 @@ class Executor:
                            "sleeping for {1}s".format(task.params["failcount"], delay))
             time.sleep(delay)
         res_builder = ResourceBulider(task.res_type, task.params.get("objRef"))
+        if len(res_builder.resources) == 0:
+            LOGGER.info("There is no {} resources here".format(task.res_type))
+            return
         if not task.params.get("resource") and len(res_builder.resources) > 1:
             for subtask in self.create_subtasks(task, res_builder.resources):
                 self.spawn_subtask(subtask)
-                task.tag = None
-                return
+            task.tag = None
+            return
         else:
             task.params["resource"] = task.params.get("resource") or res_builder.resources[0]
         if task.action in ("create", "update", "delete"):
@@ -208,7 +213,7 @@ class Executor:
         LOGGER.info("Sending report {0} using {1}".format(report, type(reporter).__name__))
         reporter.send_report()
         task.state = taskexecutor.task.DONE
-        LOGGER.info("Done with task {}".format(task))
+        LOGGER.debug("Done with task {}".format(task))
 
     def run(self):
         taskexecutor.utils.set_thread_name("Executor")

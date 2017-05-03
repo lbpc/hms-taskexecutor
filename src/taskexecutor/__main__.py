@@ -21,14 +21,8 @@ def receive_signal(signum, unused_stack):
         STOP = True
 
 
-def main():
-    signal.signal(signal.SIGINT, receive_signal)
-    executor = taskexecutor.executor.Executor()
-    executor_thread = threading.Thread(target=executor.run)
-    executor_thread.start()
-    taskexecutor.logger.LOGGER.info("Executor thread started")
+def initial_service_update(new_task_queue):
     taskexecutor.logger.LOGGER.info("Perfoming initial Service updates")
-    new_task_queue = executor.get_new_task_queue()
     for service in CONFIG.localserver.services:
         task = taskexecutor.task.Task(None,
                                       type(None),
@@ -38,6 +32,23 @@ def main():
                                       "update",
                                       params={"resource": service})
         new_task_queue.put(task)
+
+
+def initial_resource_update(new_task_queue, res_type):
+    taskexecutor.logger.LOGGER.info("Perfoming initial {} updates".format(res_type))
+    new_task_queue.put(taskexecutor.task.Task(None, type(None), "LOCAL-INIT",
+                                              "{}.update".format(res_type), res_type, "update", {}))
+
+
+def main():
+    signal.signal(signal.SIGINT, receive_signal)
+    executor = taskexecutor.executor.Executor()
+    executor_thread = threading.Thread(target=executor.run)
+    executor_thread.start()
+    taskexecutor.logger.LOGGER.info("Executor thread started")
+    taskexecutor.logger.LOGGER.info("Perfoming initial Service updates")
+    new_task_queue = executor.get_new_task_queue()
+    initial_service_update(new_task_queue)
     amqp_listener = taskexecutor.constructor.get_listener("amqp")
     amqp_listener_thread = threading.Thread(target=amqp_listener.listen)
     amqp_listener_thread.start()

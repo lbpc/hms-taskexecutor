@@ -21,8 +21,13 @@ class UnixAccountManager(metaclass=abc.ABCMeta):
     def default_shell(self):
         return
 
+    @property
     @abc.abstractmethod
-    def create_user(self, name, uid, home_dir, pass_hash, gecos=""):
+    def disabled_shell(self):
+        return
+
+    @abc.abstractmethod
+    def create_user(self, name, uid, home_dir, pass_hash, shell, gecos=""):
         pass
 
     @abc.abstractmethod
@@ -67,7 +72,11 @@ class LinuxUserManager(UnixAccountManager):
     def default_shell(self):
         return "/bin/bash"
 
-    def create_user(self, name, uid, home_dir, pass_hash, gecos=""):
+    @property
+    def disabled_shell(self):
+        return "/usr/sbin/nologin"
+
+    def create_user(self, name, uid, home_dir, pass_hash, shell, gecos=""):
         if os.path.exists(home_dir):
             os.chown(home_dir, uid, uid)
         taskexecutor.utils.exec_command("useradd "
@@ -76,8 +85,8 @@ class LinuxUserManager(UnixAccountManager):
                                         "--home {2} "
                                         "--password '{3}' "
                                         "--create-home "
-                                        "--shell /bin/bash "
-                                        "{4}".format(gecos, uid, home_dir, pass_hash, name))
+                                        "--shell {4} "
+                                        "{5}".format(gecos, uid, home_dir, pass_hash, shell, name))
 
     def delete_user(self, name):
         taskexecutor.utils.exec_command("userdel --force --remove {}".format(name))
@@ -85,8 +94,9 @@ class LinuxUserManager(UnixAccountManager):
     def set_quota(self, uid, quota_bytes):
         taskexecutor.utils.exec_command("setquota "
                                         "-g {0} 0 {1} "
-                                        "0 0 /home".format(uid, int(quota_bytes / 1024)))
+                                        "0 0 /home".format(uid, int(quota_bytes)))
 
+    @taskexecutor.utils.synchronized
     def get_quota(self):
         return {k: v["block_limit"]["used"] * 1024
                 for k, v in taskexecutor.utils.repquota("vangp").items()}
@@ -108,7 +118,7 @@ class LinuxUserManager(UnixAccountManager):
             crontab_string = ("{0}"
                               "#{1.execTimeDescription}\n"
                               "{1.execTime} {1.command}\n").format(crontab_string, task)
-        LOGGER.info("Installing '{0}' crontab for {1}".format(crontab_string, user_name))
+        LOGGER.debug("Installing '{0}' crontab for {1}".format(crontab_string, user_name))
         taskexecutor.utils.exec_command("crontab -u {} -".format(user_name), pass_to_stdin=crontab_string)
 
     def delete_crontab(self, user_name):
@@ -128,7 +138,7 @@ class LinuxUserManager(UnixAccountManager):
 
     def set_shell(self, user_name, path):
         path = path or "/usr/sbin/nologin"
-        taskexecutor.utils.exec_command("usermod --shell {0} {1}".format(user_name, path))
+        taskexecutor.utils.exec_command("usermod --shell {0} {1}".format(path, user_name))
 
 
 class FreebsdUserManager(UnixAccountManager):
@@ -138,6 +148,10 @@ class FreebsdUserManager(UnixAccountManager):
     @property
     def default_shell(self):
         return "/usr/local/bin/bash"
+
+    @property
+    def disabled_shell(self):
+        return "/usr/sbin/nologin"
 
     @property
     def jail_id(self):
@@ -161,14 +175,14 @@ class FreebsdUserManager(UnixAccountManager):
                                         "pgrep sshd | xargs kill -HUP".format(self.jail_id),
                                         shell=self.default_shell)
 
-    def create_user(self, name, uid, home_dir, pass_hash, gecos=""):
+    def create_user(self, name, uid, home_dir, pass_hash, shell, gecos=""):
         taskexecutor.utils.exec_command("jexec {0} "
                                         "pw useradd {1} "
                                         "-u {2} "
                                         "-d {3} "
                                         "-h - "
-                                        "-s /usr/local/bin/bash "
-                                        "-c '{4}'".format(self.jail_id, name, uid, home_dir, gecos),
+                                        "-s {4} "
+                                        "-c '{5}'".format(self.jail_id, name, uid, home_dir, shell, gecos),
                                         shell=self.default_shell)
         self._update_jailed_ssh("append", name)
 
@@ -186,6 +200,7 @@ class FreebsdUserManager(UnixAccountManager):
                                         "{0}".format(self.jail_id, int(quota_bytes) / 1024, uid),
                                         shell=self.default_shell)
 
+    @taskexecutor.utils.synchronized
     def get_quota(self):
         return {k: v["block_limit"]["used"]
                 for k, v in taskexecutor.utils.repquota("vang", shell=self.default_shell).items()}
@@ -205,7 +220,7 @@ class FreebsdUserManager(UnixAccountManager):
         for task in cron_tasks_list:
             crontab_string = ("{0}"
                               "{1.execTime} {1.command}\n").format(crontab_string, task)
-        LOGGER.info("Installing '{0}' crontab for {1}".format(crontab_string, user_name))
+        LOGGER.debug("Installing '{0}' crontab for {1}".format(crontab_string, user_name))
         taskexecutor.utils.exec_command("jexec {0} "
                                         "crontab -u {1} -".format(self.jail_id, user_name),
                                         shell=self.default_shell,
@@ -251,18 +266,18 @@ class MaildirManager:
     def create_maildir(self, spool, dir, owner_uid):
         path = os.path.join(spool, dir)
         if not os.path.isdir(path):
-            LOGGER.info("Creating directory {}".format(path))
+            LOGGER.debug("Creating directory {}".format(path))
             os.makedirs(path, mode=0o755, exist_ok=True)
         else:
             LOGGER.info("Maildir {} already exists".format(path))
-        LOGGER.info("Setting owner {0} for {1}".format(owner_uid, path))
+        LOGGER.debug("Setting owner {0} for {1}".format(owner_uid, path))
         os.chown(spool, owner_uid, owner_uid)
         os.chown(path, owner_uid, owner_uid)
 
     def delete_maildir(self, spool, dir):
         path = os.path.join(str(spool), str(dir))
         if os.path.exists(path):
-            LOGGER.info("Removing {} recursively".format(path))
+            LOGGER.debug("Removing {} recursively".format(path))
             shutil.rmtree(path)
         else:
             LOGGER.warning("{} does not exist".format(path))

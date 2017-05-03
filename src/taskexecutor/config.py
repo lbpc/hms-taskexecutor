@@ -1,5 +1,6 @@
 import os
 import socket
+import logging
 
 import taskexecutor.httpsclient
 from taskexecutor.logger import LOGGER
@@ -11,13 +12,16 @@ class PropertyValidationError(Exception):
 
 class __Config:
     def __init__(self):
+        log_level = os.environ.get("LOG_LEVEL") or "INFO"
+        log_level = getattr(logging, log_level.upper())
+        LOGGER.setLevel(log_level)
         LOGGER.info("Initializing config")
         self.hostname = socket.gethostname().split('.')[0]
         self.profile = os.environ.get("SPRING_PROFILES_ACTIVE") or "dev"
         self.apigw = dict(host=os.environ.get("APIGW_HOST") or "api.majordomo.ru",
                           port=int(os.environ.get("APIGW_PORT") or 443),
-                          user=os.environ.get("APIGW_USER") or "admin",
-                          password=os.environ.get("APIGW_PASSWORD") or "admin")
+                          user=os.environ.get("APIGW_USER") or "service",
+                          password=os.environ.get("APIGW_PASSWORD") or "Efu0ahs6")
         self._amqp = dict(host=os.environ.get("SPRING_RABBITMQ_HOST"),
                           user=os.environ.get("SPRING_RABBITMQ_USERNAME"),
                           password=os.environ.get("SPRING_RABBITMQ_PASSWORD"))
@@ -33,7 +37,7 @@ class __Config:
             extra_attrs.append("amqp.consumer_routing_key=te.{}".format(self.hostname))
             cfg_srv.extra_attrs = extra_attrs
             props = cfg_srv.te(self.profile).get().propertySources[0].source
-            for attr, value in vars(props).items():
+            for attr, value in props._asdict().items():
                 if not attr.startswith("_"):
                     setattr(self, attr, value)
 

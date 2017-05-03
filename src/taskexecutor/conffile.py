@@ -1,5 +1,6 @@
 import re
 import os
+import shutil
 import jinja2
 from taskexecutor.logger import LOGGER
 
@@ -52,6 +53,12 @@ class ConfigFile:
     def exists(self):
         return os.path.exists(self._file_path)
 
+    @property
+    def _backup_file_path(self):
+        backup_path = os.path.normpath("{0}/{1}".format("/var/tmp", self._file_path))
+        os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+        return backup_path
+
     def _read_file(self):
         with open(self._file_path, "r") as f:
             self._body = f.read()
@@ -62,9 +69,9 @@ class ConfigFile:
             LOGGER.warning("There is no {} found, creating".format(dir_path))
             os.makedirs(dir_path)
         if os.path.exists(self.file_path):
-            LOGGER.info("Backing up {0} file as {0}.old".format(self.file_path))
-            os.rename(self.file_path, "{}.old".format(self.file_path))
-        LOGGER.info("Saving {} file".format(self.file_path))
+            LOGGER.debug("Backing up {0} file as {1}".format(self.file_path, self._backup_file_path))
+            shutil.move(self.file_path, self._backup_file_path)
+        LOGGER.debug("Saving {} file".format(self.file_path))
         with open(self.file_path, "w") as f:
             f.write(self.body)
         if self._mode:
@@ -73,27 +80,28 @@ class ConfigFile:
             os.chown(self.file_path, self._owner_uid, self._owner_uid)
 
     def revert(self):
-        if os.path.exists("{}.old".format(self.file_path)):
+        if os.path.exists(self._backup_file_path):
             LOGGER.warning(
-                    "Reverting {0} from {0}.old, {0} will be saved as "
-                    "/tmp/te_{1}".format(self.file_path,
-                                         self.file_path.replace("/", "_"))
+                    "Reverting {0} from {1}, {0} will be saved as "
+                    "/var/tmp/te_{2}".format(self.file_path,
+                                             self._backup_file_path,
+                                             self.file_path.replace("/", "_"))
             )
-            os.rename(self.file_path,
-                      "/tmp/te_{}".format(self.file_path.replace("/", "_")))
-            os.rename("{}.old".format(self.file_path), self.file_path)
+            shutil.move(self.file_path,
+                        "/var/tmp/te_{}".format(self.file_path.replace("/", "_")))
+            shutil.move(self._backup_file_path, self.file_path)
 
     def confirm(self):
-        if os.path.exists("{}.old".format(self.file_path)):
-            LOGGER.info("Removing {}.old".format(self.file_path))
-            os.unlink("{}.old".format(self.file_path))
+        if os.path.exists(self._backup_file_path):
+            LOGGER.debug("Removing {}".format(self._backup_file_path))
+            os.unlink(self._backup_file_path)
 
     def save(self):
         self.write()
         self.confirm()
 
     def delete(self):
-        LOGGER.info("Deleting {} file".format(self.file_path))
+        LOGGER.debug("Deleting {} file".format(self.file_path))
         os.unlink(self.file_path)
         del self.body
 
@@ -129,14 +137,14 @@ class SwitchableConfigFile(ConfigFile):
     def enable(self):
         if not self.enabled_path:
             raise PropertyValidationError("enabled_path property is not set ")
-        LOGGER.info("Linking {0} to {1}".format(self.file_path,
-                                                self.enabled_path))
+        LOGGER.debug("Linking {0} to {1}".format(self.file_path,
+                                                 self.enabled_path))
         os.symlink(self.file_path, self.enabled_path)
 
     def disable(self):
         if not self.enabled_path:
             raise PropertyValidationError("enabled_path property is not set ")
-        LOGGER.info("Unlinking {}".format(self.enabled_path))
+        LOGGER.debug("Unlinking {}".format(self.enabled_path))
         os.unlink(self.enabled_path)
 
 
@@ -190,12 +198,12 @@ class LineBasedConfigFile(ConfigFile):
         return ret_list
 
     def add_line(self, line):
-        LOGGER.info("Adding '{0}' to {1}".format(line, self.file_path))
+        LOGGER.debug("Adding '{0}' to {1}".format(line, self.file_path))
         list = self._body_as_list().append(line)
         self.body = "\n".join(list)
 
     def remove_line(self, line):
-        LOGGER.info("Removing '{0}' from {1}".format(line, self.file_path))
+        LOGGER.debug("Removing '{0}' from {1}".format(line, self.file_path))
         list = self._body_as_list().remove(line)
         self.body = "\n".join(list)
 
@@ -203,7 +211,7 @@ class LineBasedConfigFile(ConfigFile):
         list = self._body_as_list()
         for idx, line in enumerate(list):
             if count != 0 and re.match(regex, line):
-                LOGGER.info("Replacing '{0}' by '{1}' in {2}".format(line, new_line, self.file_path))
+                LOGGER.debug("Replacing '{0}' by '{1}' in {2}".format(line, new_line, self.file_path))
                 del list[idx]
                 list.insert(idx, new_line)
                 count -= 1

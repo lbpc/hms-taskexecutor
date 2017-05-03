@@ -89,7 +89,7 @@ class ResCollector(metaclass=abc.ABCMeta):
 
     def get(self, cache_ttl=0):
         op_resource = dict()
-        properties_set = set(vars(self.resource).keys())
+        properties_set = set(self.resource._asdict().keys())
         properties_set.difference_update(self._ignored_properties)
         start_collecting_time = time.time()
         for property_name in properties_set:
@@ -103,7 +103,6 @@ class ResCollector(metaclass=abc.ABCMeta):
 
 
 class UnixAccountCollector(ResCollector):
-    @taskexecutor.utils.synchronized
     def get_property(self, property_name, cache_ttl=0):
         key = self.get_cache_key(property_name, self.resource.uid)
         cached, expired = self.check_cache(key, cache_ttl)
@@ -114,7 +113,7 @@ class UnixAccountCollector(ResCollector):
             for uid, quota_used_bytes in uid_quota_used_mapping.items():
                 LOGGER.debug("UID: {0} quota used: {1} bytes".format(uid, quota_used_bytes))
                 self.add_property_to_cache(self.get_cache_key(property_name, uid), quota_used_bytes)
-            return uid_quota_used_mapping.get(self.resource.uid)
+            return uid_quota_used_mapping.get(self.resource.uid) or 0
         else:
             etc_passwd = taskexecutor.constructor.get_conffile("lines", "/etc/passwd")
             matched_lines = etc_passwd.get_lines("^{}:".format(self.resource.name))
@@ -124,10 +123,10 @@ class UnixAccountCollector(ResCollector):
                 return
             name, _, uid, _, _, home_dir, _ = matched_lines[0].split(":")
             self.add_property_to_cache(self.get_cache_key("name", self.resource.uid), name)
-            self.add_property_to_cache(self.get_cache_key("uid", self.resource.uid), uid)
+            self.add_property_to_cache(self.get_cache_key("uid", self.resource.uid), int(uid))
             self.add_property_to_cache(self.get_cache_key("homeDir", self.resource.uid), home_dir)
             return {"name": name,
-                    "uid": uid,
+                    "uid": int(uid),
                     "homeDir": home_dir}.get(property_name)
 
 
@@ -140,9 +139,12 @@ class MailboxCollector(ResCollector):
             return self.get_property_from_cache(key)
         if property_name == "quotaUsed":
             maildir_size = self.service.get_maildir_size(maildir_path)
-            if maildir_size:
-                self.add_property_to_cache(key, maildir_size)
-                return maildir_size
+            self.add_property_to_cache(key, maildir_size)
+            return maildir_size or 0
+        elif os.path.exists(maildir_path) and os.path.isdir(maildir_path):
+            self.add_property_to_cache(self.get_cache_key("name", maildir_path), self.resource.name)
+            self.add_property_to_cache(self.get_cache_key("mailSpool", maildir_path), self.resource.mailSpool)
+            return getattr(self.resource, property_name, None)
 
 
 class DatabaseUserCollector(ResCollector):
@@ -150,7 +152,7 @@ class DatabaseUserCollector(ResCollector):
         key = self.get_cache_key(property_name, self.resource.name)
         cached, expired = self.check_cache(key, cache_ttl)
         if cached and not expired:
-            return self.get_property_from_cache(key)
+            return self.get_property_from_cache(key) or 0
         name, password_hash, addrs = self.service.get_user(self.resource.name)
         if name:
             self.add_property_to_cache(self.get_cache_key("name", self.resource.name), name)
