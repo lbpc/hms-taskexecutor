@@ -169,6 +169,7 @@ class TemplatedConfigFile(ConfigFile):
     def _setup_jinja2_env():
         jinja2_env = jinja2.Environment()
         jinja2_env.filters["path_join"] = lambda paths: os.path.join(*paths)
+        jinja2_env.filters["punycode"] = lambda domain: domain.encode("idna").decode()
         return jinja2_env
 
     def render_template(self, **kwargs):
