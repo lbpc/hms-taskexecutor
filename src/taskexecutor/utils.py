@@ -23,7 +23,7 @@ class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
         try:
             return fn(*args, **kwargs)
         except Exception as e:
-            LOGGER.error(traceback.format_exc())
+            LOGGER.error("{}EOT".format(traceback.format_exc()))
             raise e
 
 

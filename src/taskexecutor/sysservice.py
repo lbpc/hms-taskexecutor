@@ -94,7 +94,7 @@ class LinuxUserManager(UnixAccountManager):
     def set_quota(self, uid, quota_bytes):
         taskexecutor.utils.exec_command("setquota "
                                         "-g {0} 0 {1} "
-                                        "0 0 /home".format(uid, int(quota_bytes)))
+                                        "0 0 /home".format(uid, int(quota_bytes / 1024)))
 
     @taskexecutor.utils.synchronized
     def get_quota(self):

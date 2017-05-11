@@ -384,16 +384,17 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                                         (user_name, address))
 
     def get_database_size(self, database_name):
-        return self.dbclient.execute_query(
+        return int(self.dbclient.execute_query(
             "SELECT SUM(data_length+index_length) FROM information_schema.tables WHERE table_schema=%s",
             (database_name,)
-        )[0][0]
+        )[0][0])
 
     def get_all_databases_size(self):
-        return dict(self.dbclient.execute_query(
-            "SELECT table_schema, SUM(data_length+index_length) FROM information_schema.tables GROUP BY table_schema",
-            ()
-        ))
+        return dict(
+                ((db, int(size)) for db, size in
+                 self.dbclient.execute_query("SELECT table_schema, SUM(data_length+index_length) "
+                                             "FROM information_schema.tables GROUP BY table_schema", ()))
+        )
 
     def get_archive_stream(self, source, params={}):
         stdout, stderr = taskexecutor.utils.exec_command(
@@ -569,7 +570,7 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                                     (database_name, user_name))
 
     def get_database_size(self, database_name):
-        return self.dbclient.execute_query("SELECT pg_database_size(%s)", (database_name,))[0][0]
+        return int(self.dbclient.execute_query("SELECT pg_database_size(%s)", (database_name,))[0][0])
 
     def get_all_databases_size(self):
         databases = [row[0] for row in
