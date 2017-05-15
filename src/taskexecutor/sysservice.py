@@ -87,6 +87,7 @@ class LinuxUserManager(UnixAccountManager):
                                         "--create-home "
                                         "--shell {4} "
                                         "{5}".format(gecos, uid, home_dir, pass_hash, shell, name))
+        os.chmod(home_dir, 0o0700)
 
     def delete_user(self, name):
         taskexecutor.utils.exec_command("userdel --force --remove {}".format(name))
@@ -184,6 +185,7 @@ class FreebsdUserManager(UnixAccountManager):
                                         "-s {4} "
                                         "-c '{5}'".format(self.jail_id, name, uid, home_dir, shell, gecos),
                                         shell=self.default_shell)
+        os.chmod(home_dir, 0o0700)
         self._update_jailed_ssh("append", name)
 
     def delete_user(self, name):
