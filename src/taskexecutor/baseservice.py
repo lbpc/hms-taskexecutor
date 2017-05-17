@@ -3,6 +3,7 @@ import collections
 import functools
 import os
 import re
+import time
 
 from taskexecutor.config import CONFIG
 import taskexecutor.constructor
@@ -30,6 +31,8 @@ class NetworkingService:
 
 
 class ConfigurableService:
+    _cache = dict()
+
     def __init__(self):
         self._concrete_configs_set = set()
         self._template_sources_map = dict()
@@ -100,8 +103,13 @@ class ConfigurableService:
         raise ConfigConstructionError("No '{0}' config defined for service {1}".format(path, self))
 
     def get_config_template(self, template_source):
+        if ConfigurableService._cache.get(template_source) \
+                and ConfigurableService._cache[template_source]["timestamp"] + 10 > time.time():
+            return ConfigurableService._cache[template_source]["value"]
         with taskexecutor.httpsclient.GitLabClient(**CONFIG.gitlab._asdict()) as gitlab:
-            return gitlab.get(template_source)
+            template = gitlab.get(template_source)
+            ConfigurableService._cache[template_source] = {"timestamp": time.time(), "value": template}
+            return template
 
 
 class WebServer(ConfigurableService, NetworkingService):

@@ -321,6 +321,7 @@ class DatabaseUserProcessor(ResProcessor):
 
     def update(self):
         if not self.resource.switchedOn:
+            LOGGER.info("User {0} is switched off, deleting".format(self.resource.name))
             self.delete()
             return
         if self.op_resource:
@@ -367,7 +368,7 @@ class DatabaseProcessor(ResProcessor):
             database_users.remove(self.params["delete"])
         if self.op_resource:
             current_usernames_set = set((user.name for user in self.op_resource.databaseUsers))
-            staging_usernames_set = set((user.name for user in database_users))
+            staging_usernames_set = set((user.name for user in database_users if user.switchedOn))
             new_users_list = [user for user in database_users
                               if user.name in staging_usernames_set.difference(current_usernames_set)]
             old_users_list = [user for user in self.op_resource.databaseUsers

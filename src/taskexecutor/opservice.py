@@ -114,6 +114,18 @@ class OpService(metaclass=abc.ABCMeta):
     def status(self):
         pass
 
+    def __repr__(self):
+        return "{0}(name={1}, " \
+               "log_base_path={2}, " \
+               "run_base_path={3}, " \
+               "lock_base_path={4}, " \
+               "init_base_path={5}))".format(self.__class__.__name__,
+                                             self.name,
+                                             self.log_base_path,
+                                             self.run_base_path,
+                                             self.lock_base_path,
+                                             self.init_base_path)
+
 
 class UpstartService(OpService):
     def __init__(self, name):
@@ -330,7 +342,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     def get_database(self, name):
         rows = self.dbclient.execute_query("SELECT Db, User FROM mysql.db WHERE Db = %s", (name,))
         if not rows:
-            return "", []
+            return next((db[0] for db in self.dbclient.execute_query("SHOW DATABASES", ()) if db[0] == name), ""), []
         name = rows[0][0]
         users = [self.get_user(row[1]) for row in set(rows)]
         return name, users
