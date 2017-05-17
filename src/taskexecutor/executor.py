@@ -185,17 +185,21 @@ class Executor:
             LOGGER.warning("Currently processed task had failed {0} times before, "
                            "sleeping for {1}s".format(task.params["failcount"], delay))
             time.sleep(delay)
-        res_builder = ResourceBulider(task.res_type, task.params.get("objRef"))
-        if len(res_builder.resources) == 0:
-            LOGGER.info("There is no {} resources here".format(task.res_type))
-            return
-        if not task.params.get("resource") and len(res_builder.resources) > 1:
-            for subtask in self.create_subtasks(task, res_builder.resources):
-                self.spawn_subtask(subtask)
-            task.tag = None
-            return
-        else:
-            task.params["resource"] = task.params.get("resource") or res_builder.resources[0]
+        if not task.params.get("resource"):
+            res_builder = ResourceBulider(task.res_type, task.params.get("objRef"))
+            if len(res_builder.resources) == 0:
+                LOGGER.info("There is no {} resources here".format(task.res_type))
+                return
+            if len(res_builder.resources) > 1:
+                for subtask in self.create_subtasks(task, res_builder.resources):
+                    if task.params.get("exec_type") == "parallel":
+                        self.spawn_subtask(subtask)
+                    else:
+                        self.process_task(subtask)
+                task.tag = None
+                return
+            else:
+                task.params["resource"] = res_builder.resources[0]
         if task.action in ("create", "update", "delete"):
             sequence = self.build_processing_sequence(task.res_type, task.params["resource"], task.action, task.params)
             for processor, method in sequence:

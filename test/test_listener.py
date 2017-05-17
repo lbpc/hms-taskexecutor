@@ -35,44 +35,51 @@ class TestAMQPListener(unittest.TestCase):
         sys.modules["taskexecutor.config"] = self.mock_config
         import taskexecutor.task
         import taskexecutor.listener
-        self.mock_task = unittest.mock.MagicMock(spec=taskexecutor.task.Task)
-        self.mock_new_task_queue = unittest.mock.MagicMock(spec=queue.Queue)
+        self.mock_task = unittest.mock.Mock(spec=taskexecutor.task.Task)
+        self.mock_task.state = 0
+        self.mock_new_task_queue = unittest.mock.Mock(spec=queue.Queue)
         self.amqp_listener = taskexecutor.listener.AMQPListener(self.mock_new_task_queue)
 
-    def no_test_listen(self):
+    def test_listen(self):
         self.poll_count = 0
+
+        def decrement_processed_task_queue_qsize(_):
+            self.mock_processed_task_queue.qsize.return_value -= 1
 
         def ioloop_poll_side_effect():
             if self.poll_count == 0:
-                self.amqp_listener._futures_tags_mapping = {self.mock_future: 61}
+                self.mock_processed_task_queue.qsize.return_value = 1
+                self.mock_task.tag = 42
+                self.mock_task.state = 2
+                self.assertTrue(self.amqp_listener._acknowledge_message.called_once_with(42))
+            elif self.poll_count == 1:
+                self.mock_processed_task_queue.qsize.return_value = 1
+                self.mock_task.tag = 666
+                self.assertTrue(self.amqp_listener._reject_message.called_once_with(666))
+                self.mock_task.state = 3
+            else:
+                self.mock_connection.ioloop._stopping = True
             self.poll_count += 1
 
-        def ioloop_process_timeouts_side_effect():
-            if self.poll_count == 1:
-                self.mock_future.running.return_value = False
-            elif self.poll_count == 2:
-                self.assertFalse(self.amqp_listener._reject_message.called)
-                self.mock_future.exception.return_value = "EXCEPTION!11"
-            elif self.poll_count == 3:
-                self.assertTrue(self.amqp_listener._reject_message.called_once_with(61))
-                self.assertEqual(self.mock_future.exception(), "EXCEPTION!11")
-                mock_connection.ioloop._stopping = True
-
-        self.mock_future.running = unittest.mock.Mock(return_value=True)
-        self.mock_future.exception = unittest.mock.Mock(return_value=False)
-        mock_connection = unittest.mock.Mock(spec=pika.adapters.select_connection.SelectConnection)
-        mock_connection.ioloop = unittest.mock.Mock(spec=pika.adapters.select_connection.IOLoop)
-        self.amqp_listener._connect = unittest.mock.Mock(return_value=mock_connection)
-        self.amqp_listener._reject_message = unittest.mock.Mock()
-        mock_connection.ioloop.poll = unittest.mock.Mock(side_effect=ioloop_poll_side_effect)
-        mock_connection.ioloop._stopping = False
-        mock_connection.ioloop.process_timeouts = unittest.mock.Mock(side_effect=ioloop_process_timeouts_side_effect)
+        self.mock_connection = unittest.mock.Mock(spec=pika.adapters.select_connection.SelectConnection)
+        self.mock_connection.ioloop = unittest.mock.Mock(spec=pika.adapters.select_connection.IOLoop)
+        self.mock_processed_task_queue = unittest.mock.Mock(spec=queue.Queue)
+        self.mock_processed_task_queue.qsize = unittest.mock.Mock(return_value=0)
+        self.mock_processed_task_queue.get_nowait = unittest.mock.Mock(
+                return_value=self.mock_task
+        )
+        self.amqp_listener._connect = unittest.mock.Mock(return_value=self.mock_connection)
+        self.amqp_listener._reject_message = unittest.mock.Mock(side_effect=decrement_processed_task_queue_qsize)
+        self.amqp_listener._acknowledge_message = unittest.mock.Mock(side_effect=decrement_processed_task_queue_qsize)
+        self.amqp_listener.get_processed_task_queue = unittest.mock.Mock(return_value=self.mock_processed_task_queue)
+        self.mock_connection.ioloop.poll = unittest.mock.Mock(side_effect=ioloop_poll_side_effect)
+        self.mock_connection.ioloop._stopping = False
+        self.mock_connection.ioloop.process_timeouts = unittest.mock.Mock()
         self.amqp_listener.listen()
         self.amqp_listener._connect.assert_called_once_with()
-        self.assertEqual(mock_connection.ioloop.poll.call_count, 3)
-        self.assertFalse(self.amqp_listener._futures_tags_mapping)
+        self.assertEqual(self.mock_connection.ioloop.poll.call_count, 3)
 
-    def no_test_take_event(self):
+    def test_take_event(self):
         test_operationIdentity = "testOpId"
         test_actionIdentity = "testActId"
         test_objRef = "http://host/path/to/resource"
@@ -85,24 +92,20 @@ class TestAMQPListener(unittest.TestCase):
                         "action": "create",
                         "delivery_tag": 1,
                         "provider": "rc-user"}
-        self.amqp_listener.create_task = unittest.mock.create_autospec(self.amqp_listener.create_task,
-                                                                       return_value=self.mock_task)
-        self.amqp_listener.pass_task = unittest.mock.create_autospec(self.amqp_listener.pass_task,
-                                                                     return_value=self.mock_future)
+        self.amqp_listener._new_task_queue = self.mock_new_task_queue
         self.amqp_listener.take_event(test_context, test_message)
-        test_params.update(objRef=test_objRef)
-        self.amqp_listener.create_task.assert_called_once_with(test_operationIdentity,
-                                                               test_actionIdentity,
-                                                               test_context["res_type"],
-                                                               test_context["action"],
-                                                               test_params)
-        self.amqp_listener.pass_task.assert_called_once_with(self.mock_task,
-                                                             self.amqp_listener._acknowledge_message,
-                                                             args=(test_context["delivery_tag"],))
-        self.assertEqual(self.amqp_listener._futures_tags_mapping[self.mock_future], test_context["delivery_tag"])
+        self.mock_new_task_queue.put.assert_called_once()
+        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].tag, test_context["delivery_tag"])
+        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].origin, self.amqp_listener.__class__)
+        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].opid, test_operationIdentity)
+        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].actid, test_actionIdentity)
+        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].res_type, test_context["res_type"])
+        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].action, test_context["action"])
+        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].params, test_params)
 
     def test_stop(self):
-        pass
+        self.amqp_listener._stop_consuming = unittest.mock.Mock()
+        self.amqp_listener._stop_consuming.assert_called_once()
 
 
 if __name__ == '__main__':
