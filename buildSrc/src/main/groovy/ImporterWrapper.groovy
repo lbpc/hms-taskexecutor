@@ -25,7 +25,7 @@ class ImporterWrapper {
                     .collect(Collectors.joining(","))
             args.add(replaceString)
         }
-		println "Runing pivy-importer with following args:"
+		println "Running pivy-importer with following args:"
         println args
         ImporterCLI.main(args.toArray(new String[args.size()]))
     }
