@@ -1,5 +1,6 @@
-FROM docker-registry.intr/test-images/pop:latest
+FROM ubuntu:14.04
 COPY ./"${sdistName}" "${sdistName}"
+RUN apt-get update && apt-get install python3 python-virtualenv -y
 RUN bash -c "virtualenv -p `which python3` te && \
 				source te/bin/activate && \
 				pip install --find-links file://`pwd`/${sdistName} taskexecutor"

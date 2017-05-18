@@ -76,7 +76,7 @@ class TestAMQPListener(unittest.TestCase):
         self.mock_connection.ioloop._stopping = False
         self.mock_connection.ioloop.process_timeouts = unittest.mock.Mock()
         self.amqp_listener.listen()
-        self.amqp_listener._connect.assert_called_once_with()
+        self.assertEqual(self.amqp_listener._connect.call_count, 1)
         self.assertEqual(self.mock_connection.ioloop.poll.call_count, 3)
 
     def test_take_event(self):
@@ -94,7 +94,7 @@ class TestAMQPListener(unittest.TestCase):
                         "provider": "rc-user"}
         self.amqp_listener._new_task_queue = self.mock_new_task_queue
         self.amqp_listener.take_event(test_context, test_message)
-        self.mock_new_task_queue.put.assert_called_once()
+        self.assertEqual(self.mock_new_task_queue.put.call_count, 1)
         self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].tag, test_context["delivery_tag"])
         self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].origin, self.amqp_listener.__class__)
         self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].opid, test_operationIdentity)
@@ -105,7 +105,8 @@ class TestAMQPListener(unittest.TestCase):
 
     def test_stop(self):
         self.amqp_listener._stop_consuming = unittest.mock.Mock()
-        self.amqp_listener._stop_consuming.assert_called_once()
+        self.amqp_listener.stop()
+        self.assertEqual(self.amqp_listener._stop_consuming.call_count, 1)
 
 
 if __name__ == '__main__':

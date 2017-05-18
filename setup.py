@@ -125,6 +125,9 @@ class GradleDistribution(Distribution, object):
 
 setup(
     distclass=GradleDistribution,
+    url="http://repo.intr:8181/taskexecutor",
+    author="MJ engineers",
+    author_email="admin@majordomo.ru",
     package_dir={'': 'src'},
     packages=['taskexecutor'],
     package_data={'': ['../../pinned.txt']},
