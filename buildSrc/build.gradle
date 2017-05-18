@@ -1,0 +1,8 @@
+repositories {
+	jcenter()
+}
+
+dependencies {
+	compile 'org.codehaus.groovy:groovy-all:2.4.7'
+	compile 'com.linkedin.pygradle:pivy-importer:0.5.1'
+}

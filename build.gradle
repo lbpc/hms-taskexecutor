@@ -1,73 +1,73 @@
 buildscript {
-	repositories {
-		maven {
-			url 'http://maven.intr'
+	dependencies {
+		classpath "se.transmode.gradle:gradle-docker:1.2"
+	}
+	apply from: "${project.projectDir.path}/pivy.gradle"
+	def missingLibs = []
+	pivy.libs.each {
+		if (!file(pivy.repo.absolutePath + '/' + it.group + '/' + it.name + '/' + it.version).exists()) {
+			missingLibs << it
 		}
 	}
-	dependencies {
-		classpath("se.transmode.gradle:gradle-docker:1.2")
-		classpath("com.avast.gradle:docker-compose-gradle-plugin:0.3.9")
-		classpath("ru.majordomo:copycompose:1.+")
+	if (!missingLibs.empty) {
+		new ImporterWrapper(
+			repo: pivy.repo,
+			dependencies: missingLibs,
+			replace: pivy.replace).runAction()
 	}
 }
 
+
 plugins {
-	id "com.linkedin.python-sdist" version "0.3.9"
+	id "com.linkedin.python-sdist" version "0.5.1"
 	id "org.ajoberstar.grgit" version "1.5.1"
 }
 
 apply plugin: 'docker'
-apply plugin: 'docker-compose'
 apply plugin: 'org.ajoberstar.grgit'
-apply plugin: 'ru.majordomo.copycompose'
+
+
+python.details.pythonVersion = pythonVersion
+
+
+def pivyLayoutPattern  = {
+	ivy pivyIvyPattern
+	artifact pivyArtifactPattern
+	m2compatible = true
+}
+
+repositories {
+	ivy {
+		name "pypiLocal"
+		url "file://${project.buildDir.path}/pythonIvy"
+		layout "pattern", pivyLayoutPattern
+	}
+}
 
 dependencies {
 	python "pypi:pika:0.10.0"
 	python "pypi:PyMySQL:0.7.9"
 	python "pypi:Jinja2:2.8"
 	python "pypi:schedule:0.3.2"
-    python "pypi:pg8000:1.10.6"
+	python "pypi:pg8000:1.10.6"
 	python "pypi:pytransliter:1.0.1"
-	python "pypi:docker-py:1.10.4"
 }
 
-python.details.pythonVersion = pythonVersion
-
-def pypiIntrLayoutPattern  = {
-	ivy pypiIntrIvyPattern
-	artifact pypiIntrArtifactPattern
-	m2compatible = true
-}
-
-def pypiIntrCredentials = {
-	username pypiIntrUsername
-	password pypiIntrPassword
-}
-
-repositories {
-	pyGradlePyPi()
-	ivy {
-		name "pypiIntr"
-		url pypiIntrUrl
-		credentials pypiIntrCredentials
-		layout "pattern", pypiIntrLayoutPattern
-	}
-}
 
 uploadArchives {
 	repositories {
 		ivy {
 			name "pypiIntr"
-			url pypiIntrUrl + "/pypi"
-			credentials pypiIntrCredentials
-			layout "pattern", pypiIntrLayoutPattern
+			url pypiIntrUploadUrl
+			credentials {
+				username pypiIntrUsername
+				password pypiIntrPassword
+			}
+			layout "pattern", pivyLayoutPattern
 		}
 	}
 }
 
-task cleanSdist(type: Delete) {
-	delete tasks.packageSdist.getSdistOutput()
-}
 
 file("docker").listFiles().each { def dockerFile=file(it) ->
 	tasks.create(
@@ -103,6 +103,11 @@ file("docker").listFiles().each { def dockerFile=file(it) ->
 	}
 }
 
+task cleanSdist(type: Delete) {
+	description = "Delete sdist files"
+	delete tasks.packageSdist.getSdistOutput()
+}
+
 task buildDocker {
 	description = "Build Docker images from dockerfiles in ./docker/ and push them to ${dockerRegistry}"
 	tasks.each {
@@ -112,33 +117,4 @@ task buildDocker {
 	}
 }
 
-task cloneCompose(type: Exec) {
-	doFirst {
-		delete 'docker-compose'
-	}
-	commandLine 'git', 'clone', 'git@gitlab.intr:hms/docker-compose.git'
-}
-
-task composePull(type: Exec) {
-	commandLine 'docker-compose', 'pull'
-}
-
-task delCompose(type: Delete) {
-	delete 'docker-compose'
-}
-
-
 packageSdist.dependsOn("cleanSdist")
-cookCompose.dependsOn("cloneCompose")
-composePull.dependsOn("cookCompose")
-composeUp.dependsOn("composePull")
-composeUp.finalizedBy delCompose
-
-clean.doFirst {
-	delete "${rootDir}/docker-compose"
-	delete "${rootDir}/docker-compose.yml"
-}
-
-composeDown {
-	doLast { delete 'docker-compose.yml' }
-}
