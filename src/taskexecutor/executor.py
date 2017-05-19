@@ -219,12 +219,13 @@ class Executor:
                 task.params["data"][property] = collector.get_property(property, cache_ttl=ttl)
         self.finish_task(task, taskexecutor.task.DONE)
 
-    def finish_task(self, task, state):
-        task.state = state
+    def finish_task(self, task, report_state):
+        task.state = report_state
         reporter = self.select_reporter(task)
         report = reporter.create_report(task)
         LOGGER.info("Sending report {0} using {1}".format(report, type(reporter).__name__))
         reporter.send_report()
+        task.state = taskexecutor.task.DONE
         LOGGER.debug("Done with task {}".format(task))
 
     def run(self):
