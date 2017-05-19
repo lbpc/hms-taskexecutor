@@ -265,6 +265,10 @@ class FreebsdUserManager(UnixAccountManager):
 
 
 class MaildirManager:
+    def normalize_spool(self, spool):
+        basedir, domain = spool.split()
+        return os.path.join(basedir, domain.encode("idna").decode())
+
     def create_maildir(self, spool, dir, owner_uid):
         path = os.path.join(spool, dir)
         if not os.path.isdir(path):

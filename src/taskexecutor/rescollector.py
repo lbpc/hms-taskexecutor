@@ -132,7 +132,7 @@ class UnixAccountCollector(ResCollector):
 
 class MailboxCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
-        mail_spool = self.resource.mailSpool.encode("idna").decode()
+        mail_spool = self.service.normalize_spool(self.resource.mailSpool)
         maildir_path = os.path.join(str(mail_spool), str(self.resource.name))
         key = self.get_cache_key(property_name, maildir_path)
         cached, expired = self.check_cache(key, cache_ttl)
