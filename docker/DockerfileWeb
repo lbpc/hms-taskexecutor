@@ -3,5 +3,5 @@ COPY ./"${sdistName}" "${sdistName}"
 RUN bash -c "virtualenv -p `which python3` te && \
 				source te/bin/activate && \
 				pip install --find-links file://`pwd`/${sdistName} taskexecutor"
-ENV LANG=en_US.UTF-8 LOG_LEVEL=DEBUG
+ENV LANG=ru_RU.UTF-8 LC_ALL=ru_RU.UTF-8 LOG_LEVEL=DEBUG
 CMD /usr/local/te/bin/taskexecutor

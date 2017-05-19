@@ -1,9 +1,10 @@
 FROM ubuntu:14.04
+WORKDIR /usr/local
 COPY ./"${sdistName}" "${sdistName}"
-RUN apt-get update && apt-get install python3 python-virtualenv -y
+RUN apt-get update && apt-get install python3 python-virtualenv -y --no-install-recommends && \
+	locale-gen ru_RU && locale-gen ru_RU.UTF-8 && update-locale
 RUN bash -c "virtualenv -p `which python3` te && \
 				source te/bin/activate && \
 				pip install --find-links file://`pwd`/${sdistName} taskexecutor"
-ENV LANG=en_US.UTF-8
+ENV LANG=ru_RU.UTF-8 LC_ALL=ru_RU.UTF-8 LOG_LEVEL=DEBUG
 CMD /usr/local/te/bin/taskexecutor
-
