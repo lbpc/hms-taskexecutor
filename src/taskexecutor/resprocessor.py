@@ -296,14 +296,16 @@ class SslCertificateProcessor(ResProcessor):
 
 class MailboxProcessor(ResProcessor):
     def create(self):
-        self.service.create_maildir(self.resource.mailSpool, self.resource.name, self.resource.uid)
+        mail_spool = self.resource.mailSpool.encode("idna").decode()
+        self.service.create_maildir(mail_spool, self.resource.name, self.resource.uid)
 
     def update(self):
         if not self.op_resource:
             self.create()
 
     def delete(self):
-        self.service.delete_maildir(self.resource.mailSpool, self.resource.name)
+        mail_spool = self.resource.mailSpool.encode("idna").decode()
+        self.service.delete_maildir(mail_spool, self.resource.name)
 
 
 class DatabaseUserProcessor(ResProcessor):
