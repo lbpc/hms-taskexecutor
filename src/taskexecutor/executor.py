@@ -181,6 +181,11 @@ class Executor:
     def process_task(self, task):
         taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0.opid} ACTION IDENTITY: {0.actid}".format(task))
         if task.params.get("failcount") and task.origin is not taskexecutor.listener.TimeListener:
+            if task.params["failcount"] >= CONFIG.task.max_retries:
+                LOGGER.warning("Currently processed task had failed {0} times before, "
+                               "giving up".format(task.params["failcount"]))
+                self.finish_task(task, taskexecutor.task.FAILED)
+                return
             delay = task.params["failcount"] if task.params["failcount"] < 60 else 60
             LOGGER.warning("Currently processed task had failed {0} times before, "
                            "sleeping for {1}s".format(task.params["failcount"], delay))
@@ -212,6 +217,10 @@ class Executor:
             ttl -= 1
             for property in self.select_reported_properties(task):
                 task.params["data"][property] = collector.get_property(property, cache_ttl=ttl)
+        self.finish_task(task, taskexecutor.task.DONE)
+
+    def finish_task(self, task, report_state):
+        task.state = report_state
         reporter = self.select_reporter(task)
         report = reporter.create_report(task)
         LOGGER.info("Sending report {0} using {1}".format(report, type(reporter).__name__))

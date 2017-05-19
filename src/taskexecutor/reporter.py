@@ -4,6 +4,7 @@ import pika
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
+import taskexecutor.task
 import taskexecutor.utils
 import taskexecutor.httpsclient
 
@@ -63,7 +64,7 @@ class AMQPReporter(Reporter):
         self._report["operationIdentity"] = task.opid
         self._report["actionIdentity"] = task.actid
         self._report["objRef"] = task.params["objRef"]
-        self._report["params"] = {"success": True}
+        self._report["params"] = {"success": bool(task.state ^ taskexecutor.task.FAILED)}
         return self._report
 
     def send_report(self):
