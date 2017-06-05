@@ -83,6 +83,7 @@ file("docker").listFiles().each { def dockerFile=file(it) ->
 		if (tagVersion == "master") {
 			dependsOn uploadArchives
 		}
+		println(tagVersion)
 		description = "Build Docker image using ${dockerFile} and push it to ${dockerRegistry} with :${tagVersion} tag"
 		push = true
 		registry = dockerRegistry
