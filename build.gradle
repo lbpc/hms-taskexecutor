@@ -79,7 +79,7 @@ file("docker").listFiles().each { def dockerFile=file(it) ->
 		tagVersion = git.branch.getCurrent().getName().replaceAll("refs/heads/","")
 		if(tagVersion == "HEAD") {
 		//	tagVersion = project.gitlabBranch
-			tagVersion = git.getBranch().getCurrent().getName()
+			tagVersion = git.head().abbreviatedId
 		}
 		if (tagVersion == "master") {
 			dependsOn uploadArchives
