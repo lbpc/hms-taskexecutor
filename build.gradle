@@ -78,7 +78,8 @@ file("docker").listFiles().each { def dockerFile=file(it) ->
 		def git = org.ajoberstar.grgit.Grgit.open(file('.'))
 		tagVersion = git.branch.getCurrent().getName().replaceAll("refs/heads/","")
 		if(tagVersion == "HEAD") {
-			tagVersion = project.gitlabBranch
+		//	tagVersion = project.gitlabBranch
+			tagVersion = git.getBranch().getCurrent().getName()
 		}
 		if (tagVersion == "master") {
 			dependsOn uploadArchives
@@ -103,6 +104,7 @@ file("docker").listFiles().each { def dockerFile=file(it) ->
 		}
 	}
 }
+
 
 task cleanSdist(type: Delete) {
 	description = "Delete sdist files"
