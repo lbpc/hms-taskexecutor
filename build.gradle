@@ -78,10 +78,9 @@ file("docker").listFiles().each { def dockerFile=file(it) ->
 		def git = org.ajoberstar.grgit.Grgit.open(file('.'))
 		tagVersion = git.branch.getCurrent().getName().replaceAll("refs/heads/","")
 		if(tagVersion == "HEAD") {
-		//	tagVersion = project.gitlabBranch
-			tagVersion = git.head().abbreviatedId
+			tagVersion = project.projectBranch
 		}
-		if (tagVersion == "add_gitlabBranch_variable") {
+		if (tagVersion == "master") {
 			dependsOn uploadArchives
 		}
 		println(tagVersion)
