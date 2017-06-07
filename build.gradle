@@ -76,16 +76,11 @@ file("docker").listFiles().each { def dockerFile=file(it) ->
 			dependsOn: build) {
 		def sdistFile = file(tasks.packageSdist.getSdistOutput())
 		def git = org.ajoberstar.grgit.Grgit.open(file('.'))
-		tagVersion = git.branch.getCurrent().getName().replaceAll("refs/heads/","")
 		needUploadArchive = project.needUploadArchive
-		if(tagVersion == "HEAD") {
-			//tagVersion = project.projectBranch
-			tagVersion = git.head().abbreviatedId
-		}
+		tagVersion = git.head().abbreviatedId
 		if (needUploadArchive == "true") {
 			dependsOn uploadArchives
 		}
-		println(tagVersion)
 		description = "Build Docker image using ${dockerFile} and push it to ${dockerRegistry} with :${tagVersion} tag"
 		push = true
 		registry = dockerRegistry
