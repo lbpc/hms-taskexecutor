@@ -77,13 +77,12 @@ file("docker").listFiles().each { def dockerFile=file(it) ->
 		def sdistFile = file(tasks.packageSdist.getSdistOutput())
 		def git = org.ajoberstar.grgit.Grgit.open(file('.'))
 		tagVersion = git.branch.getCurrent().getName().replaceAll("refs/heads/","")
+		needUploadArhive = project.needUploadArchive
 		if(tagVersion == "HEAD") {
-			tagVersion = project.projectBranch
-		}
-		if(tagVersion != "master") {
+			//tagVersion = project.projectBranch
 			tagVersion = git.head().abbreviatedId
 		}
-		if (tagVersion == "master") {
+		if (needUploadArchive == "true") {
 			dependsOn uploadArchives
 		}
 		println(tagVersion)
