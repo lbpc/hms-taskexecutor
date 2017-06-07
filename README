@@ -1,4 +1,3 @@
-
 Сборка source distribution и всех образов docker для тестирования:
 
 	gradle buildDocker
