@@ -130,7 +130,8 @@ class UnixAccountProcessor(ResProcessor):
                                  self.resource.homeDir,
                                  self.resource.passwordHash,
                                  shell,
-                                 "Hosting account HMS id {}".format(self.resource.id))
+                                 "Hosting account HMS id {}".format(self.resource.id),
+                                 CONFIG.unix_account.groups)
         try:
             LOGGER.info("Setting quota for user {0.name}".format(self.resource))
             self.service.set_quota(self.resource.uid, self.resource.quota)
