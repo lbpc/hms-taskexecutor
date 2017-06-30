@@ -60,7 +60,8 @@ class ResourceBulider:
         required_resources = list()
         for resource in resources:
             if self._res_type == "website":
-                LOGGER.debug("website depends on ssl-certificate")
+                LOGGER.debug("website depends on unix-account and ssl-certificate")
+                required_resources.append(resource.unixAccount)
                 required_resources.extend([("ssl-certificate", d.sslCertificate) for d in
                                            resource.domains if d.sslCertificate])
             elif self._res_type == "service":
