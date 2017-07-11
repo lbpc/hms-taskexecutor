@@ -27,7 +27,11 @@ class UnixAccountManager(metaclass=abc.ABCMeta):
         return
 
     @abc.abstractmethod
-    def create_user(self, name, uid, home_dir, pass_hash, shell, gecos=""):
+    def create_group(self, name, gid=None):
+        pass
+
+    @abc.abstractmethod
+    def create_user(self, name, uid, home_dir, pass_hash, shell, gecos="", extra_groups=[]):
         pass
 
     @abc.abstractmethod
@@ -76,9 +80,17 @@ class LinuxUserManager(UnixAccountManager):
     def disabled_shell(self):
         return "/usr/sbin/nologin"
 
-    def create_user(self, name, uid, home_dir, pass_hash, shell, gecos=""):
+    def create_group(self, name, gid=None):
+        setgid = "--gid {}".format(gid) if gid else ""
+        taskexecutor.utils.exec_command("groupadd --force {0} {1}".format(setgid, name))
+
+    def create_user(self, name, uid, home_dir, pass_hash, shell, gecos="", extra_groups=[]):
         if os.path.exists(home_dir):
             os.chown(home_dir, uid, uid)
+        extra_groups = [g for g in extra_groups if g]
+        for group in extra_groups:
+            self.create_group(group)
+        groups = ",".join(extra_groups) if extra_groups else '""'
         taskexecutor.utils.exec_command("useradd "
                                         "--comment '{0}' "
                                         "--uid {1} "
@@ -86,7 +98,8 @@ class LinuxUserManager(UnixAccountManager):
                                         "--password '{3}' "
                                         "--create-home "
                                         "--shell {4} "
-                                        "{5}".format(gecos, uid, home_dir, pass_hash, shell, name))
+                                        "--groups {5} "
+                                        "{6}".format(gecos, uid, home_dir, pass_hash, shell, groups, name))
         os.chmod(home_dir, 0o0700)
 
     def delete_user(self, name):
@@ -176,7 +189,10 @@ class FreebsdUserManager(UnixAccountManager):
                                         "pgrep sshd | xargs kill -HUP".format(self.jail_id),
                                         shell=self.default_shell)
 
-    def create_user(self, name, uid, home_dir, pass_hash, shell, gecos=""):
+    def create_group(self, name, gid=None):
+        taskexecutor.utils.exec_command("jexec {0} pw groupadd {1}".format(self.jail_id, name))
+
+    def create_user(self, name, uid, home_dir, pass_hash, shell, gecos="", extra_groups=[]):
         taskexecutor.utils.exec_command("jexec {0} "
                                         "pw useradd {1} "
                                         "-u {2} "

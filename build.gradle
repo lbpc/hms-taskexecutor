@@ -49,6 +49,7 @@ dependencies {
 	python "pypi:PyMySQL:0.7.9"
 	python "pypi:Jinja2:2.8"
 	python "pypi:schedule:0.3.2"
+    python "pypi:pyaml:16.12.2"
 	python "pypi:pg8000:1.10.6"
 	python "pypi:pytransliter:1.0.1"
 }
