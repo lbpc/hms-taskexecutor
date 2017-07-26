@@ -139,6 +139,8 @@ class SwitchableConfigFile(ConfigFile):
             raise PropertyValidationError("enabled_path property is not set ")
         LOGGER.debug("Linking {0} to {1}".format(self.file_path,
                                                  self.enabled_path))
+        if not os.path.exists(os.path.dirname(self.enabled_path)):
+            os.makedirs(os.path.dirname(self.enabled_path), exist_ok=True)
         os.symlink(self.file_path, self.enabled_path)
 
     def disable(self):
