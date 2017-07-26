@@ -450,10 +450,13 @@ class ServiceProcessor(ResProcessor):
             self.params.update(app_servers=taskexecutor.constructor.get_all_opservices_by_res_type("website"))
         configs = self.service.get_concrete_configs_set()
         if isinstance(self.service, taskexecutor.opservice.Apache) and self.service.interpreter.name != "php":
-            configs = [c for c in configs if os.path.basename(c.file_path) != "php.ini"]
+                configs = [c for c in configs if os.path.basename(c.file_path) != "php.ini"]
         for config in configs:
             config.render_template(service=self.service, params=self.params)
             config.write()
+            if isinstance(self.service, taskexecutor.opservice.Apache) and \
+                            os.path.basename(config.file_path) == "000-default-vhost.conf":
+               config.enable()
         try:
             self.service.reload()
         except:
