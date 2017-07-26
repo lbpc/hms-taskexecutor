@@ -454,9 +454,9 @@ class ServiceProcessor(ResProcessor):
         for config in configs:
             config.render_template(service=self.service, params=self.params)
             config.write()
-            if isinstance(self.service, taskexecutor.opservice.Apache) and \
-                            os.path.basename(config.file_path) == "000-default-vhost.conf":
-               config.enable()
+            if isinstance(self.service, taskexecutor.opservice.Apache) \
+                    and os.path.basename(config.file_path) == "000-default-vhost.conf":
+                config.enable()
         try:
             self.service.reload()
         except:
