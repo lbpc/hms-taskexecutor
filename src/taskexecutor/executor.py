@@ -64,6 +64,9 @@ class ResourceBulider:
                 required_resources.append(("unix-account", resource.unixAccount))
                 required_resources.extend([("ssl-certificate", d.sslCertificate) for d in
                                            resource.domains if d.sslCertificate])
+            elif self._res_type == "database":
+                LOGGER.debug("database depend on database-user")
+                required_resources.extend([("database-user", u) for u in resource.databaseUsers])
             elif self._res_type == "service":
                 req_r_type, service_name = [w.lower() for w in resource.serviceTemplate.serviceType.name.split("_")][:2]
                 LOGGER.debug("{0} service depends on {1}".format(resource.name, req_r_type))
