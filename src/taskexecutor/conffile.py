@@ -173,6 +173,7 @@ class TemplatedConfigFile(ConfigFile):
         jinja2_env.filters["path_join"] = lambda paths: os.path.join(*paths)
         jinja2_env.filters["punycode"] = lambda domain: domain.encode("idna").decode()
         jinja2_env.filters["normpath"] = lambda path: os.path.normpath(path)
+        jinja2_env.filters["dirname"] = lambda path: os.path.dirname(path)
         return jinja2_env
 
     def render_template(self, **kwargs):
