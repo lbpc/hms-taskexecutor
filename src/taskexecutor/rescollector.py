@@ -131,6 +131,7 @@ class UnixAccountCollector(ResCollector):
             self.add_property_to_cache(self.get_cache_key("name", self.resource.uid), name)
             self.add_property_to_cache(self.get_cache_key("uid", self.resource.uid), int(uid))
             self.add_property_to_cache(self.get_cache_key("homeDir", self.resource.uid), home_dir)
+            self.add_property_to_cache(self.get_cache_key("crontab", self.resource.uid), crontab)
             return {"name": name,
                     "uid": int(uid),
                     "homeDir": home_dir,
