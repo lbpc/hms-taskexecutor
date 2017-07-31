@@ -51,6 +51,10 @@ class UnixAccountManager(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def get_crontab(self, user_name):
+        pass
+
+    @abc.abstractmethod
     def delete_crontab(self, user_name):
         pass
 
@@ -134,6 +138,9 @@ class LinuxUserManager(UnixAccountManager):
                               "{1.execTime} {1.command}\n").format(crontab_string, task)
         LOGGER.debug("Installing '{0}' crontab for {1}".format(crontab_string, user_name))
         taskexecutor.utils.exec_command("crontab -u {} -".format(user_name), pass_to_stdin=crontab_string)
+
+    def get_crontab(self, user_name):
+        return taskexecutor.utils.exec_command("crontab -l -u {} | awk '$1!~/^#/ {{print}}'".format(user_name))
 
     def delete_crontab(self, user_name):
         if os.path.exists(os.path.join("/var/spool/cron/crontabs", user_name)):
@@ -243,6 +250,12 @@ class FreebsdUserManager(UnixAccountManager):
                                         "crontab -u {1} -".format(self.jail_id, user_name),
                                         shell=self.default_shell,
                                         pass_to_stdin=crontab_string)
+
+    def get_crontab(self, user_name):
+        return taskexecutor.utils.exec_command("jexec {0} "
+                                               "crontab -l -u {} | "
+                                               "awk '$1!~/^#/ {{print}}'".format(self.jail_id, user_name),
+                                               shell=self.default_shell)
 
     def delete_crontab(self, user_name):
         if os.path.exists(os.path.join("/usr/jail/var/cron/tabs", user_name)):
