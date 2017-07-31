@@ -19,14 +19,20 @@ def receive_signal(signum, unused_stack):
         taskexecutor.logger.LOGGER.info("SIGINT recieved")
         global STOP
         STOP = True
+    elif signum == signal.SIGUSR1:
+        taskexecutor.logger.LOGGER.info("SIGUSR1 recieved")
+        new_task_queue = taskexecutor.executor.Executor().get_new_task_queue()
+        update_all_services(new_task_queue)
 
 
-def initial_service_update(new_task_queue):
-    taskexecutor.logger.LOGGER.info("Perfoming initial Service updates")
-    for service in CONFIG.localserver.services:
+def update_all_services(new_task_queue):
+    taskexecutor.logger.LOGGER.info("Perfoming Service updates")
+    for service in [s for s in CONFIG.localserver.services
+                    if s.serviceTemplate.serviceType.name.startswith("STAFF_")
+                    or s.serviceTemplate.serviceType.name.startswith("DATABASE_")]:
         task = taskexecutor.task.Task(None,
                                       type(None),
-                                      "LOCAL-INIT",
+                                      "LOCAL",
                                       "{}.update".format(service.name),
                                       "service",
                                       "update",
@@ -34,21 +40,13 @@ def initial_service_update(new_task_queue):
         new_task_queue.put(task)
 
 
-def initial_resource_update(new_task_queue, res_type):
-    taskexecutor.logger.LOGGER.info("Perfoming initial {} updates".format(res_type))
-    new_task_queue.put(taskexecutor.task.Task(None, type(None), "LOCAL-INIT",
-                                              "{}.update".format(res_type), res_type, "update", {}))
-
-
 def main():
     signal.signal(signal.SIGINT, receive_signal)
+    signal.signal(signal.SIGUSR1, receive_signal)
     executor = taskexecutor.executor.Executor()
     executor_thread = threading.Thread(target=executor.run)
     executor_thread.start()
     taskexecutor.logger.LOGGER.info("Executor thread started")
-    taskexecutor.logger.LOGGER.info("Perfoming initial Service updates")
-    new_task_queue = executor.get_new_task_queue()
-    initial_service_update(new_task_queue)
     amqp_listener = taskexecutor.constructor.get_listener("amqp")
     amqp_listener_thread = threading.Thread(target=amqp_listener.listen)
     amqp_listener_thread.start()

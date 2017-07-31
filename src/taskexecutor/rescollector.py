@@ -122,12 +122,19 @@ class UnixAccountCollector(ResCollector):
                                "lines found in /etc/passwd: {1}".format(self.resource.name, matched_lines))
                 return
             name, _, uid, _, _, home_dir, _ = matched_lines[0].split(":")
+            CronTask = collections.namedtuple("CronTask", "switchedOn execTimeDescription execTime command")
+            crontab = [CronTask(switchedOn=True,
+                                execTimeDescription="",
+                                execTime=" ".join(s.split(" ")[:5]),
+                                command=" ".join(s.split(" ")[5:]))
+                       for s in self.service.get_crontab(name).split("\n") if s]
             self.add_property_to_cache(self.get_cache_key("name", self.resource.uid), name)
             self.add_property_to_cache(self.get_cache_key("uid", self.resource.uid), int(uid))
             self.add_property_to_cache(self.get_cache_key("homeDir", self.resource.uid), home_dir)
             return {"name": name,
                     "uid": int(uid),
-                    "homeDir": home_dir}.get(property_name)
+                    "homeDir": home_dir,
+                    "crontab": crontab}.get(property_name)
 
 
 class MailboxCollector(ResCollector):

@@ -1,4 +1,5 @@
 import copy
+import collections
 import time
 import urllib.parse
 import queue
@@ -64,19 +65,17 @@ class ResourceBulider:
                 required_resources.append(("unix-account", resource.unixAccount))
                 required_resources.extend([("ssl-certificate", d.sslCertificate) for d in
                                            resource.domains if d.sslCertificate])
-            elif self._res_type == "database":
-                LOGGER.debug("database depend on database-user")
-                required_resources.extend([("database-user", u) for u in resource.databaseUsers])
             elif self._res_type == "service":
                 req_r_type, service_name = [w.lower() for w in resource.serviceTemplate.serviceType.name.split("_")][:2]
-                LOGGER.debug("{0} service depends on {1}".format(resource.name, req_r_type))
                 if service_name == "nginx":
+                    LOGGER.debug("{0} service depends on application servers".format(resource.name))
                     required_resources.extend([("service", s) for s in CONFIG.localserver.services
                                                if s.serviceTemplate.serviceType.name.startswith("WEBSITE_")])
                 else:
+                    LOGGER.debug("{0} service depends on {1}".format(resource.name, req_r_type))
                     with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-                            required_resources.extend([(req_r_type, r) for r in
-                                                       api.resource(req_r_type).filter(serviceId=resource.id).get()])
+                        required_resources.extend([(req_r_type, r) for r in
+                                                   api.resource(req_r_type).filter(serviceId=resource.id).get() or []])
         return required_resources
 
     def get_affected_resources(self, resource=None):
@@ -180,6 +179,11 @@ class Executor:
             aff_r_params = {"caused_by": (res_type, resource)}
             processor = taskexecutor.constructor.get_resprocessor(aff_r_type, aff_resource, params=aff_r_params)
             sequence.append((processor, getattr(processor, "update")))
+        sequence_mapping = collections.OrderedDict()
+        for processor, method in sequence:
+            k = "{}{}".format(processor.resource.id, method.__name__)
+            sequence_mapping[k] = (processor, method)
+        sequence = list(sequence_mapping.values())
         return sequence
 
     def process_task(self, task):
