@@ -1,6 +1,7 @@
 import abc
 import collections
 import os
+import sys
 import time
 
 from taskexecutor.logger import LOGGER
@@ -72,6 +73,9 @@ class ResCollector(metaclass=abc.ABCMeta):
         return "{0}.{1}.{2}".format(self.__class__.__name__, op_res_id, property_name)
 
     def check_cache(self, key, ttl):
+        LOGGER.debug("Cache size: {}".format(sys.getsizeof(ResCollector._cache)))
+        LOGGER.debug("Probing cache for key: {}".format(key))
+        LOGGER.debug("Cache record: {}".format(ResCollector._cache.get(key)))
         cached = key in ResCollector._cache.keys() and ResCollector._cache[key]
         expired = False
         if cached:
@@ -79,6 +83,7 @@ class ResCollector(metaclass=abc.ABCMeta):
         return cached, expired
 
     def add_property_to_cache(self, key, value):
+        LOGGER.debug("Pushing to cache: {}={}".format(key, value))
         ResCollector._cache[key] = {"value": value, "timestamp": time.time()}
 
     def get_property_from_cache(self, key):
@@ -104,9 +109,11 @@ class ResCollector(metaclass=abc.ABCMeta):
 
 class UnixAccountCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
+        LOGGER.debug("Acceptable cache TTL: {}s".format(cache_ttl))
         key = self.get_cache_key(property_name, self.resource.uid)
         cached, expired = self.check_cache(key, cache_ttl)
         if cached and not expired:
+            LOGGER.debug("Cache hit for property: {}".format(property_name))
             return self.get_property_from_cache(key)
         if property_name == "quotaUsed":
             uid_quota_used_mapping = self.service.get_quota()
@@ -114,7 +121,7 @@ class UnixAccountCollector(ResCollector):
                 LOGGER.debug("UID: {0} quota used: {1} bytes".format(uid, quota_used_bytes))
                 self.add_property_to_cache(self.get_cache_key(property_name, uid), quota_used_bytes)
             return uid_quota_used_mapping.get(self.resource.uid) or 0
-        else:
+        elif property_name in ("name", "uid", "homeDir", "crontab"):
             etc_passwd = taskexecutor.constructor.get_conffile("lines", "/etc/passwd")
             matched_lines = etc_passwd.get_lines("^{}:".format(self.resource.name))
             if len(matched_lines) != 1:
@@ -150,7 +157,7 @@ class MailboxCollector(ResCollector):
             maildir_size = self.service.get_maildir_size(maildir_path)
             self.add_property_to_cache(key, maildir_size)
             return maildir_size or 0
-        elif os.path.exists(maildir_path) and os.path.isdir(maildir_path):
+        elif property_name in ("name", "mailSpool") and os.path.exists(maildir_path) and os.path.isdir(maildir_path):
             self.add_property_to_cache(self.get_cache_key("name", maildir_path), self.resource.name)
             self.add_property_to_cache(self.get_cache_key("mailSpool", maildir_path), mail_spool)
             return getattr(self.resource, property_name, None)
@@ -162,14 +169,15 @@ class DatabaseUserCollector(ResCollector):
         cached, expired = self.check_cache(key, cache_ttl)
         if cached and not expired:
             return self.get_property_from_cache(key) or 0
-        name, password_hash, addrs = self.service.get_user(self.resource.name)
-        if name:
-            self.add_property_to_cache(self.get_cache_key("name", self.resource.name), name)
-            self.add_property_to_cache(self.get_cache_key("passwordHash", self.resource.name), password_hash)
-            self.add_property_to_cache(self.get_cache_key("allowedIPAddresses", self.resource.name), addrs or [])
-            return {"name": name,
-                    "passwordHash": password_hash,
-                    "allowedIPAddresses": addrs or []}.get(property_name)
+        if property_name in ("name", "passwordHash", "allowedIPAddresses"):
+            name, password_hash, addrs = self.service.get_user(self.resource.name)
+            if name:
+                self.add_property_to_cache(self.get_cache_key("name", self.resource.name), name)
+                self.add_property_to_cache(self.get_cache_key("passwordHash", self.resource.name), password_hash)
+                self.add_property_to_cache(self.get_cache_key("allowedIPAddresses", self.resource.name), addrs or [])
+                return {"name": name,
+                        "passwordHash": password_hash,
+                        "allowedIPAddresses": addrs or []}.get(property_name)
 
 
 class DatabaseCollector(ResCollector):
