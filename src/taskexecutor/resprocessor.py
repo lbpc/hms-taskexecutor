@@ -142,8 +142,9 @@ class UnixAccountProcessor(ResProcessor):
                                  self.resource.homeDir,
                                  self.resource.passwordHash,
                                  shell,
-                                 "UnixAccount.id={0} "
-                                 "UnixAccount.accountId={1}".format(self.resource.id, self.resource.accountId),
+                                 "UnixAccount(id={0.id}, "
+                                 "accountId={0.accountId}, "
+                                 "writable={0.writable})".format(self.resource),
                                  CONFIG.unix_account.groups)
         try:
             LOGGER.info("Setting quota for user {0.name}".format(self.resource))
@@ -188,8 +189,9 @@ class UnixAccountProcessor(ResProcessor):
                                             [task for task in self._merge_crontabs() if task.switchedOn])
             else:
                 self.service.delete_crontab(self.resource.name)
-            self.service.set_comment(self.resource.name,
-                                     "UnixAccount.id={0.id} UnixAccount.accountId={0.accountId}".format(self.resource))
+            self.service.set_comment(self.resource.name, "UnixAccount(id={0.id}, "
+                                                         "accountId={0.accountId}, "
+                                                         "writable={0.writable})".format(self.resource))
         else:
             LOGGER.warning("UnixAccount {0} not found, creating".format(self.resource.name))
             self.create()

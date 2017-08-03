@@ -197,6 +197,8 @@ class DatabaseCollector(ResCollector):
             for database_name, size in database_size_mapping.items():
                 LOGGER.debug("Database: {0} Size: {1} bytes".format(database_name, size))
                 self.add_property_to_cache(self.get_cache_key(property_name, database_name), size)
+            if self.resource.name not in database_size_mapping.keys():
+                self.add_property_to_cache(self.get_cache_key(property_name, self.resource.name), 0)
             return database_size_mapping.get(self.resource.name) or 0
         elif property_name in ("name", "databaseUsers"):
             db_users = list()
