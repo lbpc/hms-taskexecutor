@@ -340,10 +340,13 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         addrs = [] if not comma_separated_addrs else comma_separated_addrs.split(",")
         return name, password_hash, addrs
 
+    def get_all_database_names(self):
+        return [r[0] for r in self.dbclient.execute_query("SHOW DATABASES", ())]
+
     def get_database(self, name):
         rows = self.dbclient.execute_query("SELECT Db, User FROM mysql.db WHERE Db = %s", (name,))
         if not rows:
-            return next((db[0] for db in self.dbclient.execute_query("SHOW DATABASES", ()) if db[0] == name), ""), []
+            return next((db_name for db_name in self.get_all_database_names() if db_name == name), ""), []
         name = rows[0][0]
         users = [self.get_user(row[1]) for row in set(rows)]
         return name, users
@@ -512,6 +515,10 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         related_config_lines = self._hba_conf.get_lines(r"host\s.+\s{}\s.+\smd5".format(name)) or []
         addrs = [line[3] for line in related_config_lines]
         return name, password_hash, addrs
+
+    def get_all_database_names(self):
+        return [r[0] for r in
+                self.dbclient.execute_query("SELECT datname FROM pg_database WHERE datistemplate = false", ())]
 
     def get_database(self, name):
         related_config_lines = self._hba_conf.get_lines(r"host\s{}\s.+\s.+\smd5".format(name)) or []
