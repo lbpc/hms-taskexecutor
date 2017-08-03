@@ -74,6 +74,10 @@ class UnixAccountManager(metaclass=abc.ABCMeta):
     def set_shell(self, user_name, path):
         pass
 
+    @abc.abstractmethod
+    def set_comment(self, user_name, comment):
+        pass
+
 
 class LinuxUserManager(UnixAccountManager):
     @property
@@ -160,6 +164,9 @@ class LinuxUserManager(UnixAccountManager):
     def set_shell(self, user_name, path):
         path = path or "/usr/sbin/nologin"
         taskexecutor.utils.exec_command("usermod --shell {0} {1}".format(path, user_name))
+
+    def set_comment(self, user_name, comment):
+        taskexecutor.utils.exec_command("usermod --comment {0} {1}".format(comment, user_name))
 
 
 class FreebsdUserManager(UnixAccountManager):
@@ -291,6 +298,9 @@ class FreebsdUserManager(UnixAccountManager):
         taskexecutor.utils.exec_command("jexec {0} "
                                         "pw usermod -s {1} -n {2}".format(self.jail_id, path, user_name),
                                         shell=self.default_shell)
+
+    def set_comment(self, user_name, comment):
+        pass
 
 
 class MaildirManager:
