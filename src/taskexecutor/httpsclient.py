@@ -211,9 +211,9 @@ class ConfigServerClient(ApiClient):
         result = ApiObjectMapper(json_str)
         if self.extra_attrs:
             return result.as_object(extra_attrs=self.extra_attrs, expand_dot_separated=True,
-                                    comma_separated_to_list=True, overwrite=True)
+                                    comma_separated_to_list=True, overwrite=True, force_numeric=True)
         else:
-            return result.as_object(expand_dot_separated=True, comma_separated_to_list=True)
+            return result.as_object(expand_dot_separated=True, comma_separated_to_list=True, force_numeric=True)
 
     def get_property_sources_list(self, name, profile):
         self.uri_path = "/{0}/{1}".format(name, profile)
@@ -323,8 +323,8 @@ class ApiObjectMapper:
                 dct[k] = [e.strip() for e in v.split(",")]
         return dct
 
-    def object_hook(self, dct, extra, overwrite, expand, comma):
-        dct = self.cast_to_numeric_recursively(dct)
+    def object_hook(self, dct, extra, overwrite, expand, comma, numcast):
+        dct = self.cast_to_numeric_recursively(dct) if numcast else dct
         if comma:
             dct = self.comma_separated_to_list(dct)
         if expand:
@@ -341,11 +341,12 @@ class ApiObjectMapper:
                 self.dict_merge(dct, extra, overwrite=overwrite)
             return self.namedtuple_from_mapping(dct)
 
-    def as_object(self, extra_attrs=None, overwrite=False, expand_dot_separated=False, comma_separated_to_list=False):
+    def as_object(self, extra_attrs=None, overwrite=False,
+                  expand_dot_separated=False, comma_separated_to_list=False, force_numeric=False):
         return json.loads(
                 self._json_string,
                 object_hook=lambda d: self.object_hook(d, extra_attrs, overwrite,
-                                                       expand_dot_separated, comma_separated_to_list)
+                                                       expand_dot_separated, comma_separated_to_list, force_numeric)
         )
 
     def as_dict(self):
