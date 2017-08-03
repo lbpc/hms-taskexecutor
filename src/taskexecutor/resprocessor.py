@@ -225,7 +225,7 @@ class WebSiteProcessor(ResProcessor):
                            anti_ddos_location=CONFIG.nginx.anti_ddos_location,
                            anti_ddos_set_cookie_file=CONFIG.nginx.anti_ddos_set_cookie_file,
                            anti_ddos_check_cookie_file=CONFIG.nginx.anti_ddos_check_cookie_file,
-                           subdomains_document_root="/".join(self.resource.documentRoot.split("/")[:-1]))
+                           subdomains_document_root="/".join(str(self.resource.documentRoot).split("/")[:-1]))
         vhosts_list = self._build_vhost_obj_list()
         home_dir = os.path.normpath(str(self.resource.unixAccount.homeDir))
         document_root = os.path.normpath(str(self.resource.documentRoot))
