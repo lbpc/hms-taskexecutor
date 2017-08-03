@@ -361,38 +361,38 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
             self.dbclient.execute_query("DROP USER %s@%s", (name, address))
 
     def create_database(self, name):
-        self.dbclient.execute_query("CREATE DATABASE IF NOT EXISTS {}".format(name), ())
+        self.dbclient.execute_query("CREATE DATABASE IF NOT EXISTS `{}`".format(name), ())
 
     def drop_database(self, name):
-        self.dbclient.execute_query("DROP DATABASE  IF EXISTS {}".format(name), ())
+        self.dbclient.execute_query("DROP DATABASE  IF EXISTS `{}`".format(name), ())
 
     def allow_database_access(self, database_name, user_name, addrs_list):
         for address in addrs_list:
-            self.dbclient.execute_query("GRANT {0} ON {1}.* TO "
+            self.dbclient.execute_query("GRANT {0} ON `{1}`.* TO "
                                         "%s@%s".format(", ".join(self._full_privileges), database_name),
                                         (user_name, address))
 
     def deny_database_access(self, database_name, user_name, addrs_list):
         for address in addrs_list:
-            self.dbclient.execute_query("REVOKE {0} ON {1}.* FROM "
+            self.dbclient.execute_query("REVOKE {0} ON `{1}`.* FROM "
                                         "%s@%s".format(", ".join(self._full_privileges), database_name),
                                         (user_name, address))
 
     def allow_database_writes(self, database_name, user_name, addrs_list):
         for address in addrs_list:
-            self.dbclient.execute_query("GRANT {0} ON {1}.* TO "
+            self.dbclient.execute_query("GRANT {0} ON `{1}`.* TO "
                                         "%s@%s".format(", ".join(CONFIG.mysql.write_privileges), database_name),
                                         (user_name, address))
 
     def deny_database_writes(self, database_name, user_name, addrs_list):
         for address in addrs_list:
-            self.dbclient.execute_query("REVOKE {0} ON {1}.* FROM "
+            self.dbclient.execute_query("REVOKE {0} ON `{1}`.* FROM "
                                         "%s@%s".format(", ".join(CONFIG.mysql.write_privileges), database_name),
                                         (user_name, address))
 
     def allow_database_reads(self, database_name, user_name, addrs_list):
         for address in addrs_list:
-            self.dbclient.execute_query("GRANT {0} ON {1}.* TO "
+            self.dbclient.execute_query("GRANT {0} ON `{1}`.* TO "
                                         "%s@%s".format(", ".join(CONFIG.mysql.common_privileges), database_name),
                                         (user_name, address))
 
