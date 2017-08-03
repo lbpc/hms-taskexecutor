@@ -188,6 +188,8 @@ class UnixAccountProcessor(ResProcessor):
                                             [task for task in self._merge_crontabs() if task.switchedOn])
             else:
                 self.service.delete_crontab(self.resource.name)
+            self.service.set_comment(self.resource.name,
+                                     "UnixAccount.id={0.id} UnixAccount.accountId={0.accountId}".format(self.resource))
         else:
             LOGGER.warning("UnixAccount {0} not found, creating".format(self.resource.name))
             self.create()
