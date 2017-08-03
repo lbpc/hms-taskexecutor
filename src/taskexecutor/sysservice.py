@@ -166,7 +166,7 @@ class LinuxUserManager(UnixAccountManager):
         taskexecutor.utils.exec_command("usermod --shell {0} {1}".format(path, user_name))
 
     def set_comment(self, user_name, comment):
-        taskexecutor.utils.exec_command("usermod --comment {0} {1}".format(comment, user_name))
+        taskexecutor.utils.exec_command("usermod --comment '{0}' {1}".format(comment, user_name))
 
 
 class FreebsdUserManager(UnixAccountManager):
