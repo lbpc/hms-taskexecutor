@@ -223,6 +223,10 @@ class DatabaseServer(ConfigurableService, NetworkingService, ArchivableService, 
         pass
 
     @abc.abstractmethod
+    def get_all_database_names(self):
+        pass
+
+    @abc.abstractmethod
     def get_database(self, name):
         pass
 
