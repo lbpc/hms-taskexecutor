@@ -2,10 +2,12 @@ import abc
 import collections
 import functools
 import os
+import pickle
 import re
 import time
 
 from taskexecutor.config import CONFIG
+from taskexecutor.logger import LOGGER
 import taskexecutor.constructor
 import taskexecutor.httpsclient
 import taskexecutor.utils
@@ -32,6 +34,7 @@ class NetworkingService:
 
 class ConfigurableService:
     _cache = dict()
+    _cache_path = "/var/cache/te/config_templates.pkl"
 
     def __init__(self):
         self._concrete_configs_set = set()
@@ -49,6 +52,24 @@ class ConfigurableService:
     @config_base_path.deleter
     def config_base_path(self):
         del self._config_base_path
+
+    @classmethod
+    def _dump_cache(cls):
+        dirpath = os.path.dirname(cls._cache_path)
+        if not os.path.exists(dirpath):
+            os.makedirs(dirpath)
+        with open(cls._cache_path, "wb") as f:
+            pickle.dump(cls._cache, f)
+        LOGGER.debug("Config templates cache dumped to {}".format(cls._cache_path))
+
+    @classmethod
+    def _load_cache(cls):
+        try:
+            with open(cls._cache_path, "rb") as f:
+                cls._cache.update(pickle.load(f))
+                LOGGER.debug("Config templates cache updated from {}".format(cls._cache_path))
+        except Exception as e:
+            LOGGER.warning("Failed to load config templates cache, ERROR: {}".format(e))
 
     @staticmethod
     def is_concrete_config(path):
@@ -106,9 +127,21 @@ class ConfigurableService:
         if ConfigurableService._cache.get(template_source) \
                 and ConfigurableService._cache[template_source]["timestamp"] + 10 > time.time():
             return ConfigurableService._cache[template_source]["value"]
-        with taskexecutor.httpsclient.GitLabClient(**CONFIG.gitlab._asdict()) as gitlab:
-            template = gitlab.get(template_source)
-            ConfigurableService._cache[template_source] = {"timestamp": time.time(), "value": template}
+        try:
+            with taskexecutor.httpsclient.GitLabClient(**CONFIG.gitlab._asdict()) as gitlab:
+                template = gitlab.get(template_source)
+                ConfigurableService._cache[template_source] = {"timestamp": time.time(), "value": template}
+                ConfigurableService._dump_cache()
+                return template
+        except Exception as e:
+            LOGGER.warning("Failed to fetch config template from GitLab, ERROR: {}".format(e))
+            LOGGER.warning("Probing local cache")
+            ConfigurableService._load_cache()
+            template = None
+            if ConfigurableService._cache.get(template_source):
+                template = ConfigurableService._cache[template_source].get("value")
+            if not template:
+                raise e
             return template
 
 
