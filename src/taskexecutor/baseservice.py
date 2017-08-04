@@ -70,6 +70,9 @@ class ConfigurableService:
                 LOGGER.debug("Config templates cache updated from {}".format(cls._cache_path))
         except Exception as e:
             LOGGER.warning("Failed to load config templates cache, ERROR: {}".format(e))
+            if cls._cache:
+                LOGGER.info("In-memory config templates cache is not empty, dumping to disk")
+                cls._dump_cache()
 
     @staticmethod
     def is_concrete_config(path):
