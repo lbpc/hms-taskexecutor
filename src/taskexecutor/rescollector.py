@@ -190,11 +190,16 @@ class DatabaseCollector(ResCollector):
         if property_name == "quotaUsed" and not cache_ttl:
             database_size = self.service.get_database_size(self.resource.name)
             if isinstance(database_size, None):
+                LOGGER.warning("No database found: {}".format(self.resource.name))
                 return
             self.add_property_to_cache(key, database_size)
         elif property_name == "quotaUsed":
+            database_names = self.service.get_all_database_names()
+            if self.resource.name not in database_names:
+                LOGGER.warning("No database found: {}".format(self.resource.name))
+                return
             database_size_mapping = self.service.get_all_databases_size()
-            for database_name in self.service.get_all_database_names():
+            for database_name in database_names:
                 size = database_size_mapping.get(database_name) or 0
                 LOGGER.debug("Database: {0} Size: {1} bytes".format(database_name, size))
                 self.add_property_to_cache(self.get_cache_key(property_name, database_name), size)
