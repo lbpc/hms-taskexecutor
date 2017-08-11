@@ -78,7 +78,7 @@ class HttpsClient(metaclass=abc.ABCMeta):
 
 
 class ApiClient(HttpsClient):
-    _headers = {"Content-Type": "application/json", "Accept": "application/json", "X-HMS-Projection": "te" }
+    _headers = {"Content-Type": "application/json", "Accept": "application/json", "X-HMS-Projection": "te"}
     _access_token = None
     _expires_at = 0
 
