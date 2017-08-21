@@ -27,7 +27,7 @@ class UnknownTaskAction(Exception):
     pass
 
 
-class ResourceBulider:
+class ResourceBuilder:
     def __init__(self, res_type, obj_ref=""):
         self._res_type = res_type
         self._obj_ref = obj_ref
@@ -166,7 +166,7 @@ class Executor:
         in_queue.put(task)
 
     def build_processing_sequence(self, res_type, resource, action, params):
-        res_builder = ResourceBulider(res_type)
+        res_builder = ResourceBuilder(res_type)
         sequence = list()
         for req_r_type, req_resource in res_builder.get_required_resources(resource):
             req_r_params = {"required_for": (res_type, resource)}
@@ -199,7 +199,7 @@ class Executor:
                            "sleeping for {1}s".format(task.params["failcount"], delay))
             time.sleep(delay)
         if not task.params.get("resource"):
-            res_builder = ResourceBulider(task.res_type, task.params.get("objRef"))
+            res_builder = ResourceBuilder(task.res_type, task.params.get("objRef"))
             if len(res_builder.resources) == 0:
                 LOGGER.info("There is no {} resources here".format(task.res_type))
                 return
