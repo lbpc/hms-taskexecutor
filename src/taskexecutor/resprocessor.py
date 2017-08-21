@@ -305,11 +305,7 @@ class SslCertificateProcessor(ResProcessor):
         self.create()
 
     def delete(self):
-        cert_file, key_file = self.service.get_ssl_key_pair_files(self.resource.name)
-        if cert_file.exists:
-            cert_file.delete()
-        if key_file.exists:
-            key_file.delete()
+        pass
 
 
 class MailboxProcessor(ResProcessor):
