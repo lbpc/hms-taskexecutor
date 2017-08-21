@@ -267,6 +267,8 @@ class GitLabClient(HttpsClient):
 
 
 class ApiObjectMapper:
+    _classes_mapping = dict()
+
     def __init__(self, json_string):
         self._json_string = json_string
 
@@ -296,6 +298,7 @@ class ApiObjectMapper:
         return mapping
 
     def namedtuple_from_mapping(self, mapping):
+        class_key = mapping.get("_class") or " ".join([str(k) for k in mapping.keys()])
         for k, v in mapping.items():
             if not k.isidentifier():
                 mapping[re.sub('\W|^(?=\d)', '_', k)] = v
@@ -303,7 +306,11 @@ class ApiObjectMapper:
         type_name = "ApiObject"
         if "_class" in mapping.keys():
             type_name = mapping["_class"]
-        return collections.namedtuple(type_name, mapping.keys())(**mapping)
+        ApiObject = ApiObjectMapper._classes_mapping.get(class_key)
+        if not ApiObject:
+            ApiObject = collections.namedtuple(type_name, mapping.keys())
+            ApiObjectMapper._classes_mapping[class_key] = ApiObject
+        return ApiObject(**mapping)
 
     def cast_to_numeric_recursively(self, dct):
         for k, v in dct.items():
