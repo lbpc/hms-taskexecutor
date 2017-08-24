@@ -203,6 +203,10 @@ class UnixAccountProcessor(ResProcessor):
 
 
 class WebSiteProcessor(ResProcessor):
+    @property
+    def _required_for_service(self):
+        return self.params.get("required_for", [None])[0] == "service"
+
     def _build_vhost_obj_list(self):
         vhosts = list()
         non_ssl_domains = list()
@@ -243,7 +247,7 @@ class WebSiteProcessor(ResProcessor):
             config.write()
             if self.resource.switchedOn and not config.is_enabled:
                 config.enable()
-            if self.params.get("required_for", [None])[0] != "service":
+            if not self._required_for_service:
                 try:
                     service.reload()
                 except:
@@ -259,14 +263,16 @@ class WebSiteProcessor(ResProcessor):
                 if config.is_enabled:
                     config.disable()
                     config.save()
-                    service.reload()
+                    if not self._required_for_service:
+                        service.reload()
         else:
             self.create()
             if self.extra_services.old_app_server and self.extra_services.old_app_server.name != self.service.name:
                 config = self.extra_services.old_app_server.get_website_config(self.resource.id)
                 config.disable()
                 config.delete()
-                self.extra_services.old_app_server.reload()
+                if not self._required_for_service:
+                    self.extra_services.old_app_server.reload()
 
     @taskexecutor.utils.synchronized
     def delete(self):
