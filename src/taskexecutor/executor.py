@@ -151,10 +151,13 @@ class Executor:
             params = copy.copy(task.params)
             params.update({"resource": resource})
             tag = task.tag if idx == last_idx else None
+            actid_suffix = resource.name
+            if hasattr(resource, "domain"):
+                actid_suffix = "{0}@{1}".format(actid_suffix, resource.domain.name)
             subtasks.append(taskexecutor.task.Task(tag=tag,
                                                    origin=task.origin,
                                                    opid=task.opid,
-                                                   actid="{}.{}".format(task.actid, resource.name),
+                                                   actid="{}.{}".format(task.actid, actid_suffix),
                                                    res_type=task.res_type,
                                                    action=task.action,
                                                    params=params))
