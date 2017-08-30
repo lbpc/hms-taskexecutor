@@ -146,8 +146,9 @@ class SwitchableConfigFile(ConfigFile):
     def disable(self):
         if not self.enabled_path:
             raise PropertyValidationError("enabled_path property is not set ")
-        LOGGER.debug("Unlinking {}".format(self.enabled_path))
-        os.unlink(self.enabled_path)
+        if os.path.exists(self.enabled_path):
+            LOGGER.debug("Unlinking {}".format(self.enabled_path))
+            os.unlink(self.enabled_path)
 
 
 class TemplatedConfigFile(ConfigFile):
