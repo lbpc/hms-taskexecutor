@@ -189,7 +189,8 @@ class UnixAccountProcessor(ResProcessor):
                                             [task for task in self._merge_crontabs() if task.switchedOn])
             else:
                 self.service.delete_crontab(self.resource.name)
-            self.service.set_comment(self.resource.name, "UnixAccount(id={0.id}, "
+            self.service.set_comment(self.resource.name, "Hosting account,,,,"
+                                                         "UnixAccount(id={0.id}, "
                                                          "accountId={0.accountId}, "
                                                          "writable={0.writable})".format(self.resource))
         else:
