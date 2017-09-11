@@ -117,18 +117,6 @@ class ResProcessor(metaclass=abc.ABCMeta):
 
 
 class UnixAccountProcessor(ResProcessor):
-    def _merge_crontabs(self):
-        if not self.op_resource:
-            return self.resource.crontab
-        crontab = []
-        current_tasks_mapping = {t.command: t for t in self.op_resource.crontab}
-        for task in self.resource.crontab:
-            if current_tasks_mapping.get(task.command):
-                del current_tasks_mapping[task.command]
-            crontab.append(task)
-        crontab.extend(current_tasks_mapping.values())
-        return crontab
-
     @taskexecutor.utils.synchronized
     def create(self):
         if self.op_resource:
@@ -184,9 +172,9 @@ class UnixAccountProcessor(ResProcessor):
                 LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
                 self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                     self.resource.uid, self.resource.homeDir)
-            if len(self._merge_crontabs()) > 0 and self.resource.switchedOn:
+            if len(self.resource.crontab) > 0 and self.resource.switchedOn:
                 self.service.create_crontab(self.resource.name,
-                                            [task for task in self._merge_crontabs() if task.switchedOn])
+                                            [task for task in self.resource.crontab if task.switchedOn])
             else:
                 self.service.delete_crontab(self.resource.name)
             self.service.set_comment(self.resource.name, "Hosting account,,,,"
