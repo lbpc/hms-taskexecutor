@@ -327,16 +327,28 @@ class MaildirManager:
         else:
             LOGGER.warning("{} does not exist".format(path))
 
+    def create_maildirsize_file(self, path, size, owner_uid):
+        if os.path.exists(path):
+            LOGGER.info("Removing old {}".format(path))
+            os.unlink(path)
+        LOGGER.info("Creating new {}".format(path))
+        with open(path, "w") as f:
+            f.write("0S,0C\n")
+            f.write("{} 1\n".format(size))
+        os.chown(path, owner_uid, owner_uid)
+
     def get_maildir_size(self, path):
         maildirsize_file = os.path.join(path, "maildirsize")
         if os.path.exists(maildirsize_file):
             with open(maildirsize_file, "r") as f:
                 f.readline()
-                size = sum([int(l.split()[0]) for l in f.readlines()])
-        else:
-            size = sum([sum(map(lambda f: os.path.getsize(os.path.join(dir, f)), files))
-                        for dir, _, files in os.walk(path)])
-        return size
+                return sum([int(l.split()[0]) for l in f.readlines()])
+        return 0
+
+    def get_real_maildir_size(self, path):
+        LOGGER.info("Calculating real {} size".format(path))
+        return sum([sum(map(lambda f: os.path.getsize(os.path.join(dir, f)), files))
+                    for dir, _, files in os.walk(path)])
 
 
 class Builder:

@@ -149,12 +149,21 @@ class MailboxCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
         mail_spool = self.service.normalize_spool(self.resource.mailSpool)
         maildir_path = os.path.join(str(mail_spool), str(self.resource.name))
+        maildirsize_file = os.path.join(maildir_path, "maildirsize")
+        maildir_size = None
         key = self.get_cache_key(property_name, maildir_path)
         cached, expired = self.check_cache(key, cache_ttl)
         if cached and not expired:
             return self.get_property_from_cache(key)
         if property_name == "quotaUsed":
-            maildir_size = self.service.get_maildir_size(maildir_path)
+            if os.path.exists(maildirsize_file):
+                maildir_size = self.service.get_maildir_size(maildir_path)
+                if cached and self.get_property_from_cache(key) == maildir_size:
+                    LOGGER.warning("{} size did not change since the last check".format(maildir_path))
+                    maildir_size = None
+            if not maildir_size:
+                maildir_size = self.service.get_real_maildir_size(maildir_path)
+                self.service.create_maildirsize_file(maildirsize_file, maildir_size, self.resource.uid)
             self.add_property_to_cache(key, maildir_size)
             return maildir_size or 0
         elif property_name in ("name", "mailSpool") and os.path.exists(maildir_path) and os.path.isdir(maildir_path):
