@@ -455,6 +455,8 @@ class ServiceProcessor(ResProcessor):
         if isinstance(self.service, taskexecutor.opservice.Nginx):
             self._create_error_pages()
             self.params.update(app_servers=taskexecutor.constructor.get_all_opservices_by_res_type("website"))
+        elif isinstance(self.service, taskexecutor.opservice.Apache):
+            self.params.update(admin_networks=CONFIG.apache.admin_networks)
         configs = self.service.get_concrete_configs_set()
         if isinstance(self.service, taskexecutor.opservice.Apache) and self.service.interpreter.name != "php":
             configs = [c for c in configs if os.path.basename(c.file_path) != "php.ini"]
