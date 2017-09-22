@@ -15,6 +15,10 @@ class BuilderTypeError(Exception):
     pass
 
 
+class MaildirManagerSecurityViolation(Exception):
+    pass
+
+
 class UnixAccountManager(metaclass=abc.ABCMeta):
     @property
     @abc.abstractmethod
@@ -305,11 +309,19 @@ class FreebsdUserManager(UnixAccountManager):
 
 class MaildirManager:
     def normalize_spool(self, spool):
+        spool = str(spool)
         basedir, domain = os.path.split(spool)
-        return os.path.join(basedir, domain.encode("idna").decode())
+        return os.path.normpath(os.path.join(basedir, domain.encode("idna").decode()))
+
+    def get_maildir_path(self, spool, dir):
+        spool = self.normalize_spool(spool)
+        path = os.path.normpath(os.path.join(spool), str(dir))
+        if os.path.commonprefix([spool, path]) != spool:
+            raise MaildirManagerSecurityViolation("{0} is outside of mailspool {1}".format(path, spool))
+        return path
 
     def create_maildir(self, spool, dir, owner_uid):
-        path = os.path.join(spool, dir)
+        path = self.get_maildir_path(spool, dir)
         if not os.path.isdir(path):
             LOGGER.debug("Creating directory {}".format(path))
             os.makedirs(path, mode=0o755, exist_ok=True)
@@ -320,14 +332,15 @@ class MaildirManager:
         os.chown(path, owner_uid, owner_uid)
 
     def delete_maildir(self, spool, dir):
-        path = os.path.join(str(spool), str(dir))
+        path = self.get_maildir_path(spool, dir)
         if os.path.exists(path):
             LOGGER.debug("Removing {} recursively".format(path))
             shutil.rmtree(path)
         else:
             LOGGER.warning("{} does not exist".format(path))
 
-    def create_maildirsize_file(self, path, size, owner_uid):
+    def create_maildirsize_file(self, spool, dir, size, owner_uid):
+        path = os.path.join(self.get_maildir_path(spool, dir), "maildirsize")
         if os.path.exists(path):
             LOGGER.info("Removing old {}".format(path))
             os.unlink(path)
@@ -337,7 +350,8 @@ class MaildirManager:
             f.write("{} 1\n".format(size))
         os.chown(path, owner_uid, owner_uid)
 
-    def get_maildir_size(self, path):
+    def get_maildir_size(self, spool, dir):
+        path = self.get_maildir_path(spool, dir)
         maildirsize_file = os.path.join(path, "maildirsize")
         if os.path.exists(maildirsize_file):
             with open(maildirsize_file, "r") as f:
@@ -345,7 +359,8 @@ class MaildirManager:
                 return sum([int(l.split()[0]) for l in f.readlines()])
         return 0
 
-    def get_real_maildir_size(self, path):
+    def get_real_maildir_size(self, spool, dir):
+        path = self.get_maildir_path(spool, dir)
         LOGGER.info("Calculating real {} size".format(path))
         return sum([sum(map(lambda f: os.path.getsize(os.path.join(dir, f)), files))
                     for dir, _, files in os.walk(path)])
