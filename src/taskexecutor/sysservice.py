@@ -362,8 +362,7 @@ class MaildirManager:
     def get_real_maildir_size(self, spool, dir):
         path = self.get_maildir_path(spool, dir)
         LOGGER.info("Calculating real {} size".format(path))
-        return sum([sum(map(lambda f: os.path.getsize(os.path.join(dir, f)), files))
-                    for dir, _, files in os.walk(path)])
+        return sum([sum(map(lambda f: os.path.getsize(os.path.join(d, f)), files)) for d, _, files in os.walk(path)])
 
 
 class Builder:
