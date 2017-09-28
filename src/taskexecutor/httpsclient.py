@@ -33,7 +33,7 @@ class HttpsClient(metaclass=abc.ABCMeta):
 
     def __enter__(self):
         LOGGER.debug("Connecting to {0}:{1}".format(self._host, self._port))
-        self._connection = http.client.HTTPSConnection("{0}:{1}".format(self._host, self._port), timeout=30)
+        self._connection = http.client.HTTPSConnection("{0}:{1}".format(self._host, self._port), timeout=60)
         self.authorize()
         return self
 
