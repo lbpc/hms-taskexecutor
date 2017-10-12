@@ -315,7 +315,7 @@ class MaildirManager:
 
     def get_maildir_path(self, spool, dir):
         spool = self.normalize_spool(spool)
-        path = os.path.normpath(os.path.join(spool), str(dir))
+        path = os.path.normpath(os.path.join(spool, str(dir)))
         if os.path.commonprefix([spool, path]) != spool:
             raise MaildirManagerSecurityViolation("{0} is outside of mailspool {1}".format(path, spool))
         return path
