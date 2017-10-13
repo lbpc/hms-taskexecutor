@@ -322,6 +322,7 @@ class MaildirManager:
 
     def create_maildir(self, spool, dir, owner_uid):
         path = self.get_maildir_path(spool, dir)
+        spool = self.normalize_spool(spool)
         if not os.path.isdir(path):
             LOGGER.debug("Creating directory {}".format(path))
             os.makedirs(path, mode=0o755, exist_ok=True)
