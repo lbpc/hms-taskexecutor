@@ -1,5 +1,1 @@
-{
-  "test/test_listener.py::TestAMQPListener::test_listen": true,
-  "test/test_listener.py::TestAMQPListener::test_stop": true,
-  "test/test_listener.py::TestAMQPListener::test_take_event": true
-}
+{}
