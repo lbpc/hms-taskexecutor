@@ -108,8 +108,8 @@ class AMQPListener(Listener):
         queue_name = "{0}.{1}".format(CONFIG.amqp.consumer_routing_key, exchange_name)
         self._channel.exchange_declare(
             callback=functools.partial(self._on_exchange_declareok, queue_name=queue_name, exchange_name=exchange_name),
-            name=exchange_name,
-            type=CONFIG.amqp.exchange_type,
+            exchange=exchange_name,
+            exchange_type=CONFIG.amqp.exchange_type,
             durable=True
         )
 
