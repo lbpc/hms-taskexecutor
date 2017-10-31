@@ -12,6 +12,7 @@ class TestAMQPListener(unittest.TestCase):
         self.mock_config.CONFIG.amqp = unittest.mock.Mock(spec_set=["user",
                                                                     "password",
                                                                     "host",
+                                                                    "port",
                                                                     "exchange_type",
                                                                     "consumer_routing_key",
                                                                     "connection_attempts",
@@ -21,6 +22,7 @@ class TestAMQPListener(unittest.TestCase):
         self.mock_config.CONFIG.amqp.user = "guest"
         self.mock_config.CONFIG.amqp.password = "guest"
         self.mock_config.CONFIG.amqp.host = "127.0.0.1"
+        self.mock_config.CONFIG.amqp.port = 5672
         self.mock_config.CONFIG.amqp.exchange_type = "topic"
         self.mock_config.CONFIG.amqp.consumer_routing_key = "te.web99"
         self.mock_config.CONFIG.amqp.connection_attempts = 1
