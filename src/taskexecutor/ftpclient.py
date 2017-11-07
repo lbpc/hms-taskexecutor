@@ -33,4 +33,7 @@ class FTPClient:
 
     def delete(self, remote_filename):
         self._test_connection()
-        self._server.delete(remote_filename)
+        try:
+            self._server.delete(remote_filename)
+        except ftplib.error_perm:
+            pass
