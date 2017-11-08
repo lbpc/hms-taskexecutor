@@ -110,7 +110,7 @@ class AMQPListener(Listener):
             callback=functools.partial(self._on_exchange_declareok, queue_name=queue_name, exchange_name=exchange_name),
             exchange=exchange_name,
             exchange_type=CONFIG.amqp.exchange_type,
-            durable=True
+            durable=bool(CONFIG.amqp._asdict().get("exchange_durability"))
         )
 
     def _on_exchange_declareok(self, unused_frame, queue_name, exchange_name):
