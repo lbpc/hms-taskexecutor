@@ -23,6 +23,7 @@ class __Config:
                           user=os.environ.get("APIGW_USER") or "service",
                           password=os.environ.get("APIGW_PASSWORD") or "Efu0ahs6")
         self._amqp = dict(host=os.environ.get("SPRING_RABBITMQ_HOST"),
+                          port=os.environ.get("SPRING_RABBITMQ_PORT") or 5672,
                           user=os.environ.get("SPRING_RABBITMQ_USERNAME"),
                           password=os.environ.get("SPRING_RABBITMQ_PASSWORD"))
         self._fetch_remote_properties()

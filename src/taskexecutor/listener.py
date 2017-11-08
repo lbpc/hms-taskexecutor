@@ -59,7 +59,7 @@ class AMQPListener(Listener):
         self._on_cancel_callback_is_set = False
         self._closing = False
         self._consumer_tag = None
-        self._url = "amqp://{0.user}:{0.password}@{0.host}:5672/%2F" \
+        self._url = "amqp://{0.user}:{0.password}@{0.host}:{0.port}/%2F" \
                     "?heartbeat_interval={0.heartbeat_interval}" \
                     "&connection_attempts={0.connection_attempts}" \
                     "&retry_delay={0.retry_delay}".format(CONFIG.amqp)
@@ -107,9 +107,10 @@ class AMQPListener(Listener):
     def _setup_exchange(self, exchange_name):
         queue_name = "{0}.{1}".format(CONFIG.amqp.consumer_routing_key, exchange_name)
         self._channel.exchange_declare(
-            functools.partial(self._on_exchange_declareok, queue_name=queue_name, exchange_name=exchange_name),
-            exchange_name,
-            CONFIG.amqp.exchange_type
+            callback=functools.partial(self._on_exchange_declareok, queue_name=queue_name, exchange_name=exchange_name),
+            exchange=exchange_name,
+            exchange_type=CONFIG.amqp.exchange_type,
+            durable=bool(CONFIG.amqp._asdict().get("exchange_durability"))
         )
 
     def _on_exchange_declareok(self, unused_frame, queue_name, exchange_name):
