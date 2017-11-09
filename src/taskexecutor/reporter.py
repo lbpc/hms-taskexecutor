@@ -31,7 +31,7 @@ class Reporter(metaclass=abc.ABCMeta):
 class AMQPReporter(Reporter):
     def __init__(self):
         super().__init__()
-        self._url = "amqp://{0.user}:{0.password}@{0.host}:5672/%2F" \
+        self._url = "amqp://{0.user}:{0.password}@{0.host}:{0.port}/%2F" \
                     "?heartbeat_interval={0.heartbeat_interval}".format(
                         CONFIG.amqp
                     )
@@ -51,7 +51,10 @@ class AMQPReporter(Reporter):
         self._channel.close()
 
     def _declare_exchange(self, exchange, exchange_type):
-        self._channel.exchange_declare(exchange=exchange, type=exchange_type, auto_delete=False)
+        self._channel.exchange_declare(exchange=exchange,
+                                       type=exchange_type,
+                                       auto_delete=False,
+                                       durable=bool(CONFIG.amqp._asdict().get("exchange_durability")))
 
     def _publish_message(self, message):
         self._channel.basic_publish(exchange=self._exchange,
