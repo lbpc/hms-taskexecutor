@@ -5,6 +5,8 @@ import signal
 import threading
 
 from taskexecutor.config import CONFIG
+from taskexecutor.httpsclient import ApiClient
+import taskexecutor.watchdog
 import taskexecutor.constructor
 import taskexecutor.executor
 import taskexecutor.task
@@ -40,6 +42,14 @@ def update_all_services(new_task_queue):
         new_task_queue.put(task)
 
 
+def populate_restricted_uids_set(get_uids_queue):
+    with ApiClient(**CONFIG.apigw) as api:
+        uids = [u.uid for u in api.UnixAccount().filter(serverId=CONFIG.localserver.id, infected=True).get()]
+    for uid in uids:
+        get_uids_queue.put(uid)
+    taskexecutor.logger.LOGGER.info("Restricted UIDs: {}".format(uids))
+
+
 def main():
     signal.signal(signal.SIGINT, receive_signal)
     signal.signal(signal.SIGUSR1, receive_signal)
@@ -55,7 +65,11 @@ def main():
     time_listener_thread = threading.Thread(target=time_listener.listen)
     time_listener_thread.start()
     taskexecutor.logger.LOGGER.info("Time listener thread started")
-
+    process_watchdog = taskexecutor.watchdog.ProcessWatchdog(**CONFIG.process_watchdog._asdict())
+    process_watchdog_thread = threading.Thread(target=process_watchdog.run)
+    process_watchdog_thread.start()
+    populate_restricted_uids_set(process_watchdog.get_uids_queue())
+    taskexecutor.logger.LOGGER.info("Process watchdog thread started")
     while True:
         if not amqp_listener_thread.is_alive():
             taskexecutor.logger.LOGGER.error("AMQP Listener is dead, exiting")
@@ -66,6 +80,9 @@ def main():
             executor.stop()
             executor_thread.join()
             taskexecutor.logger.LOGGER.info("Executor stopped")
+            process_watchdog.stop()
+            process_watchdog_thread.join()
+            taskexecutor.logger.LOGGER.info("Process watchdog stopped")
             sys.exit(1)
         if STOP:
             taskexecutor.logger.LOGGER.info("Stopping AMQP listener")
@@ -79,6 +96,10 @@ def main():
             executor.stop()
             executor_thread.join()
             taskexecutor.logger.LOGGER.info("Executor stopped")
+            taskexecutor.logger.LOGGER.info("Stopping process watchdog")
+            process_watchdog.stop()
+            process_watchdog_thread.join()
+            taskexecutor.logger.LOGGER.info("Process watchdog stopped")
             break
         time.sleep(1)
 

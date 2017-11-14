@@ -47,6 +47,14 @@ class UnixAccountManager(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def get_quota(self):
+        pass
+
+    @abc.abstractmethod
+    def get_cpuacct(self, user_name):
+        pass
+
+    @abc.abstractmethod
     def create_authorized_keys(self, pub_key_string, uid, home_dir):
         pass
 
@@ -126,6 +134,13 @@ class LinuxUserManager(UnixAccountManager):
     def get_quota(self):
         return {k: v["block_limit"]["used"] * 1024
                 for k, v in taskexecutor.utils.repquota("vangp").items()}
+
+    def get_cpuacct(self, user_name):
+        try:
+            with open(os.path.join("/sys/fs/cgroup/cpuacct/limitgroup", user_name, "cpuacct.usage"), "r") as f:
+                return int(f.read())
+        except FileNotFoundError:
+            return 0
 
     def create_authorized_keys(self, pub_key_string, uid, home_dir):
         ssh_dir = os.path.join(home_dir, ".ssh")
@@ -240,6 +255,9 @@ class FreebsdUserManager(UnixAccountManager):
     def get_quota(self):
         return {k: v["block_limit"]["used"]
                 for k, v in taskexecutor.utils.repquota("vang", shell=self.default_shell).items()}
+
+    def get_cpuacct(self, user_name):
+        return 0
 
     def create_authorized_keys(self, pub_key_string, uid, home_dir):
         ssh_dir = os.path.join(home_dir, ".ssh")

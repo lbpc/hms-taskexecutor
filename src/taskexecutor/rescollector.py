@@ -1,4 +1,5 @@
 import abc
+import clamd
 import collections
 import os
 import sys
@@ -8,6 +9,7 @@ from taskexecutor.logger import LOGGER
 from taskexecutor.config import CONFIG
 
 import taskexecutor.constructor
+import taskexecutor.watchdog
 import taskexecutor.utils
 
 __all__ = ["Builder"]
@@ -108,6 +110,10 @@ class ResCollector(metaclass=abc.ABCMeta):
 
 
 class UnixAccountCollector(ResCollector):
+    def __init__(self, resource, service):
+        super().__init__(resource, service)
+        self._clamd = clamd.ClamdNetworkSocket(CONFIG.clamd.host, CONFIG.clamd.port)
+
     def get_property(self, property_name, cache_ttl=0):
         LOGGER.debug("Acceptable cache TTL: {}s".format(cache_ttl))
         key = self.get_cache_key(property_name, self.resource.uid)
@@ -115,15 +121,43 @@ class UnixAccountCollector(ResCollector):
         if cached and not expired:
             LOGGER.debug("Cache hit for property: {}".format(property_name))
             return self.get_property_from_cache(key)
+        etc_passwd = taskexecutor.constructor.get_conffile("lines", "/etc/passwd")
+        matched_lines = etc_passwd.get_lines("^{}:".format(self.resource.name))
         if property_name == "quotaUsed":
             uid_quota_used_mapping = self.service.get_quota()
             for uid, quota_used_bytes in uid_quota_used_mapping.items():
                 LOGGER.debug("UID: {0} quota used: {1} bytes".format(uid, quota_used_bytes))
                 self.add_property_to_cache(self.get_cache_key(property_name, uid), quota_used_bytes)
             return uid_quota_used_mapping.get(self.resource.uid) or 0
+        elif property_name == "cpuUsed":
+            now = time.time()
+            cpu_nanosec = self.service.get_cpuacct(self.resource.name)
+            cpu_used = dict(at=now, nanoseconds=cpu_nanosec, percents=0)
+            prev = self._cache.get(self.get_cache_key("cpuUsed", self.resource.uid))
+            if prev:
+                period = now - prev["timestamp"]
+                delta_seconds = (cpu_nanosec - prev["value"]["nanoseconds"]) / 1000000000
+                percents = delta_seconds / period * 100 / os.sysconf("SC_NPROCESSORS_ONLN")
+                cpu_used["percents"] = percents
+            self.add_property_to_cache(self.get_cache_key(property_name, self.resource.uid), cpu_used)
+            return cpu_used
+        elif property_name == "infectedFiles":
+            infected_files = list()
+            if self.get_property("cpuUsed")["percents"] > CONFIG.unix_account.malscan_cpu_threshold:
+                for path in taskexecutor.watchdog.ProcessWatchdog.get_workdirs_by_uid(self.resource.uid):
+                    for filename in [os.path.join(path, f) for f in os.listdir(path)
+                                     if os.path.isfile(os.path.join(path, f))]:
+                        if os.path.getsize(filename) < CONFIG.clamd.stream_max_length:
+                            with open(filename, "rb") as f:
+                                try:
+                                    scan_res = self._clamd.instream(f)
+                                    LOGGER.debug("Malware scan result for {}: {}".format(filename, scan_res))
+                                    if "stream" in scan_res.keys() and scan_res["stream"][0] == "FOUND":
+                                        infected_files.append(filename)
+                                except Exception as e:
+                                    LOGGER.warning("Failed to scan {}: {}".format(filename, e))
+            return infected_files
         elif property_name in ("name", "uid", "homeDir", "crontab"):
-            etc_passwd = taskexecutor.constructor.get_conffile("lines", "/etc/passwd")
-            matched_lines = etc_passwd.get_lines("^{}:".format(self.resource.name))
             if len(matched_lines) != 1:
                 LOGGER.warning("Cannot determine user {0}, "
                                "lines found in /etc/passwd: {1}".format(self.resource.name, matched_lines))
