@@ -90,7 +90,14 @@ class ProcessWatchdog:
             while time.time() < timestamp + self.interval:
                 while uids_queue.qsize() > 0:
                     uid = uids_queue.get_nowait()
-                    getattr(self.restricted_uids, {uid >= 0: "add", uid < 0: "remove"}[True])(abs(uid))
+                    if uid >= 0:
+                        self.restricted_uids.add(uid)
+                        LOGGER.debug("Started watching UID {}".format(uid))
+                    elif abs(uid) in self.restricted_uids:
+                        self.restricted_uids.remove(abs(uid))
+                        LOGGER.debug("Stopped watching UID {}".format(abs(uid)))
+                if self._stopping:
+                    break
                 time.sleep(.1)
             restricted_processes = self._filter_processes(self._get_processes(self.restricted_uids))
             self.kill_long_processes(restricted_processes)

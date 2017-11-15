@@ -137,7 +137,7 @@ class UnixAccountCollector(ResCollector):
             if prev:
                 period = now - prev["timestamp"]
                 delta_seconds = (cpu_nanosec - prev["value"]["nanoseconds"]) / 1000000000
-                percents = delta_seconds / period * 100 / os.sysconf("SC_NPROCESSORS_ONLN")
+                percents = delta_seconds / period * 100
                 cpu_used["percents"] = percents
             self.add_property_to_cache(self.get_cache_key(property_name, self.resource.uid), cpu_used)
             return cpu_used
@@ -145,17 +145,17 @@ class UnixAccountCollector(ResCollector):
             infected_files = list()
             if self.get_property("cpuUsed")["percents"] > CONFIG.unix_account.malscan_cpu_threshold:
                 for path in taskexecutor.watchdog.ProcessWatchdog.get_workdirs_by_uid(self.resource.uid):
-                    for filename in [os.path.join(path, f) for f in os.listdir(path)
-                                     if os.path.isfile(os.path.join(path, f))]:
-                        if os.path.getsize(filename) < CONFIG.clamd.stream_max_length:
-                            with open(filename, "rb") as f:
+                    files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+                    for file in files:
+                        if os.path.getsize(file) < CONFIG.clamd.stream_max_length:
+                            with open(file, "rb") as f:
                                 try:
                                     scan_res = self._clamd.instream(f)
-                                    LOGGER.debug("Malware scan result for {}: {}".format(filename, scan_res))
+                                    LOGGER.debug("Malware scan result for {}: {}".format(file, scan_res))
                                     if "stream" in scan_res.keys() and scan_res["stream"][0] == "FOUND":
-                                        infected_files.append(filename)
+                                        infected_files.append(file)
                                 except Exception as e:
-                                    LOGGER.warning("Failed to scan {}: {}".format(filename, e))
+                                    LOGGER.warning("Failed to scan {}: {}".format(file, e))
             return infected_files
         elif property_name in ("name", "uid", "homeDir", "crontab"):
             if len(matched_lines) != 1:
