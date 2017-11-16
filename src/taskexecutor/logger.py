@@ -12,6 +12,7 @@ class StreamToLogger:
         msg = str()
         for line in buf.rstrip().splitlines():
             msg += line.strip() + "\n\t"
+        msg = msg.encode("utf-8", "replace").decode("utf-8")
         self.logger.log(self.log_level, msg)
 
     def flush(self):

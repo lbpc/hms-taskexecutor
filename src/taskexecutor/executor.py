@@ -10,6 +10,7 @@ import taskexecutor.httpsclient
 import taskexecutor.constructor
 import taskexecutor.listener
 import taskexecutor.task
+import taskexecutor.watchdog
 import taskexecutor.utils
 
 __all__ = ["Executor"]
@@ -136,13 +137,14 @@ class Executor:
     def select_reporter(self, task):
         if task.origin.__name__ == "AMQPListener" and task.action in ("create", "update", "delete"):
             return taskexecutor.constructor.get_reporter("amqp")
-        elif task.action == "quota_report" and not task.params.get("batch"):
+        elif task.action in ("quota_report", "malware_report"):
             return taskexecutor.constructor.get_reporter("https")
         else:
             return taskexecutor.constructor.get_reporter("null")
 
     def select_reported_properties(self, task):
-        return {"quota_report": ["quotaUsed"]}[task.action]
+        return {"quota_report": ["quotaUsed"],
+                "malware_report": ["infectedFiles"]}[task.action]
 
     def create_subtasks(self, task, resources):
         subtasks = list()
@@ -231,13 +233,23 @@ class Executor:
         self.finish_task(task, taskexecutor.task.DONE)
 
     def finish_task(self, task, report_state):
+        resource = task.params.get("resource")
         task.state = report_state
         reporter = self.select_reporter(task)
         report = reporter.create_report(task)
-        LOGGER.info("Sending report {0} using {1}".format(report, type(reporter).__name__))
-        reporter.send_report()
+        if task.action == "malware_report":
+            infected = False
+            if hasattr(resource, "infected"):
+                infected = resource.infected
+            infected_sign = int(bool(report.get("infectedFiles") or infected)) * 2 - 1
+            taskexecutor.watchdog.ProcessWatchdog.get_uids_queue().put(resource.uid * infected_sign)
+        if not any(report.values()):
+            LOGGER.debug("Discarding empty report: {}".format(report))
+        else:
+            LOGGER.info("Sending report {0} using {1}".format(report, type(reporter).__name__))
+            reporter.send_report()
         task.state = taskexecutor.task.DONE
-        LOGGER.debug("Done with task {}".format(task))
+        LOGGER.info("Done with task {}".format(task))
 
     def run(self):
         taskexecutor.utils.set_thread_name("Executor")
