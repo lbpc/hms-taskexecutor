@@ -11,6 +11,7 @@ import taskexecutor.constructor
 import taskexecutor.ftpclient
 import taskexecutor.httpsclient
 import taskexecutor.opservice
+import taskexecutor.watchdog
 import taskexecutor.utils
 
 __all__ = ["Builder"]
@@ -181,6 +182,8 @@ class UnixAccountProcessor(ResProcessor):
                                                          "UnixAccount(id={0.id}, "
                                                          "accountId={0.accountId}, "
                                                          "writable={0.writable})".format(self.resource))
+            if not self.resource.infected:
+                taskexecutor.watchdog.ProcessWatchdog.get_uids_queue().put(-self.resource.uid)
         else:
             LOGGER.warning("UnixAccount {0} not found, creating".format(self.resource.name))
             self.create()

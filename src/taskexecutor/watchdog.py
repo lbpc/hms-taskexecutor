@@ -3,6 +3,7 @@ import time
 import queue
 
 from taskexecutor.logger import LOGGER
+import taskexecutor.utils
 
 
 class ProcessWatchdog:
@@ -77,13 +78,14 @@ class ProcessWatchdog:
                     environ = " ".join(["{}={}".format(k, v) for k, v in p.environ().items()])
                     lifetime = int(time.time()) - p.create_time()
                 if lifetime > self.max_lifetime:
-                    LOGGER.info("Killing process: uid={0}, pid={1}, cwd='{2}', cmdline='{3}', environ='{4}', l"
-                                "ifetime={5}s".format(uid, pid, cwd, cmdline, environ, lifetime))
+                    LOGGER.info("Killing process: uid={0}, pid={1}, cwd='{2}', cmdline='{3}', environ='{4}', "
+                                "lifetime={5}s".format(uid, pid, cwd, cmdline, environ, lifetime))
                     p.kill()
             except psutil.NoSuchProcess:
                 pass
 
     def run(self):
+        taskexecutor.utils.set_thread_name("ProcessWatchdog")
         uids_queue = self.get_uids_queue()
         while not self._stopping:
             timestamp = time.time()

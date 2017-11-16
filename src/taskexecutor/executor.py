@@ -6,11 +6,11 @@ import queue
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-from taskexecutor.watchdog import ProcessWatchdog
 import taskexecutor.httpsclient
 import taskexecutor.constructor
 import taskexecutor.listener
 import taskexecutor.task
+import taskexecutor.watchdog
 import taskexecutor.utils
 
 __all__ = ["Executor"]
@@ -242,7 +242,7 @@ class Executor:
             if hasattr(resource, "infected"):
                 infected = resource.infected
             infected_sign = int(bool(report.get("infectedFiles") or infected)) * 2 - 1
-            ProcessWatchdog.get_uids_queue().put(resource.uid * infected_sign)
+            taskexecutor.watchdog.ProcessWatchdog.get_uids_queue().put(resource.uid * infected_sign)
         if not any(report.values()):
             LOGGER.debug("Discarding empty report: {}".format(report))
         else:

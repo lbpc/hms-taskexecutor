@@ -44,7 +44,7 @@ def update_all_services(new_task_queue):
 
 def populate_restricted_uids_set(get_uids_queue):
     with ApiClient(**CONFIG.apigw) as api:
-        uids = [u.uid for u in api.UnixAccount().filter(serverId=CONFIG.localserver.id, infected=True).get()]
+        uids = [u.uid for u in api.UnixAccount().filter(serverId=CONFIG.localserver.id).get() if u.infected]
     for uid in uids:
         get_uids_queue.put(uid)
     taskexecutor.logger.LOGGER.info("Restricted UIDs: {}".format(uids))
