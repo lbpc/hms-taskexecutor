@@ -147,10 +147,14 @@ class UnixAccountCollector(ResCollector):
                 for path in taskexecutor.watchdog.ProcessWatchdog.get_workdirs_by_uid(self.resource.uid):
                     files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
                     for file in files:
-                        if os.path.getsize(file) < CONFIG.clamd.stream_max_length:
+                        if os.path.exists(file) and \
+                                        os.stat(file).st_mode & 0o0777 > 0o0 and \
+                                        os.stat(file).st_uid == self.resource.uid and \
+                                        os.path.getsize(file) < CONFIG.clamd.stream_max_length:
                             with open(file, "rb") as f:
                                 try:
                                     scan_res = self._clamd.instream(f)
+                                    file = file.encode("utf-8", "replace").decode("utf-8")
                                     LOGGER.debug("Malware scan result for {}: {}".format(file, scan_res))
                                     if "stream" in scan_res.keys() and scan_res["stream"][0] == "FOUND":
                                         infected_files.append(file)
