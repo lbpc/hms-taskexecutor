@@ -143,7 +143,9 @@ class UnixAccountCollector(ResCollector):
             return cpu_used
         elif property_name == "infectedFiles":
             infected_files = list()
-            if self.get_property("cpuUsed")["percents"] > CONFIG.unix_account.malscan_cpu_threshold:
+            if self.resource.infected and cached:
+                infected_files = self.get_property_from_cache(key)
+            elif self.get_property("cpuUsed")["percents"] > CONFIG.unix_account.malscan_cpu_threshold:
                 for path in taskexecutor.watchdog.ProcessWatchdog.get_workdirs_by_uid(self.resource.uid):
                     files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
                     for file in files:
@@ -160,6 +162,7 @@ class UnixAccountCollector(ResCollector):
                                         infected_files.append(file)
                                 except Exception as e:
                                     LOGGER.warning("Failed to scan {}: {}".format(file, e))
+                self.add_property_to_cache(key, infected_files)
             return infected_files
         elif property_name in ("name", "uid", "homeDir", "crontab"):
             if len(matched_lines) != 1:

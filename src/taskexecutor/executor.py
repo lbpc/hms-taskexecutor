@@ -238,10 +238,7 @@ class Executor:
         reporter = self.select_reporter(task)
         report = reporter.create_report(task)
         if task.action == "malware_report":
-            infected = False
-            if hasattr(resource, "infected"):
-                infected = resource.infected
-            infected_sign = int(bool(report.get("infectedFiles") or infected)) * 2 - 1
+            infected_sign = int(bool(report.get("infectedFiles") or resource.infected)) * 2 - 1
             taskexecutor.watchdog.ProcessWatchdog.get_uids_queue().put(resource.uid * infected_sign)
         if not any(report.values()):
             LOGGER.debug("Discarding empty report: {}".format(report))
