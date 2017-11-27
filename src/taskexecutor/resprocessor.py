@@ -246,6 +246,9 @@ class WebSiteProcessor(ResProcessor):
                     config.revert()
                     raise
             config.confirm()
+        data_source_uri = self.params.get("dataSourceUri") or "file://{}".format(document_root)
+        data_postprocessor_type = self.params.get("dataPostprocessorType")
+        data_postprocessor_args = self.params.get("dataPostprocessorArgs")
 
     @taskexecutor.utils.synchronized
     def update(self):
@@ -265,6 +268,7 @@ class WebSiteProcessor(ResProcessor):
                 config.delete()
                 if not self._required_for_service:
                     self.extra_services.old_app_server.reload()
+
 
     @taskexecutor.utils.synchronized
     def delete(self):

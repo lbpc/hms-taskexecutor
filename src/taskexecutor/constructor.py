@@ -107,6 +107,14 @@ def get_rescollector(resource_type, resource):
     return collector
 
 
+def get_datafetcher(src_uri, dst_uri, params):
+    return
+
+
+def get_datapostprocessor(data_uri, args):
+    return
+
+
 def get_listener(listener_type):
     Listener = taskexecutor.listener.Builder(listener_type)
     out_queue = taskexecutor.executor.Executor.get_new_task_queue()
