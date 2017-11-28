@@ -5,6 +5,8 @@ import urllib.parse
 
 import taskexecutor.utils
 
+__all__ = ["Builder"]
+
 
 class BuilderTypeError(Exception):
     pass
@@ -91,9 +93,8 @@ class FileDataFetcher(DataFetcher):
 
 
 class Builder:
-    def __new__(cls, src_uri):
-        scheme = urllib.parse.urlparse(src_uri).scheme
-        DataFetcherClass = {"file": FileDataFetcher}.get(scheme)
+    def __new__(cls, proto):
+        DataFetcherClass = {"file": FileDataFetcher}.get(proto)
         if not DataFetcherClass:
-            raise BuilderTypeError("Unknown data source URI scheme: {}".format(scheme))
+            raise BuilderTypeError("Unknown data source URI scheme: {}".format(proto))
         return DataFetcherClass

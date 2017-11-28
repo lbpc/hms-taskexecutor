@@ -1,6 +1,7 @@
 import abc
-import urllib.parse
 import docker
+
+__all__ = ["Builder"]
 
 
 class BuilderTypeError(Exception):
@@ -12,25 +13,16 @@ class UnsupportedDstUriScheme(Exception):
 
 
 class DataPostprocessor(metaclass=abc.ABCMeta):
-    def __init__(self, data_uri, params):
-        self._data_uri = data_uri
-        self._params = params
+    def __init__(self, **kwargs):
+        self._args = kwargs
 
     @property
-    def data_uri(self):
-        return self._data_uri
+    def args(self):
+        return self._args
 
-    @data_uri.setter
-    def data_uri(self, value):
-        self._data_uri = value
-
-    @property
-    def params(self):
-        return self._params
-
-    @params.setter
-    def params(self, value):
-        self._params = value
+    @args.setter
+    def args(self, value):
+        self._args = value
 
     @abc.abstractmethod
     def process(self):
@@ -39,11 +31,11 @@ class DataPostprocessor(metaclass=abc.ABCMeta):
 
 class DockerDataPostprocessor(DataPostprocessor):
     def process(self):
-        image = self.params.get("image")
-        env = self.params.get("env")
-        volumes = self.params.get("volumes")
-        hosts = self.params.get("hosts")
-        uid = self.params.get("uid")
+        image = self.args.get("image")
+        env = self.args.get("env")
+        volumes = {self.args.get("cwd"): {"bind": "/workdir", "mode": "rw"}}
+        hosts = self.args.get("hosts")
+        uid = self.args.get("uid")
         docker_client = docker.from_env()
         docker_client.containers.run(image, remove=True, volumes=volumes, user=uid, environment=env, extra_hosts=hosts)
 
@@ -54,7 +46,3 @@ class Builder:
         if not DataPostprocessorClass:
             raise BuilderTypeError("Unknown data postprocessor type: {}".format(postproc_type))
         return DataPostprocessorClass
-
-
-
-

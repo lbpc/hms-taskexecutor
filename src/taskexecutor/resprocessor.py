@@ -246,9 +246,22 @@ class WebSiteProcessor(ResProcessor):
                     config.revert()
                     raise
             config.confirm()
-        data_source_uri = self.params.get("dataSourceUri") or "file://{}".format(document_root)
+        data_dest_uri = "file://{}".format(document_root)
+        data_source_uri = self.params.get("dataSourceUri") or data_dest_uri
+        datafetcher = taskexecutor.constructor.get_datafetcher(data_source_uri, data_dest_uri)
+        datafetcher.fetch()
         data_postprocessor_type = self.params.get("dataPostprocessorType")
         data_postprocessor_args = self.params.get("dataPostprocessorArgs")
+        if data_postprocessor_type:
+            data_postprocessor_args.update(dict(
+                    cwd=document_root,
+                    hosts={self.resource.domains[0].name: self.extra_services.http_proxy.serviceSockets[0].address},
+                    uid=self.resource.uid
+            ))
+            postprocessor = taskexecutor.constructor.get_datapostprocessor(data_postprocessor_type,
+                                                                           data_dest_uri,
+                                                                           data_postprocessor_args)
+            postprocessor.process()
 
     @taskexecutor.utils.synchronized
     def update(self):
@@ -268,7 +281,6 @@ class WebSiteProcessor(ResProcessor):
                 config.delete()
                 if not self._required_for_service:
                     self.extra_services.old_app_server.reload()
-
 
     @taskexecutor.utils.synchronized
     def delete(self):
