@@ -131,6 +131,7 @@ class UnixAccountProcessor(ResProcessor):
                                  self.resource.homeDir,
                                  self.resource.passwordHash,
                                  shell,
+                                 "Hosting account,,,,"
                                  "UnixAccount(id={0.id}, "
                                  "accountId={0.accountId}, "
                                  "writable={0.writable})".format(self.resource),
@@ -254,12 +255,11 @@ class WebSiteProcessor(ResProcessor):
         data_postprocessor_args = self.params.get("dataPostprocessorArgs")
         if data_postprocessor_type:
             data_postprocessor_args.update(dict(
-                    cwd=document_root,
-                    hosts={self.resource.domains[0].name: self.extra_services.http_proxy.serviceSockets[0].address},
-                    uid=self.resource.uid
+                    cwd=os.path.join(home_dir, document_root),
+                    hosts={self.resource.domains[0].name: self.extra_services.http_proxy.socket.http.address},
+                    uid=self.resource.unixAccount.uid
             ))
             postprocessor = taskexecutor.constructor.get_datapostprocessor(data_postprocessor_type,
-                                                                           data_dest_uri,
                                                                            data_postprocessor_args)
             postprocessor.process()
 

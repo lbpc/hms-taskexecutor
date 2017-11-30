@@ -19,7 +19,7 @@ buildscript {
 
 
 plugins {
-	id "com.linkedin.python-sdist" version "0.5.1"
+	id "com.linkedin.python-sdist" version "0.6.15"
 	id "org.ajoberstar.grgit" version "1.5.1"
 }
 
@@ -46,12 +46,13 @@ repositories {
 
 dependencies {
 	python "pypi:pika:0.10.0"
-	python "pypi:PyMySQL:0.7.9"
+	python "pypi:PyMySQL:0.7.11"
 	python "pypi:Jinja2:2.8"
 	python "pypi:schedule:0.3.2"
 	python "pypi:clamd:1.0.2"
 	python "pypi:psutil:5.4.1"
     python "pypi:pyaml:16.12.2"
+	python "pypi:docker:2.6.1"
 	python "pypi:pg8000:1.10.6"
 	python "pypi:pytransliter:1.0.1"
 }

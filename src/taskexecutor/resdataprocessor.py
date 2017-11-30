@@ -1,6 +1,8 @@
 import abc
 import docker
 
+from taskexecutor.config import CONFIG
+
 __all__ = ["Builder"]
 
 
@@ -35,9 +37,10 @@ class DockerDataPostprocessor(DataPostprocessor):
         env = self.args.get("env")
         volumes = {self.args.get("cwd"): {"bind": "/workdir", "mode": "rw"}}
         hosts = self.args.get("hosts")
-        uid = self.args.get("uid")
+        user = "{0}:{0}".format(self.args.get("uid", 65534))
         docker_client = docker.from_env()
-        docker_client.containers.run(image, remove=True, volumes=volumes, user=uid, environment=env, extra_hosts=hosts)
+        docker_client.login(**CONFIG.docker_registry._asdict())
+        docker_client.containers.run(image, remove=True, volumes=volumes, user=user, environment=env, extra_hosts=hosts)
 
 
 class Builder:
