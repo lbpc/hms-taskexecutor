@@ -40,7 +40,9 @@ class DockerDataPostprocessor(DataPostprocessor):
         user = "{0}:{0}".format(self.args.get("uid", 65534))
         docker_client = docker.from_env()
         docker_client.login(**CONFIG.docker_registry._asdict())
-        docker_client.containers.run(image, remove=True, volumes=volumes, user=user, environment=env, extra_hosts=hosts)
+        docker_client.images.pull(image)
+        docker_client.containers.run(image, remove=True, dns=["127.0.0.1"], network_mode="host",
+                                     volumes=volumes, user=user, environment=env, extra_hosts=hosts)
 
 
 class Builder:

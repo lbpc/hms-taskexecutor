@@ -197,8 +197,9 @@ class UnixAccountProcessor(ResProcessor):
 
 class WebSiteProcessor(ResProcessor):
     @property
-    def _required_for_service(self):
-        return self.params.get("required_for", [None])[0] == "service"
+    def _reload_required(self):
+        return self.params.get("required_for", [None])[0] != "service" or \
+               "appscat" not in self.params.get("provider", [None])
 
     def _build_vhost_obj_list(self):
         vhosts = list()
@@ -240,7 +241,7 @@ class WebSiteProcessor(ResProcessor):
             config.write()
             if self.resource.switchedOn and not config.is_enabled:
                 config.enable()
-            if not self._required_for_service:
+            if self._reload_required:
                 try:
                     service.reload()
                 except:
@@ -271,7 +272,7 @@ class WebSiteProcessor(ResProcessor):
                 if config.is_enabled:
                     config.disable()
                     config.save()
-                    if not self._required_for_service:
+                    if self._reload_required:
                         service.reload()
         else:
             self.create()
@@ -279,7 +280,7 @@ class WebSiteProcessor(ResProcessor):
                 config = self.extra_services.old_app_server.get_website_config(self.resource.id)
                 config.disable()
                 config.delete()
-                if not self._required_for_service:
+                if self._reload_required:
                     self.extra_services.old_app_server.reload()
 
     @taskexecutor.utils.synchronized
