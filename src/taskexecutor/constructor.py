@@ -1,5 +1,6 @@
 import collections
 import sys
+import urllib.parse
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
@@ -7,6 +8,8 @@ import taskexecutor.conffile
 import taskexecutor.baseservice
 import taskexecutor.executor
 import taskexecutor.opservice
+import taskexecutor.resdatafetcher
+import taskexecutor.resdataprocessor
 import taskexecutor.rescollector
 import taskexecutor.resprocessor
 import taskexecutor.sysservice
@@ -105,6 +108,18 @@ def get_rescollector(resource_type, resource):
     op_service = get_opservice_by_resource(resource, resource_type)
     collector = ResCollector(resource, op_service)
     return collector
+
+
+def get_datafetcher(src_uri, dst_uri, params=None):
+    DataFetcher = taskexecutor.resdatafetcher.Builder(urllib.parse.urlparse(src_uri).scheme)
+    data_fetcher = DataFetcher(src_uri, dst_uri, params)
+    return data_fetcher
+
+
+def get_datapostprocessor(postproc_type, args):
+    DataPostprocessor = taskexecutor.resdataprocessor.Builder(postproc_type)
+    postprocessor = DataPostprocessor(**args)
+    return postprocessor
 
 
 def get_listener(listener_type):

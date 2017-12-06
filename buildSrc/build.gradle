@@ -4,5 +4,5 @@ repositories {
 
 dependencies {
 	compile 'org.codehaus.groovy:groovy-all:2.4.7'
-	compile 'com.linkedin.pygradle:pivy-importer:0.5.1'
+	compile 'com.linkedin.pygradle:pivy-importer:0.6.15'
 }

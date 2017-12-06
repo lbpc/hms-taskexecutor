@@ -240,7 +240,7 @@ class Executor:
         if task.action == "malware_report":
             infected_sign = int(bool(report.get("infectedFiles") or resource.infected)) * 2 - 1
             taskexecutor.watchdog.ProcessWatchdog.get_uids_queue().put(resource.uid * infected_sign)
-        if not any(report.values()):
+        if report and not any(report.values()):
             LOGGER.debug("Discarding empty report: {}".format(report))
         else:
             LOGGER.info("Sending report {0} using {1}".format(report, type(reporter).__name__))

@@ -131,6 +131,7 @@ class UnixAccountProcessor(ResProcessor):
                                  self.resource.homeDir,
                                  self.resource.passwordHash,
                                  shell,
+                                 "Hosting account,,,,"
                                  "UnixAccount(id={0.id}, "
                                  "accountId={0.accountId}, "
                                  "writable={0.writable})".format(self.resource),
@@ -196,8 +197,9 @@ class UnixAccountProcessor(ResProcessor):
 
 class WebSiteProcessor(ResProcessor):
     @property
-    def _required_for_service(self):
-        return self.params.get("required_for", [None])[0] == "service"
+    def _reload_required(self):
+        return self.params.get("required_for", [None])[0] != "service" or \
+               "appscat" not in self.params.get("provider", [None])
 
     def _build_vhost_obj_list(self):
         vhosts = list()
@@ -239,13 +241,28 @@ class WebSiteProcessor(ResProcessor):
             config.write()
             if self.resource.switchedOn and not config.is_enabled:
                 config.enable()
-            if not self._required_for_service:
+            if self._reload_required:
                 try:
                     service.reload()
                 except:
                     config.revert()
                     raise
             config.confirm()
+        data_dest_uri = "file://{}".format(document_root)
+        data_source_uri = self.params.get("dataSourceUri") or data_dest_uri
+        datafetcher = taskexecutor.constructor.get_datafetcher(data_source_uri, data_dest_uri)
+        datafetcher.fetch()
+        data_postprocessor_type = self.params.get("dataPostprocessorType")
+        data_postprocessor_args = self.params.get("dataPostprocessorArgs")
+        if data_postprocessor_type:
+            data_postprocessor_args.update(dict(
+                    cwd=os.path.join(home_dir, document_root),
+                    hosts={self.resource.domains[0].name: self.extra_services.http_proxy.socket.http.address},
+                    uid=self.resource.unixAccount.uid
+            ))
+            postprocessor = taskexecutor.constructor.get_datapostprocessor(data_postprocessor_type,
+                                                                           data_postprocessor_args)
+            postprocessor.process()
 
     @taskexecutor.utils.synchronized
     def update(self):
@@ -255,7 +272,7 @@ class WebSiteProcessor(ResProcessor):
                 if config.is_enabled:
                     config.disable()
                     config.save()
-                    if not self._required_for_service:
+                    if self._reload_required:
                         service.reload()
         else:
             self.create()
@@ -263,7 +280,7 @@ class WebSiteProcessor(ResProcessor):
                 config = self.extra_services.old_app_server.get_website_config(self.resource.id)
                 config.disable()
                 config.delete()
-                if not self._required_for_service:
+                if self._reload_required:
                     self.extra_services.old_app_server.reload()
 
     @taskexecutor.utils.synchronized

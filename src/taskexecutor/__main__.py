@@ -30,8 +30,8 @@ def receive_signal(signum, unused_stack):
 def update_all_services(new_task_queue):
     taskexecutor.logger.LOGGER.info("Perfoming Service updates")
     for service in [s for s in CONFIG.localserver.services
-                    if s.serviceTemplate.serviceType.name.startswith("STAFF_")
-                    or s.serviceTemplate.serviceType.name.startswith("DATABASE_")]:
+                    if s.serviceTemplate.serviceType.name.startswith("STAFF_") or
+                    s.serviceTemplate.serviceType.name.startswith("DATABASE_")]:
         task = taskexecutor.task.Task(None,
                                       type(None),
                                       "LOCAL",
