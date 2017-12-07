@@ -113,6 +113,17 @@ class ResProcessor(metaclass=abc.ABCMeta):
     def delete(self):
         pass
 
+    def _process_data(self, src_uri, dst_uri, extra_postproc_args={}):
+        datafetcher = taskexecutor.constructor.get_datafetcher(src_uri, dst_uri, self.params.get("dataSourceParams"))
+        datafetcher.fetch()
+        data_postprocessor_type = self.params.get("dataPostprocessorType")
+        data_postprocessor_args = self.params.get("dataPostprocessorArgs")
+        if data_postprocessor_type:
+            data_postprocessor_args.update(extra_postproc_args)
+            postprocessor = taskexecutor.constructor.get_datapostprocessor(data_postprocessor_type,
+                                                                           data_postprocessor_args)
+            postprocessor.process()
+
     def __str__(self):
         return "{0}(resource=(name={1.name}, id={1.id}))".format(self.__class__.__name__, self.resource)
 
@@ -150,6 +161,10 @@ class UnixAccountProcessor(ResProcessor):
             LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
             self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                 self.resource.uid, self.resource.homeDir)
+        data_dest_uri = "file://{}".format(self.resource.homeDir)
+        data_source_uri = self.params.get("dataSourceUri") or data_dest_uri
+        self._process_data(data_source_uri, data_dest_uri)
+
 
     @taskexecutor.utils.synchronized
     def update(self):
@@ -250,19 +265,11 @@ class WebSiteProcessor(ResProcessor):
             config.confirm()
         data_dest_uri = "file://{}".format(document_root)
         data_source_uri = self.params.get("dataSourceUri") or data_dest_uri
-        datafetcher = taskexecutor.constructor.get_datafetcher(data_source_uri, data_dest_uri)
-        datafetcher.fetch()
-        data_postprocessor_type = self.params.get("dataPostprocessorType")
-        data_postprocessor_args = self.params.get("dataPostprocessorArgs")
-        if data_postprocessor_type:
-            data_postprocessor_args.update(dict(
-                    cwd=os.path.join(home_dir, document_root),
-                    hosts={self.resource.domains[0].name: self.extra_services.http_proxy.socket.http.address},
-                    uid=self.resource.unixAccount.uid
-            ))
-            postprocessor = taskexecutor.constructor.get_datapostprocessor(data_postprocessor_type,
-                                                                           data_postprocessor_args)
-            postprocessor.process()
+        postproc_args = dict(cwd=os.path.join(home_dir, document_root),
+                             hosts={self.resource.domains[0].name: self.extra_services.http_proxy.socket.http.address},
+                             uid=self.resource.unixAccount.uid)
+        self._process_data(data_source_uri, data_dest_uri, postproc_args)
+
 
     @taskexecutor.utils.synchronized
     def update(self):
@@ -390,6 +397,9 @@ class DatabaseProcessor(ResProcessor):
             LOGGER.warning("{0} database {1} already exists, updating".format(self.service.__class__.__name__,
                                                                               self.resource.name))
             self.update()
+        data_dest_uri = "mysql://{}/{}".format(CONFIG.hostname, self.resource.name)
+        data_source_uri = self.params.get("dataSourceUri") or data_dest_uri
+        self._process_data(data_source_uri, data_dest_uri)
 
     def update(self):
         database_users = self.resource.databaseUsers

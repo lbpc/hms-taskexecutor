@@ -5,6 +5,7 @@ import shutil
 import urllib.parse
 
 from taskexecutor.config import CONFIG
+from taskexecutor.logger import LOGGER
 import taskexecutor.utils
 
 __all__ = ["Builder"]
@@ -82,6 +83,7 @@ class FileDataFetcher(DataFetcher):
 
     def _copy_file_to_file(self):
         if self._src_path != self._dst_path:
+            LOGGER.info("Copiyng files from {} to {}".format(self._src_path, self._dst_path))
             for each in os.listdir(self._src_path):
                 src = os.path.join(self._src_path, each)
                 dst = os.path.join(self._dst_path, each)
@@ -91,6 +93,7 @@ class FileDataFetcher(DataFetcher):
                     shutil.copyfile(src, dst)
 
     def _copy_file_to_rsync(self):
+        LOGGER.info("Syncing files between {} and {}".format(self._src_path, self.dst_uri))
         cmd = "rsync -av {0} {1}".format(self._src_path, self.dst_uri)
         taskexecutor.utils.exec_command(cmd)
 
@@ -99,12 +102,19 @@ class FileDataFetcher(DataFetcher):
 
 
 class RsyncDataFetcher(DataFetcher):
+    def __init__(self, src_uri, dst_uri, params):
+        super().__init__(src_uri, dst_uri, params)
+        self.exclude_patterns = params.get("excludePatterns") or ["cache"]
+
     @property
     def supported_dst_uri_schemes(self):
         return ["file"]
 
     def fetch(self):
-        cmd = "rsync -av {0} {1}".format(self.src_uri, urllib.parse.urlparse(self.dst_uri).path)
+        dst_path = urllib.parse.urlparse(self.dst_uri).path
+        LOGGER.info("Syncing files between {} and {}".format(self.src_uri, dst_path))
+        cmd = "rsync {} -av {} {}".format("".join(map(lambda p: "--exclude {} ".format(p), self.exclude_patterns)),
+                                          self.src_uri, dst_path)
         taskexecutor.utils.exec_command(cmd)
 
 
@@ -129,23 +139,26 @@ class MysqlDataFetcher(DataFetcher):
         return taskexecutor.utils.exec_command(cmd, return_raw_streams=True)
 
     def fetch(self):
-        data, error = self._get_dump_streams()
-        if urllib.parse.urlparse(self.dst_uri).scheme == "mysql":
-            cmd = "mysql -h{0} -P{1} -u{2} -p{3} {4}".format(self.dst_host, self.dst_port,
-                                                             self.user, self.password, self.database)
-            taskexecutor.utils.exec_command(cmd, pass_to_stdin=data)
-        else:
-            path = urllib.parse.urlparse(self.dst_uri).path
-            with open(path, "w") as f:
-                f.write(data)
-        error = error.read().decode("UTF-8")
-        if error:
-            raise DataFetchingError("Failed to dump MySQL database {}, error: {}".format(self.database, error))
+        if self.src_uri != self.dst_uri:
+            data, error = self._get_dump_streams()
+            if urllib.parse.urlparse(self.dst_uri).scheme == "mysql":
+                cmd = "mysql -h{0} -P{1} -u{2} -p{3} {4}".format(self.dst_host, self.dst_port,
+                                                                 self.user, self.password, self.database)
+                taskexecutor.utils.exec_command(cmd, pass_to_stdin=data)
+            else:
+                path = urllib.parse.urlparse(self.dst_uri).path
+                with open(path, "w") as f:
+                    f.write(data)
+            error = error.read().decode("UTF-8")
+            if error:
+                raise DataFetchingError("Failed to dump MySQL database {}, error: {}".format(self.database, error))
 
 
 class Builder:
     def __new__(cls, proto):
-        DataFetcherClass = {"file": FileDataFetcher}.get(proto)
+        DataFetcherClass = {"file": FileDataFetcher,
+                            "rsync": RsyncDataFetcher,
+                            "mysql": MysqlDataFetcher}.get(proto)
         if not DataFetcherClass:
             raise BuilderTypeError("Unknown data source URI scheme: {}".format(proto))
         return DataFetcherClass
