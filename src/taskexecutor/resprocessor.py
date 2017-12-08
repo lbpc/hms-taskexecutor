@@ -165,7 +165,6 @@ class UnixAccountProcessor(ResProcessor):
         data_source_uri = self.params.get("dataSourceUri") or data_dest_uri
         self._process_data(data_source_uri, data_dest_uri)
 
-
     @taskexecutor.utils.synchronized
     def update(self):
         if self.op_resource:
@@ -269,7 +268,6 @@ class WebSiteProcessor(ResProcessor):
                              hosts={self.resource.domains[0].name: self.extra_services.http_proxy.socket.http.address},
                              uid=self.resource.unixAccount.uid)
         self._process_data(data_source_uri, data_dest_uri, postproc_args)
-
 
     @taskexecutor.utils.synchronized
     def update(self):

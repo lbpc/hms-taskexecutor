@@ -54,13 +54,13 @@ class StringReplaceDataProcessor(DataPostprocessor):
 
     @property
     def shell_escape_map(self):
-        return {"(":  r"\(",
-                ")":  r"\)",
-                "[":  r"\]",
-                "]":  r"\]",
+        return {"(": r"\(",
+                ")": r"\)",
+                "[": r"\]",
+                "]": r"\]",
                 "\\": r"\\",
-                "*":  r"\*",
-                "?":  r"\?"}
+                "*": r"\*",
+                "?": r"\?"}
 
     def process(self):
         cwd = self.args.get("cwd")
