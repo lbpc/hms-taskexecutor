@@ -112,7 +112,7 @@ def get_rescollector(resource_type, resource):
 
 def get_datafetcher(src_uri, dst_uri, params=None):
     DataFetcher = taskexecutor.resdatafetcher.Builder(urllib.parse.urlparse(src_uri).scheme)
-    data_fetcher = DataFetcher(src_uri, dst_uri, params)
+    data_fetcher = DataFetcher(src_uri, dst_uri, params=params or {})
     return data_fetcher
 
 

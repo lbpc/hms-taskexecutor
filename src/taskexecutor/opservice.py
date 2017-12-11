@@ -149,11 +149,12 @@ class UpstartService(OpService):
         taskexecutor.utils.exec_command("reload {}".format(self.name))
 
     def status(self):
+        status = DOWN
         try:
-            taskexecutor.utils.exec_command("status {}".format(self.name))
-            return UP
+            status = UP if "running" in taskexecutor.utils.exec_command("status {}".format(self.name)) else DOWN
         except taskexecutor.utils.CommandExecutionError:
-            return DOWN
+            pass
+        return status
 
 
 class SysVService(OpService):
