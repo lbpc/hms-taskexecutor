@@ -8,6 +8,7 @@ import urllib.parse
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.constructor
+import taskexecutor.conffile
 import taskexecutor.ftpclient
 import taskexecutor.httpsclient
 import taskexecutor.opservice
@@ -211,9 +212,9 @@ class UnixAccountProcessor(ResProcessor):
 
 class WebSiteProcessor(ResProcessor):
     @property
-    def _reload_required(self):
-        return self.params.get("required_for", [None])[0] != "service" or \
-               "appscat" not in self.params.get("provider", [None])
+    def _without_reload(self):
+        return self.params.get("required_for", [None])[0] == "service" or \
+               "appscat" in self.params.get("provider", [None])
 
     def _build_vhost_obj_list(self):
         vhosts = list()
@@ -255,7 +256,7 @@ class WebSiteProcessor(ResProcessor):
             config.write()
             if self.resource.switchedOn and not config.is_enabled:
                 config.enable()
-            if self._reload_required:
+            if not self._without_reload:
                 try:
                     service.reload()
                 except:
@@ -277,7 +278,7 @@ class WebSiteProcessor(ResProcessor):
                 if config.is_enabled:
                     config.disable()
                     config.save()
-                    if self._reload_required:
+                    if not self._without_reload:
                         service.reload()
         else:
             self.create()
@@ -285,7 +286,7 @@ class WebSiteProcessor(ResProcessor):
                 config = self.extra_services.old_app_server.get_website_config(self.resource.id)
                 config.disable()
                 config.delete()
-                if self._reload_required:
+                if not self._without_reload:
                     self.extra_services.old_app_server.reload()
 
     @taskexecutor.utils.synchronized
@@ -488,10 +489,17 @@ class ServiceProcessor(ResProcessor):
         if isinstance(self.service, taskexecutor.opservice.Apache) and self.service.interpreter.name != "php":
             configs = [c for c in configs if os.path.basename(c.file_path) != "php.ini"]
         for config in configs:
+            if isinstance(config, taskexecutor.conffile.SwitchableConfigFile):
+                for s in ["available", "enabled"]:
+                    os.makedirs(os.path.join(self.service.config_base_path, "sites-{}".format(s)), exist_ok=True)
             config.render_template(service=self.service, params=self.params)
             config.write()
         try:
-            self.service.reload()
+            if self.service.status() is taskexecutor.opservice.UP:
+                self.service.reload()
+            else:
+                LOGGER.warning("{} is down, trying to start it".format(self.service.name))
+                self.service.start()
         except:
             for config in configs:
                 config.revert()
