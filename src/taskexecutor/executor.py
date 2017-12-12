@@ -94,6 +94,11 @@ class ResourceBuilder:
                     website = api.Website().find(domainId=domain.id).get()
                     if website:
                         affected_resources.append(("website", website))
+                elif self._res_type == "service" and resource.serviceTemplate.serviceType.name.startswith("WEBSITE_"):
+                    nginx = next((s for s in CONFIG.localserver.services
+                                  if s.serviceTemplate.serviceType.name == "STAFF_NGINX"), None)
+                    if nginx:
+                        affected_resources.append(("service", nginx))
         return affected_resources
 
 
