@@ -212,10 +212,10 @@ class Apache(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.Applic
         self.static_base_path = CONFIG.nginx.static_base_path
 
     def reload(self):
+        taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/apache2")
         LOGGER.info("Testing apache2 config in {}".format(self.config_base_path))
         taskexecutor.utils.exec_command("apache2ctl -d {} -t".format(self.config_base_path))
         super().reload()
-        taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/apache2")
 
 
 # HACK: the two 'Unmanaged' classes below are responsible for reloading services at baton.intr only
