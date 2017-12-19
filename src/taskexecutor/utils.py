@@ -39,10 +39,10 @@ def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_stre
         stdout, stderr = proc.communicate()
     ret_code = proc.returncode
     if ret_code != 0:
-        LOGGER.error("Command '{0}' returned {1} code".format(command, ret_code))
-        if stderr:
-            LOGGER.error("STDERR: {}".format(stderr.decode("UTF-8")))
-        raise CommandExecutionError("Failed to execute command '{}'".format(command))
+        raise CommandExecutionError("Failed to execute command '{}'\n"
+                                    "CODE: {}\n"
+                                    "STDOUT: {}"
+                                    "STDERR: {}".format(command, ret_code, stdout.decode(), stderr.decode()))
 
     return stdout.decode("UTF-8")
 
