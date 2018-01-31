@@ -269,10 +269,16 @@ class WebSiteProcessor(ResProcessor):
             config.confirm()
         data_dest_uri = "file://{}".format(os.path.join(home_dir, document_root))
         data_source_uri = self.params.get("datasourceUri") or data_dest_uri
+        given_postproc_args = self.params.get("dataPostprocessorArgs") or {}
+        env = given_postproc_args.get("env") or {}
+        env["DOCUMENT_ROOT"] = document_root
+        domain_name = env.get("DOMAIN_NAME") or self.resource.domains[0].name
+        env["DOMAIN_NAME"] = domain_name.encode("idna").decode()
         postproc_args = dict(cwd=os.path.join(home_dir, document_root),
-                             hosts={self.resource.domains[0].name: self.extra_services.http_proxy.socket.http.address},
+                             hosts={env["DOMAIN_NAME"]: self.extra_services.http_proxy.socket.http.address},
                              uid=self.resource.unixAccount.uid,
-                             dataType="directory")
+                             dataType="directory",
+                             env=env)
         self._process_data(data_source_uri, data_dest_uri, postproc_args)
 
     @taskexecutor.utils.synchronized
