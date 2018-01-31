@@ -34,7 +34,11 @@ def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_stre
     if return_raw_streams:
         return proc.stdout, proc.stderr
     if pass_to_stdin:
-        stdout, stderr = proc.communicate(input=pass_to_stdin.encode("UTF-8"))
+        stdin = pass_to_stdin
+        for method in ("read", "encode"):
+            if hasattr(stdin, method):
+                stdin = getattr(stdin, method)()
+        stdout, stderr = proc.communicate(input=stdin)
     else:
         stdout, stderr = proc.communicate()
     ret_code = proc.returncode

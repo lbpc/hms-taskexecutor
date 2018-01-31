@@ -118,7 +118,7 @@ class ResProcessor(metaclass=abc.ABCMeta):
         datafetcher = taskexecutor.constructor.get_datafetcher(src_uri, dst_uri, self.params.get("dataSourceParams"))
         datafetcher.fetch()
         data_postprocessor_type = self.params.get("dataPostprocessorType")
-        data_postprocessor_args = self.params.get("dataPostprocessorArgs")
+        data_postprocessor_args = self.params.get("dataPostprocessorArgs") or {}
         if data_postprocessor_type:
             data_postprocessor_args.update(extra_postproc_args)
             postprocessor = taskexecutor.constructor.get_datapostprocessor(data_postprocessor_type,
@@ -163,18 +163,19 @@ class UnixAccountProcessor(ResProcessor):
             self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                 self.resource.uid, self.resource.homeDir)
         data_dest_uri = "file://{}".format(self.resource.homeDir)
-        data_source_uri = self.params.get("dataSourceUri") or data_dest_uri
+        data_source_uri = self.params.get("datasourceUri") or data_dest_uri
         self._process_data(data_source_uri, data_dest_uri)
 
     @taskexecutor.utils.synchronized
     def update(self):
         if self.op_resource:
+            switched_on = self.resource.switchedOn and not self.params.get("forceSwitchOff")
             LOGGER.info("Modifying user {0.name}".format(self.resource))
             if self.resource.uid != self.op_resource.uid:
                 LOGGER.warning("UnixAccount {0} has wrong UID {1}, "
                                "expected: {2}".format(self.resource.name, self.op_resource.uid, self.resource.uid))
             self.service.set_shell(self.resource.name,
-                                   {True: self.service.default_shell, False: None}[self.resource.switchedOn])
+                                   {True: self.service.default_shell, False: None}[switched_on])
             if self.resource.sendmailAllowed:
                 self.service.enable_sendmail(self.resource.uid)
             else:
@@ -189,7 +190,7 @@ class UnixAccountProcessor(ResProcessor):
                 LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
                 self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                     self.resource.uid, self.resource.homeDir)
-            if len(self.resource.crontab) > 0 and self.resource.switchedOn:
+            if len(self.resource.crontab) > 0 and switched_on:
                 self.service.create_crontab(self.resource.name,
                                             [task for task in self.resource.crontab if task.switchedOn])
             else:
@@ -200,6 +201,9 @@ class UnixAccountProcessor(ResProcessor):
                                                          "writable={0.writable})".format(self.resource))
             if not self.resource.infected:
                 taskexecutor.watchdog.ProcessWatchdog.get_uids_queue().put(-self.resource.uid)
+            data_dest_uri = "file://{}".format(self.resource.homeDir)
+            data_source_uri = self.params.get("datasourceUri") or data_dest_uri
+            self._process_data(data_source_uri, data_dest_uri)
         else:
             LOGGER.warning("UnixAccount {0} not found, creating".format(self.resource.name))
             self.create()
@@ -263,11 +267,12 @@ class WebSiteProcessor(ResProcessor):
                     config.revert()
                     raise
             config.confirm()
-        data_dest_uri = "file://{}".format(document_root)
-        data_source_uri = self.params.get("dataSourceUri") or data_dest_uri
+        data_dest_uri = "file://{}".format(os.path.join(home_dir, document_root))
+        data_source_uri = self.params.get("datasourceUri") or data_dest_uri
         postproc_args = dict(cwd=os.path.join(home_dir, document_root),
                              hosts={self.resource.domains[0].name: self.extra_services.http_proxy.socket.http.address},
-                             uid=self.resource.unixAccount.uid)
+                             uid=self.resource.unixAccount.uid,
+                             dataType="directory")
         self._process_data(data_source_uri, data_dest_uri, postproc_args)
 
     @taskexecutor.utils.synchronized
@@ -355,7 +360,7 @@ class DatabaseUserProcessor(ResProcessor):
             self.update()
 
     def update(self):
-        if not self.resource.switchedOn:
+        if not self.resource.switchedOn or self.params.get("forceSwitchOff"):
             LOGGER.info("User {0} is switched off, deleting".format(self.resource.name))
             self.delete()
             return
@@ -397,8 +402,10 @@ class DatabaseProcessor(ResProcessor):
                                                                               self.resource.name))
             self.update()
         data_dest_uri = "mysql://{}/{}".format(CONFIG.hostname, self.resource.name)
-        data_source_uri = self.params.get("dataSourceUri") or data_dest_uri
-        self._process_data(data_source_uri, data_dest_uri)
+        data_source_uri = self.params.get("datasourceUri") or data_dest_uri
+        self._process_data(data_source_uri, data_dest_uri, dict(name=self.resource.name,
+                                                                dataType="database",
+                                                                dbServer=self.service))
 
     def update(self):
         database_users = self.resource.databaseUsers
@@ -448,6 +455,9 @@ class DatabaseProcessor(ResProcessor):
                                 "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
                     addrs_set = set(self.service.normalize_addrs(user.allowedIPAddresses))
                     self.service.deny_database_access(self.resource.name, user.name, list(addrs_set))
+            data_dest_uri = "mysql://{}/{}".format(CONFIG.hostname, self.resource.name)
+            data_source_uri = self.params.get("datasourceUri") or data_dest_uri
+            self._process_data(data_source_uri, data_dest_uri)
         else:
             LOGGER.warning("{0} database {1} not found, creating".format(self.service.__class__.__name__,
                                                                          self.resource.name))

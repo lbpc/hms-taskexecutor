@@ -113,8 +113,8 @@ class RsyncDataFetcher(DataFetcher):
     def fetch(self):
         dst_path = urllib.parse.urlparse(self.dst_uri).path
         LOGGER.info("Syncing files between {} and {}".format(self.src_uri, dst_path))
-        cmd = "rsync {} -av {} {}".format("".join(map(lambda p: "--exclude {} ".format(p), self.exclude_patterns)),
-                                          self.src_uri, dst_path)
+        cmd = "rsync {} -av {}/ {}".format("".join(map(lambda p: "--exclude {} ".format(p), self.exclude_patterns)),
+                                           self.src_uri, dst_path)
         taskexecutor.utils.exec_command(cmd)
 
 
