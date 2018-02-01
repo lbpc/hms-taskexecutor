@@ -115,7 +115,6 @@ class UnixAccountCollector(ResCollector):
         self._clamd = clamd.ClamdNetworkSocket(CONFIG.clamd.host, CONFIG.clamd.port)
 
     def get_property(self, property_name, cache_ttl=0):
-        LOGGER.debug("Acceptable cache TTL: {}s".format(cache_ttl))
         key = self.get_cache_key(property_name, self.resource.uid)
         cached, expired = self.check_cache(key, cache_ttl)
         if cached and not expired:
@@ -262,7 +261,7 @@ class DatabaseCollector(ResCollector):
                 for user_name, password_hash, addrs in users:
                     OpDatabaseUser = collections.namedtuple("OpDatabaseUser", "name passwordHash allowedIPAddresses")
                     db_user = next((user for user in self.resource.databaseUsers if user.name == user_name),
-                                   OpDatabaseUser(name, password_hash, addrs))
+                                   OpDatabaseUser(user_name, password_hash, addrs))
                     collected_db_user = DatabaseUserCollector(db_user, self.service).get()
                     if collected_db_user:
                         db_users.append(collected_db_user)
