@@ -359,7 +359,11 @@ class MaildirManager:
             LOGGER.warning("{} does not exist".format(path))
 
     def create_maildirsize_file(self, spool, dir, size, owner_uid):
-        path = os.path.join(self.get_maildir_path(spool, dir), "maildirsize")
+        maildir_path = self.get_maildir_path(spool, dir)
+        if not os.path.exists(maildir_path):
+            LOGGER.warning("{} does not exist, creating".format(maildir_path))
+            self.create_maildir(spool, dir, owner_uid)
+        path = os.path.join(maildir_path, "maildirsize")
         if os.path.exists(path):
             LOGGER.info("Removing old {}".format(path))
             os.unlink(path)
@@ -375,7 +379,7 @@ class MaildirManager:
         if os.path.exists(maildirsize_file):
             with open(maildirsize_file, "r") as f:
                 f.readline()
-                return sum([int(l.split()[0]) for l in f.readlines()])
+                return sum([int(l.split()[0]) for l in f.readlines() if l])
         return 0
 
     def get_real_maildir_size(self, spool, dir):
