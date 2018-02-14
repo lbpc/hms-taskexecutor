@@ -109,6 +109,7 @@ class Executor:
     def __init__(self):
         self._stopping = False
         self._command_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.command)
+        self._long_command_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.command // 2)
         self._query_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.query)
         self._future_to_task_map = dict()
 
@@ -137,7 +138,8 @@ class Executor:
 
     def select_pool(self, task):
         return {True: self._query_task_pool,
-                task.action in ("create", "update", "delete"): self._command_task_pool}[True]
+                task.action in ("create", "update", "delete"): self._command_task_pool,
+                "oldServerName" in task.params.keys(): self._long_command_task_pool}[True]
 
     def select_reporter(self, task):
         if task.origin.__name__ == "AMQPListener" and task.action in ("create", "update", "delete"):
@@ -180,6 +182,7 @@ class Executor:
         sequence = list()
         for req_r_type, req_resource in res_builder.get_required_resources(resource):
             req_r_params = {"required_for": (res_type, resource)}
+            req_r_params.update(params.get("paramsForRequiredResources", {}))
             sequence.extend(self.build_processing_sequence(req_r_type, req_resource, "update", req_r_params))
         processor = taskexecutor.constructor.get_resprocessor(res_type, resource, params)
         sequence.append((processor, getattr(processor, action)))
@@ -187,6 +190,7 @@ class Executor:
         for aff_r_type, aff_resource in [(t, r) for t, r in res_builder.get_affected_resources(resource)
                                          if r.id != causer_resource.id]:
             aff_r_params = {"caused_by": (res_type, resource)}
+            aff_r_params.update(params.get("paramsForAffectedResources", {}))
             processor = taskexecutor.constructor.get_resprocessor(aff_r_type, aff_resource, params=aff_r_params)
             sequence.append((processor, getattr(processor, "update")))
         sequence_mapping = collections.OrderedDict()
@@ -228,6 +232,8 @@ class Executor:
             for processor, method in sequence:
                 LOGGER.info("Calling {0} {1}".format(method, processor))
                 method()
+                if processor.extra_services and hasattr(processor.extra_services, "http_proxy"):
+                    task.params["httpProxyIp"] = processor.extra_services.http_proxy.socket.http.address
         else:
             collector = taskexecutor.constructor.get_rescollector(task.res_type, task.params["resource"])
             task.params["data"] = dict()
@@ -264,6 +270,8 @@ class Executor:
                 task.state = taskexecutor.task.PROCESSING
                 future = pool.submit(self.process_task, task)
                 self._future_to_task_map[future] = task
+                LOGGER.debug("task processing submitted to pool, max workers: {0}, "
+                             "current queue size: {1}".format(pool._max_workers, pool._work_queue.qsize()))
             except queue.Empty:
                 future_to_task_map = copy.copy(self._future_to_task_map)
                 for future, task in future_to_task_map.items():
@@ -279,6 +287,7 @@ class Executor:
                         del self._future_to_task_map[future]
                 del future_to_task_map
         self._command_task_pool.shutdown()
+        self._long_command_task_pool.shutdown()
         self._query_task_pool.shutdown()
 
     def stop(self):

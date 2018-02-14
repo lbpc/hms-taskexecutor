@@ -146,7 +146,7 @@ class LinuxUserManager(UnixAccountManager):
         ssh_dir = os.path.join(home_dir, ".ssh")
         authorized_keys_path = os.path.join(ssh_dir, "authorized_keys")
         if not os.path.exists(ssh_dir):
-            os.mkdir(ssh_dir, mode=0o700)
+            os.makedirs(ssh_dir, mode=0o700, exist_ok=True)
             os.chown(ssh_dir, uid, uid)
         authorized_keys = taskexecutor.constructor.get_conffile("basic",
                                                                 authorized_keys_path, owner_uid=uid, mode=0o400)
