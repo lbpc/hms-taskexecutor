@@ -40,6 +40,11 @@ class AMQPReporter(Reporter):
         self._exchange = None
         self._routing_key = None
         self._task = None
+        self.next_te = None
+
+    @property
+    def _report_to_next_te(self):
+        return self.next_te and self._task.res_type == "website"
 
     def _connnect(self):
         return pika.BlockingConnection(pika.URLParameters(self._url))
@@ -56,30 +61,45 @@ class AMQPReporter(Reporter):
                                        auto_delete=False,
                                        durable=bool(CONFIG.amqp._asdict().get("exchange_durability")))
 
-    def _publish_message(self, message):
+    def _publish_message(self, message, provider="te"):
         self._channel.basic_publish(exchange=self._exchange,
                                     routing_key=self._routing_key,
-                                    properties=pika.BasicProperties(headers={"provider": "te"}),
+                                    properties=pika.BasicProperties(headers={"provider": provider}),
                                     body=message)
 
     def create_report(self, task):
         self._task = task
+        params = task.params
+        if params.get("success"):
+            del params["success"]
         self._report["operationIdentity"] = task.opid
         self._report["actionIdentity"] = task.actid
-        self._report["objRef"] = task.params["objRef"]
+        self._report["objRef"] = params["objRef"]
+        self.next_te = params.pop("oldServerName", None)
         self._report["params"] = {"success": bool(task.state ^ taskexecutor.task.FAILED)}
+        LOGGER.debug("Report to next TE: {}".format(self._report_to_next_te))
+        if self._report_to_next_te:
+            for k in ("resource", "dataPostprocessorType", "dataPostprocessorArgs"):
+                if k in params.keys():
+                    del params[k]
+            params["paramsForRequiredResources"] = {"forceSwitchOff": True}
+            if "httpProxyIp" in params.keys():
+                params["newHttpProxyIp"] = params["httpProxyIp"]
+            self._report["params"] = params
         return self._report
 
     def send_report(self):
         self._exchange = "{0}.{1}".format(self._task.res_type,
                                           self._task.action)
-        self._routing_key = self._task.params["provider"].replace("-", ".")
-        LOGGER.info("Publishing to {0} exchange with "
-                    "{1} routing key".format(self._exchange, self._routing_key))
+        self._routing_key = self._task.params["provider"].replace("-", ".") if not self._report_to_next_te \
+            else "te.{}".format(self.next_te)
+        provider = self._task.params["provider"] if self._report_to_next_te else "te"
+        LOGGER.info("Publishing to {0} exchange with {1} routing key, headers: provider={2}, "
+                    "payload: {3}".format(self._exchange, self._routing_key, provider, self._report))
         self._connection = self._connnect()
         self._channel = self._open_channel()
         self._declare_exchange(self._exchange, CONFIG.amqp.exchange_type)
-        self._publish_message(json.dumps(self._report))
+        self._publish_message(json.dumps(self._report), provider=provider)
         self._close_channel()
 
 

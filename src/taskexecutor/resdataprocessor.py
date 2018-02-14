@@ -4,6 +4,7 @@ import os
 import shutil
 
 from taskexecutor.config import CONFIG
+from taskexecutor.logger import LOGGER
 import taskexecutor.utils
 import taskexecutor.baseservice
 
@@ -45,6 +46,8 @@ class DockerDataPostprocessor(DataPostprocessor):
         docker_client = docker.from_env()
         docker_client.login(**CONFIG.docker_registry._asdict())
         docker_client.images.pull(image)
+        LOGGER.info("Runnig Docker container from {} with dns=127.0.0.1, net=host, "
+                    "volumes={} user={}, env={} hosts={}".format(image, volumes, user, env, hosts))
         docker_client.containers.run(image, remove=True, dns=["127.0.0.1"], network_mode="host",
                                      volumes=volumes, user=user, environment=env, extra_hosts=hosts)
 
@@ -72,6 +75,8 @@ class StringReplaceDataProcessor(DataPostprocessor):
         replace_string = self.args.get("replaceString")
         find_expr = "( {} )".format(" -or ".join(["-name {}".format(g)
                                                   for g in file_globs])).translate(str.maketrans(self.shell_escape_map))
+        LOGGER.info("Replacing '{}' pattern by '{}' "
+                    "in {} files from {}".format(search_pattern, replace_string, file_globs, cwd))
         cmd = ("find -O3 {0} {1} -type f "
                "-exec grep -q -e'{2}' {{}} \; -and "
                "-exec sed -i 's/{2}/{3}/g' {{}} \;").format(cwd, find_expr, search_pattern, replace_string)
@@ -87,6 +92,7 @@ class DataEraser(DataPostprocessor):
         path = self.args.get("path") or self.args.get("cwd")
         if not path:
             raise PostprocessorArgumentError("No directory path was specified")
+        LOGGER.info("Removing all files from {}".format(path))
         uid = os.stat(path).st_uid
         shutil.rmtree(path)
         os.mkdir(path)
@@ -101,6 +107,7 @@ class DataEraser(DataPostprocessor):
             raise PostprocessorArgumentError("No database server was specified")
         if not isinstance(db_server, taskexecutor.baseservice.DatabaseServer):
             raise PostprocessorArgumentError("{} is not a database server".format(db_server))
+        LOGGER.info("Dropping all data from {} database".format(name))
         db_server.drop_database(name)
         db_server.create_database(name)
 
