@@ -463,7 +463,9 @@ class DatabaseProcessor(ResProcessor):
                     self.service.deny_database_access(self.resource.name, user.name, list(addrs_set))
             data_dest_uri = "mysql://{}/{}".format(CONFIG.hostname, self.resource.name)
             data_source_uri = self.params.get("datasourceUri") or data_dest_uri
-            self._process_data(data_source_uri, data_dest_uri)
+            self._process_data(data_source_uri, data_dest_uri, dict(name=self.resource.name,
+                                                                    dataType="database",
+                                                                    dbServer=self.service))
         else:
             LOGGER.warning("{0} database {1} not found, creating".format(self.service.__class__.__name__,
                                                                          self.resource.name))
