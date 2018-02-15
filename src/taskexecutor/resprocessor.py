@@ -250,7 +250,8 @@ class WebSiteProcessor(ResProcessor):
         vhosts_list = self._build_vhost_obj_list()
         home_dir = os.path.normpath(str(self.resource.unixAccount.homeDir))
         document_root = os.path.normpath(str(self.resource.documentRoot))
-        for directory in (os.path.join(home_dir, "logs"), os.path.join(home_dir, document_root)):
+        document_root_abs = os.path.join(home_dir, document_root)
+        for directory in (os.path.join(home_dir, "logs"), document_root_abs):
             os.makedirs(directory, mode=0o755, exist_ok=True)
         for directory in ["/".join(document_root.split("/")[0:i + 1]) for i, d in enumerate(document_root.split("/"))]:
             os.chown(os.path.join(home_dir, directory), self.resource.unixAccount.uid, self.resource.unixAccount.uid)
@@ -267,14 +268,14 @@ class WebSiteProcessor(ResProcessor):
                     config.revert()
                     raise
             config.confirm()
-        data_dest_uri = "file://{}".format(os.path.join(home_dir, document_root))
+        data_dest_uri = "file://{}".format(document_root_abs)
         data_source_uri = self.params.get("datasourceUri") or data_dest_uri
         given_postproc_args = self.params.get("dataPostprocessorArgs") or {}
         env = given_postproc_args.get("env") or {}
-        env["DOCUMENT_ROOT"] = document_root
+        env["DOCUMENT_ROOT"] = document_root_abs
         domain_name = env.get("DOMAIN_NAME") or self.resource.domains[0].name
         env["DOMAIN_NAME"] = domain_name.encode("idna").decode()
-        postproc_args = dict(cwd=os.path.join(home_dir, document_root),
+        postproc_args = dict(cwd=document_root_abs,
                              hosts={env["DOMAIN_NAME"]: self.extra_services.http_proxy.socket.http.address},
                              uid=self.resource.unixAccount.uid,
                              dataType="directory",
