@@ -273,8 +273,9 @@ class WebSiteProcessor(ResProcessor):
         given_postproc_args = self.params.get("dataPostprocessorArgs") or {}
         env = given_postproc_args.get("env") or {}
         env["DOCUMENT_ROOT"] = document_root_abs
-        domain_name = env.get("DOMAIN_NAME") or self.resource.domains[0].name
-        env["DOMAIN_NAME"] = domain_name.encode("idna").decode()
+        domain = next((d for d in self.resource.domains if d.name == env.get("DOMAIN_NAME")), self.resource.domains[0])
+        env["DOMAIN_NAME"] = domain.name.encode("idna").decode()
+        env["PROTOCOL"] = "https" if domain.sslCertificate else "http"
         postproc_args = dict(cwd=document_root_abs,
                              hosts={env["DOMAIN_NAME"]: self.extra_services.http_proxy.socket.http.address},
                              uid=self.resource.unixAccount.uid,
