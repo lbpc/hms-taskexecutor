@@ -564,6 +564,48 @@ class ResourceArchiveProcessor(ResProcessor):
         self._archive_storage.delete(self._archive_filename)
 
 
+class RedirectProcessor(ResProcessor):
+    @property
+    def _without_reload(self):
+        return self.params.get("required_for", [None])[0] == "service"
+
+    @taskexecutor.utils.synchronized
+    def create(self):
+        res_dict = self.resource._asdict
+        res_dict['domains'] = [res_dict.domain]
+        del res_dict['domain']
+        vhost = collections.namedtuple("VHost", res_dict.keys())(*res_dict.values())
+        config = self.service.get_website_config(self.resource.id)
+        config.render_template(service=self.service, vhosts=[vhost], params=self.params)
+        config.write()
+        if self.resource.switchedOn and not config.is_enabled:
+            config.enable()
+            if not self._without_reload:
+                try:
+                    self.service.reload()
+                except:
+                    config.revert()
+                    raise
+        config.confirm()
+
+    def update(self):
+        if self.resource.switchedOn:
+            self.create()
+        else:
+            self.delete()
+
+    @taskexecutor.utils.synchronized
+    def delete(self):
+        config = self.service.get_website_config(self.resource.id)
+        if not os.path.exists(config.file_path):
+            LOGGER.warning("{} does not exist".format(config.file_path))
+            return
+        if config.is_enabled:
+            config.disable()
+        config.delete()
+        self.service.reload()
+
+
 class Builder:
     def __new__(cls, res_type):
         ResProcessorClass = {"service": ServiceProcessor,
@@ -573,7 +615,8 @@ class Builder:
                              "website": WebSiteProcessor if sys.platform != "freebsd9" else WebSiteProcessorFreeBsd,
                              "ssl-certificate": SslCertificateProcessor,
                              "mailbox": MailboxProcessor,
-                             "resource-archive": ResourceArchiveProcessor}.get(res_type)
+                             "resource-archive": ResourceArchiveProcessor,
+                             "redirect": RedirectProcessor}.get(res_type)
         if not ResProcessorClass:
             raise BuilderTypeError("Unknown resource type: {}".format(res_type))
         return ResProcessorClass
