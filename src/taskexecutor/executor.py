@@ -66,6 +66,9 @@ class ResourceBuilder:
                 required_resources.append(("unix-account", resource.unixAccount))
                 required_resources.extend([("ssl-certificate", d.sslCertificate) for d in
                                            resource.domains if d.sslCertificate])
+            elif self._res_type == "redirect" and resource.domain.sslCertificate:
+                LOGGER.debug("redirect depends on ssl-certificate")
+                required_resources.append(("ssl-certificate", resource.domain.sslCertificate))
             elif self._res_type == "service":
                 req_r_type, service_name = [w.lower() for w in resource.serviceTemplate.serviceType.name.split("_")][:2]
                 if service_name == "nginx":
@@ -89,11 +92,14 @@ class ResourceBuilder:
                     affected_resources.extend([("database", db) for db in
                                                api.Database().filter(databaseUserId=resource.id).get()])
                 elif self._res_type == "ssl-certificate":
-                    LOGGER.debug("ssl-certificate affects website")
+                    LOGGER.debug("ssl-certificate affects website and redirect")
                     domain = api.Domain().find(sslCertificateId=resource.id).get()
                     website = api.Website().find(domainId=domain.id).get()
+                    redirect = api.Redirect().find(domainId=domain.id).get()
                     if website:
                         affected_resources.append(("website", website))
+                    if redirect:
+                        affected_resources.append(("redirect", redirect))
                 elif self._res_type == "service" and resource.serviceTemplate.serviceType.name.startswith("WEBSITE_"):
                     nginx = next((s for s in CONFIG.localserver.services
                                   if s.serviceTemplate.serviceType.name == "STAFF_NGINX"), None)
