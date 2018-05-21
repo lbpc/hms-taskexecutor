@@ -571,8 +571,8 @@ class RedirectProcessor(ResProcessor):
 
     @taskexecutor.utils.synchronized
     def create(self):
-        res_dict = self.resource._asdict
-        res_dict['domains'] = [res_dict.domain]
+        res_dict = self.resource._asdict()
+        res_dict['domains'] = [res_dict.get('domain')]
         del res_dict['domain']
         vhost = collections.namedtuple("VHost", res_dict.keys())(*res_dict.values())
         config = self.service.get_website_config(self.resource.id)
