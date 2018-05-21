@@ -319,7 +319,8 @@ class Builder:
                              "website": WebsiteCollector,
                              "ssl-certificate": SslCertificateCollector,
                              "service": ServiceCollector,
-                             "resource-archive": ResourceArchiveCollector}.get(res_type)
+                             "resource-archive": ResourceArchiveCollector,
+                             "redirect": RedirectCollector}.get(res_type)
         if not ResCollectorClass:
             raise BuilderTypeError("Unknown resource type: {}".format(res_type))
         return ResCollectorClass
