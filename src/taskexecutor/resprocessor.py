@@ -580,12 +580,12 @@ class RedirectProcessor(ResProcessor):
         config.write()
         if self.resource.switchedOn and not config.is_enabled:
             config.enable()
-            if not self._without_reload:
-                try:
-                    self.service.reload()
-                except:
-                    config.revert()
-                    raise
+        if not self._without_reload:
+            try:
+                self.service.reload()
+            except:
+                config.revert()
+                raise
         config.confirm()
 
     def update(self):
