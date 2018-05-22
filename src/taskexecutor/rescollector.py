@@ -284,13 +284,13 @@ class WebsiteCollector(ResCollector):
 class RedirectCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
         if property_name == "serviceId":
-            service = next((taskexecutor.constructor.get_opservice(local_service)
-                            for local_service in CONFIG.localserver.services
-                            if local_service.serviceTemplate.serviceType.name == "STAFF_NGINX"), None)
-            if service:
-                config = service.get_website_config(self.resource.id)
-                if config.exists:
-                    return service.id
+            LOGGER.info("service = {}".format(CONFIG.localserver.services))
+            for service in CONFIG.localserver.services:
+                if service.serviceTemplate.serviceType.name == "STAFF_NGINX":
+                    app_server = taskexecutor.constructor.get_opservice(service)
+                    config = app_server.get_website_config(self.resource.id)
+                    if config.exists:
+                        return service.id
             return
 
 
