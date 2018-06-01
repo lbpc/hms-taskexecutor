@@ -407,10 +407,9 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         )[0][0])
 
     def get_all_databases_size(self):
+        stdout = taskexecutor.utils.exec_command('cd /mysql/DB/ && find . -type d -printf "%f\n" | xargs -n1  du -sb')
         return dict(
-                ((db, int(size)) for db, size in
-                 self.dbclient.execute_query("SELECT table_schema, SUM(data_length+index_length) "
-                                             "FROM information_schema.tables GROUP BY table_schema", ()))
+            line.split('\t')[::-1] for line in stdout[0:-1].split('\n')
         )
 
     def get_archive_stream(self, source, params={}):
