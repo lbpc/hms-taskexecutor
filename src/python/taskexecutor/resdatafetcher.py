@@ -104,7 +104,7 @@ class FileDataFetcher(DataFetcher):
 class RsyncDataFetcher(DataFetcher):
     def __init__(self, src_uri, dst_uri, params):
         super().__init__(src_uri, dst_uri, params)
-        self.exclude_patterns = params.get("excludePatterns")
+        self.exclude_patterns = params.get("excludePatterns", [])
 
     @property
     def supported_dst_uri_schemes(self):

@@ -1,5 +1,4 @@
 import os
-import pytransliter
 import sys
 import abc
 import collections
@@ -322,7 +321,6 @@ class WebSiteProcessorFreeBsd(WebSiteProcessor):
     def __init__(self, resource, service, params):
         super().__init__(resource, service, params)
         res_dict = self.resource._asdict()
-        res_dict["documentRoot"] = pytransliter.translit(res_dict["documentRoot"], "ru")
         self.resource = collections.namedtuple("ApiObject", res_dict.keys())(*res_dict.values())
 
 
