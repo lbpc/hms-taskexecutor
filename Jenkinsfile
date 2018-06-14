@@ -14,7 +14,7 @@
                     }
                 }  
                 steps {
-                    pants binary src/python/te
+                    pants --version
                 }
             }
         }
