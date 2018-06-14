@@ -11,6 +11,7 @@ RUN  apt-get update && \
      pip3 install pylint && \
      mkdir /app && \
      /bin/pants -V && \
+     useradd --uid 1000 --comment 'Jenkins' jenkins && \
      apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /tmp/* /usr/share/doc/* /usr/share/man/* 
      
 
