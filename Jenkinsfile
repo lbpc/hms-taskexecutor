@@ -18,8 +18,8 @@
                     sh 'which pylint'
                     sh 'pwd'
                     sh 'tree'
-                    sh 'whoami'
                     sh 'ls -la'
+                    sh 'whoami'
                     sh 'pants binary src/python/te'
                 }
             }
