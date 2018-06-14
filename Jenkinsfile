@@ -14,7 +14,10 @@
                     }
                 }  
                 steps {
-                    sh '/bin/pants --version'
+                    sh 'which pants'
+                    sh 'which pylint'
+                    sh 'pwd'
+                    sh 'tree'
                 }
             }
         }
