@@ -18,6 +18,7 @@
                     sh 'which pylint'
                     sh 'pwd'
                     sh 'tree'
+                    sh 'pants binary src/python/te'
                 }
             }
         }
