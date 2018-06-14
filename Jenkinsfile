@@ -21,7 +21,8 @@
                     sh 'tree'
                     sh 'ls -la'
                     sh 'whoami'
-                    sh 'pants binary src/python/te'
+                    sh 'cp -pr /bin/pants . '
+                    sh './pants binary src/python/te'
                 }
             }
         }
