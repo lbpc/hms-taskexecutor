@@ -19,6 +19,7 @@
                     sh 'pwd'
                     sh 'tree'
                     sh 'pants binary src/python/te'
+                    sh 'whoami'
                 }
             }
         }
