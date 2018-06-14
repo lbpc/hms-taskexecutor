@@ -11,7 +11,8 @@ RUN  apt-get update && \
      pip3 install pylint && \
      mkdir /app && \
      /bin/pants -V && \
-     useradd --uid 1000 --comment 'Jenkins' jenkins && \
+     useradd --uid 1000 --home /home/jenkins --create-home --comment 'Jenkins' jenkins && \
+     mkdir -p /home/jenkins/.cache && chown -R jenkins:jenkins /home/jenkins/.cache && \
      apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /tmp/* /usr/share/doc/* /usr/share/man/* 
      
 
