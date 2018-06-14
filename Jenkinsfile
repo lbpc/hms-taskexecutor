@@ -14,7 +14,7 @@
                     }
                 }  
                 steps {
-                    pants --version
+                    sh '/bin/pants --version'
                 }
             }
         }
