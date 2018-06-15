@@ -2,7 +2,7 @@
     pipeline {
         agent {
             dockerfile {
-            filename 'docker/Dockerfile
+            filename 'docker/Dockerfile'
             args  '-v /var/lib/jenkins-docker/.cache:/home/jenkins/.cache'
             }
         }
