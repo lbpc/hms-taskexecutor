@@ -30,7 +30,7 @@
                 when { branch 'pants-docker' } // change to master
                 steps {
                     gitlabCommitStatus(STAGE_NAME) {
-                        filesDeploy srcPath: "dist/te.pex", dstPath: "/home/jenkins/", nodeLabel: "web"
+                        filesDeploy srcPath: "dist/*", dstPath: "/home/jenkins/", nodeLabel: "web"
                     }
                 }
                 post {
