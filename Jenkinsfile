@@ -29,7 +29,7 @@
             stage('Deploy te on webs') {
                 when { branch 'pants-docker' } // change to master
                 steps {
-                    sh 'tree'
+                    sh 'ls -la '
                     gitlabCommitStatus(STAGE_NAME) {
                         filesDeploy srcPath: "dist/*", dstPath: "/home/jenkins/", nodeLabel: "web"
                     }
