@@ -6,7 +6,7 @@ import threading
 
 from taskexecutor.config import CONFIG
 from taskexecutor.httpsclient import ApiClient
-  from taskexecutor import watchdog
+from taskexecutor import watchdog
 from taskexecutor import constructor
 from taskexecutor.executor import Executor
 from taskexecutor.task import Task
