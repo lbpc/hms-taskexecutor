@@ -33,7 +33,7 @@
                     sh 'ls -la '
                     sh 'pwd '
                     gitlabCommitStatus(STAGE_NAME) {
-                        filesDeploy srcPath: "dist/*", dstPath: "/home/jenkins/", nodeLabel: "web"
+                        filesDeploy srcPath: "dist/", dstPath: "/home/jenkins/", nodeLabel: "web"
                     }
                 }
                 post {
