@@ -15,6 +15,7 @@
                     }
                 }  
                 steps {
+                    sh 'echo ${WORKSPACE} '
                     sh 'which pants'
                     sh 'which pylint'
                     sh 'pwd'
@@ -29,6 +30,7 @@
             stage('Deploy te on webs') {
                 when { branch 'pants-docker' } // change to master
                 steps {
+                    sh 'echo ${WORKSPACE} '
                     sh 'ls -la '
                     sh 'pwd '
                     gitlabCommitStatus(STAGE_NAME) {
