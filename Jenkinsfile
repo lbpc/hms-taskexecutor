@@ -26,5 +26,18 @@
                     sh './pants binary src/python/te'
                 }
             }
+            stage('Deploy te on webs') {
+                when { branch 'master' }
+                steps {
+                    gitlabCommitStatus(STAGE_NAME) {
+                        filesDeploy srcPath: "dist/te.pex" dstPath: "/home/jenkins/" nodeLabel: "web"
+                    }
+                }
+                post {
+                    success {
+                        notifySlack "Taskexecutor deployed to webs"
+                    }
+                }
+            }
         }
     }
