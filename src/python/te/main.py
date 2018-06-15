@@ -15,7 +15,7 @@ from taskexecutor import logger
 sys.stderr = logger.StreamToLogger(logger.LOGGER, logging.ERROR)
 STOP = False
 
-
+"""Taskexecutor MJ inc"""
 def receive_signal(signum, unused_stack):
     if signum == signal.SIGINT:
         logger.LOGGER.info("SIGINT recieved")
