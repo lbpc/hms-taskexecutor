@@ -1,5 +1,5 @@
 import os
-   import socket
+import socket
 import logging
 
 import taskexecutor.httpsclient
