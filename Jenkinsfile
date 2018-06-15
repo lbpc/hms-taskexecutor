@@ -23,6 +23,7 @@
                     sh 'whoami'
                     sh 'cp -pr /bin/pants . '
                     sh './pants binary src/python/te'
+                    sh 'pylint src/python/te/main.py'
                 }
             }
         }
