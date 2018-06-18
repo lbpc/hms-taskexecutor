@@ -3,18 +3,19 @@
 def jenkinsHomeOnHost = new JenkinsContainer().getHostPath(env.JENKINS_HOME)
 
 pipeline {
-    agent {
-        dockerfile {
-        filename 'Dockerfile.build'
-        args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache"
-        }
-    }
+    agent { label 'master' }
     options {
         gitLabConnection(Constants.gitLabConnection)
         gitlabBuilds(builds: ['Code analysis', 'Build Python binary'])
     }
     stages {
         stage('Code analysis') {
+            agent {
+                dockerfile {
+                   filename 'Dockerfile.build'
+                    args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache"
+                }
+            }
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
                     sh 'pylint -E --disable=C0111,E1101 src/python/te/main.py'
@@ -22,6 +23,12 @@ pipeline {
             }
         }
         stage('Build Python binary') {
+            agent {
+                dockerfile {
+                    filename 'Dockerfile.build'
+                    args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache"
+                }
+            }
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
                     sh 'cp -pr /bin/pants . '
@@ -31,6 +38,12 @@ pipeline {
         }
         stage('Deploy') {
             when { branch 'master' }
+            agent {
+                dockerfile {
+                    filename 'Dockerfile.build'
+                    args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache"
+                }
+            }
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
                     filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web', 'pop']
@@ -44,7 +57,6 @@ pipeline {
         }
         stage('Post-deploy') {
             when { branch 'master' }
-            agent { dockerfile false }
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
                     parallelSh cmd: 'sudo restart taskexecutor', nodeLabels: ['web', 'pop']
