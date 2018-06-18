@@ -32,15 +32,23 @@ pipeline {
         }
         stage('Deploy') {
             when { branch 'master' }
-            agent { label 'master' }
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
-                    filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web', 'pop'], postDeployCmd: 'sudo restart taskexecutor'
+                    filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web', 'pop']
                 }
             }
             post {
                 success {
                     notifySlack "Taskexecutor deployed"
+                }
+            }
+        }
+        stage('Post-deploy') {
+            when { branch 'master' }
+            agent { label 'master' }
+            steps {
+                gitlabCommitStatus(STAGE_NAME) {
+                    parallelSh cmd: 'sudo restart taskexecutor', nodeLabels: ['web', 'pop']
                 }
             }
         }
