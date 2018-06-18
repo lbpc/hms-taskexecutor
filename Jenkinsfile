@@ -33,7 +33,7 @@ pipeline {
             when { branch 'pants-docker' }
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
-                    filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web', 'pop']
+                    filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web', 'pop'], postDeployCmd: 'restart taskexecutor'
                 }
             }
             post {
