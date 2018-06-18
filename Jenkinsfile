@@ -12,12 +12,13 @@ pipeline {
         gitlabBuilds(builds: ['Code analysis', 'Build Python binary', 'Deploy'])
     }
     stages {
-        stage('Code analysis')
+        stage('Code analysis') {
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
                     sh 'pylint -E --disable=C0111,E1101 src/python/te/main.py'
                 }
             }
+        }
         stage('Build Python binary') {
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
