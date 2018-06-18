@@ -1,46 +1,46 @@
 @Library('mj-shared-library') _
-    pipeline {
-        agent {
-            dockerfile {
-            filename 'docker/Dockerfile'
-            args  '-v /var/lib/jenkins-docker/.cache:/home/jenkins/.cache'
+pipeline {
+    agent {
+        dockerfile {
+        filename 'Dockerfile.build'
+        args  "-v ${new JenkinsContainer().getHostPath(HOME)}/.cache:/home/jenkins/.cache"
+        }
+    }
+    options {
+        gitLabConnection(Constants.gitLabConnection)
+        gitlabBuilds(builds: ['Code analysis', 'Build Python binary', 'Deploy'])
+    }
+    stages {
+        stage('Code analysis')
+            steps {
+                gitlabCommitStatus(STAGE_NAME) {
+                    sh 'pylint -E --disable=C0111,E1101 src/python/te/main.py'
+                }
             }
-        }
-        environment {
-            PROJECT_NAME = gitRemoteOrigin.getProject()
-            GROUP_NAME = gitRemoteOrigin.getGroup()
-        }
-        options { gitLabConnection(Constants.gitLabConnection) }
-        stages {
-            stage('Build pants Docker image') {
-                steps {
-                    sh 'echo ${WORKSPACE} '
-                    sh 'which pants'
-                    sh 'which pylint'
-                    sh 'pwd'
-                    sh 'tree'
-                    sh 'ls -la'
-                    sh 'whoami'
+        stage('Build Python binary') {
+            steps {
+                gitlabCommitStatus(STAGE_NAME) {
                     sh 'cp -pr /bin/pants . '
-                    sh 'pylint -E --disable=C0111,E1101 src/python/te/main.py' // Please recheck E1101 | Instance of '__Config' has no 'process_watchdog' member (no-member) |
                     sh './pants binary src/python/te'
                 }
             }
-            stage('Deploy te on webs') {
-                when { branch 'pants-docker' } // change to master
-                steps {
-                    sh 'echo ${WORKSPACE} '
-                    sh 'ls -la '
-                    sh 'pwd '
-                    gitlabCommitStatus(STAGE_NAME) {
-                        filesDeploy srcPath: "dist/", dstPath: "/home/jenkins/", nodeLabel: "web"
-                    }
+        }
+        stage('Deploy') {
+            when { branch 'pants-docker' }
+            steps {
+                gitlabCommitStatus(STAGE_NAME) {
+                    filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web']
                 }
-                post {
-                    success {
-                        notifySlack "Taskexecutor deployed to webs"
-                    }
+            }
+            post {
+                success {
+                    notifySlack "Taskexecutor deployed to webs"
                 }
             }
         }
+        post {
+            success { cleanWs() }
+            failure { notifySlack "Build failled: ${JOB_NAME} [<${RUN_DISPLAY_URL}|${BUILD_NUMBER}>]", "red" }
+        }
     }
+}
