@@ -11,7 +11,7 @@ pipeline {
     }
     options {
         gitLabConnection(Constants.gitLabConnection)
-        gitlabBuilds(builds: ['Code analysis', 'Build Python binary', 'Deploy'])
+        gitlabBuilds(builds: ['Code analysis', 'Build Python binary'])
     }
     stages {
         stage('Code analysis') {
