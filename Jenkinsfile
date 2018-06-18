@@ -1,6 +1,6 @@
 @Library('mj-shared-library') _
 
-def jenkinsHomeOnHost = new JenkinsContainer().getHostPath(HOME)
+def jenkinsHomeOnHost = new JenkinsContainer().getHostPath(env.HOME)
 
 pipeline {
     agent {
