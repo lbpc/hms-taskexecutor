@@ -1,12 +1,13 @@
 @Library('mj-shared-library') _
 
 def jenkinsHomeOnHost = new JenkinsContainer().getHostPath(env.JENKINS_HOME)
+def workspaceOnHost = new JenkinsContainer().getHostPath(env.WORKSPACE)
 
 pipeline {
     agent {
         dockerfile {
         filename 'Dockerfile.build'
-        args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache"
+        args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache -v ${workspaceOnHost}/dist:${env.WORKSPACE}/dist"
         }
     }
     options {
@@ -31,6 +32,7 @@ pipeline {
         }
         stage('Deploy') {
             when { branch 'master' }
+            agent { label 'master' }
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
                     filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web', 'pop'], postDeployCmd: 'sudo restart taskexecutor'
