@@ -1,13 +1,12 @@
 @Library('mj-shared-library') _
 
 def jenkinsHomeOnHost = new JenkinsContainer().getHostPath(env.JENKINS_HOME)
-def workspaceOnHost = new JenkinsContainer().getHostPath(env.WORKSPACE)
 
 pipeline {
     agent {
         dockerfile {
         filename 'Dockerfile.build'
-        args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache -v ${workspaceOnHost}/dist:${env.WORKSPACE}/dist"
+        args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache"
         }
     }
     options {
@@ -32,15 +31,23 @@ pipeline {
         }
         stage('Deploy') {
             when { branch 'master' }
-            agent { label 'master' }
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
-                    filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web', 'pop'], postDeployCmd: 'sudo restart taskexecutor'
+                    filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web', 'pop']
                 }
             }
             post {
                 success {
                     notifySlack "Taskexecutor deployed"
+                }
+            }
+        }
+        stage('Post-deploy') {
+            when { branch 'master' }
+            agent { label 'master' }
+            steps {
+                gitlabCommitStatus(STAGE_NAME) {
+                    parallelSh cmd: 'sudo restart taskexecutor', nodeLabels: ['web', 'pop']
                 }
             }
         }
