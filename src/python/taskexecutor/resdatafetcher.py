@@ -155,6 +155,20 @@ class MysqlDataFetcher(DataFetcher):
                 raise DataFetchingError("Failed to dump MySQL database {}, error: {}".format(self.database, error))
 
 
+class ResticDataFetcher(DataFetcher):
+    @property
+    def supported_dst_uri_schemes(self):
+        return ["file"]
+
+    def fetch(self):
+        dst_path = urllib.parse.urlparse(self.dst_uri).path
+        if urllib.parse.urlparse(self.src_uri).netloc != CONFIG.localserver.name:
+            LOGGER.info("Restoring files from {} to {}".format(self.src_uri, dst_path))
+            cmd = "rsync {} -av {}/ {}".format("".join(map(lambda p: "--exclude {} ".format(p), self.exclude_patterns)),
+                                               self.src_uri, dst_path)
+            taskexecutor.utils.exec_command(cmd)
+
+
 class Builder:
     def __new__(cls, proto):
         DataFetcherClass = {"file": FileDataFetcher,
