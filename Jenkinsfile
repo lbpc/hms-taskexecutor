@@ -33,12 +33,12 @@ pipeline {
             when { branch 'pants-docker' }
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
-                    filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web']
+                    filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web', 'pop']
                 }
             }
             post {
                 success {
-                    notifySlack "Taskexecutor deployed to webs"
+                    notifySlack "Taskexecutor deployed"
                 }
             }
         }
