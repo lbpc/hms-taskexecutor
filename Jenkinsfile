@@ -1,10 +1,12 @@
 @Library('mj-shared-library') _
 
+def jenkinsHomeOnHost = new JenkinsContainer().getHostPath(HOME)
+
 pipeline {
     agent {
         dockerfile {
         filename 'Dockerfile.build'
-        args  "-v ${new JenkinsContainer().getHostPath(HOME)}/.cache:/home/jenkins/.cache"
+        args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache"
         }
     }
     options {
