@@ -51,7 +51,7 @@ pipeline {
             }
             post {
                 success {
-                    notifySlack "Taskexecutor deployed"
+                    notifySlack 'Taskexecutor deployed'
                 }
             }
         }
@@ -60,6 +60,11 @@ pipeline {
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
                     parallelSh cmd: 'sudo restart taskexecutor', nodeLabels: ['web', 'pop']
+                }
+            }
+            post {
+                success {
+                    notifySlack 'Taskexecutor restarted'
                 }
             }
         }
