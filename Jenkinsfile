@@ -33,7 +33,7 @@ pipeline {
             when { branch 'master' }
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
-                    filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web', 'pop'], postDeployCmd: 'restart taskexecutor'
+                    filesDeploy srcPath: 'dist', dstPath: '/opt/bin', nodeLabels: ['web', 'pop'], postDeployCmd: 'sudo restart taskexecutor'
                 }
             }
             post {
