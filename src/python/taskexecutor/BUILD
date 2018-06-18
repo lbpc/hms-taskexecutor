@@ -1,0 +1,13 @@
+python_library(
+  dependencies=[
+    '3rdparty/python:pika',
+    '3rdparty/python:PyMySQL',
+    '3rdparty/python:Jinja2',
+    '3rdparty/python:schedule',
+    '3rdparty/python:clamd',
+    '3rdparty/python:psutil',
+    '3rdparty/python:pyaml',
+    '3rdparty/python:docker',
+    '3rdparty/python:pg8000'
+  ],
+)

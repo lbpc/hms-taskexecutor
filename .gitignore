@@ -1,8 +1,8 @@
 *.iml
 .idea
 __pycache__
-pinned.txt
-build
-.gradle
-*.egg-info
-activate
+pants
+dist
+.cache
+.pants.d
+.pants.workdir.file_lock

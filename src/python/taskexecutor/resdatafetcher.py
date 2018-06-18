@@ -104,7 +104,7 @@ class FileDataFetcher(DataFetcher):
 class RsyncDataFetcher(DataFetcher):
     def __init__(self, src_uri, dst_uri, params):
         super().__init__(src_uri, dst_uri, params)
-        self.exclude_patterns = params.get("excludePatterns")
+        self.exclude_patterns = params.get("excludePatterns", [])
 
     @property
     def supported_dst_uri_schemes(self):
@@ -153,6 +153,20 @@ class MysqlDataFetcher(DataFetcher):
             error = error.read().decode("UTF-8")
             if error:
                 raise DataFetchingError("Failed to dump MySQL database {}, error: {}".format(self.database, error))
+
+
+class ResticDataFetcher(DataFetcher):
+    @property
+    def supported_dst_uri_schemes(self):
+        return ["file"]
+
+    def fetch(self):
+        dst_path = urllib.parse.urlparse(self.dst_uri).path
+        if urllib.parse.urlparse(self.src_uri).netloc != CONFIG.localserver.name:
+            LOGGER.info("Restoring files from {} to {}".format(self.src_uri, dst_path))
+            cmd = "rsync {} -av {}/ {}".format("".join(map(lambda p: "--exclude {} ".format(p), self.exclude_patterns)),
+                                               self.src_uri, dst_path)
+            taskexecutor.utils.exec_command(cmd)
 
 
 class Builder:
