@@ -1,4 +1,5 @@
 @Library('mj-shared-library') _
+
 pipeline {
     agent {
         dockerfile {
