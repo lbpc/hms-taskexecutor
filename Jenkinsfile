@@ -1,13 +1,12 @@
 @Library('mj-shared-library') _
 
 def jenkinsHomeOnHost = new JenkinsContainer().getHostPath(env.JENKINS_HOME)
-def workspaceOnHost = new JenkinsContainer().getHostPath(env.WORKSPACE)
 
 pipeline {
     agent {
         dockerfile {
         filename 'Dockerfile.build'
-        args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache -v ${workspaceOnHost}/dist:${env.WORKSPACE}/dist"
+        args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache"
         }
     }
     options {
