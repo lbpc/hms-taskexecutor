@@ -44,7 +44,7 @@ pipeline {
         }
         stage('Post-deploy') {
             when { branch 'master' }
-            agent { label 'master' }
+            agent { dockerfile false }
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
                     parallelSh cmd: 'sudo restart taskexecutor', nodeLabels: ['web', 'pop']
