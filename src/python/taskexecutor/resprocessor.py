@@ -161,7 +161,7 @@ class UnixAccountProcessor(ResProcessor):
             LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
             self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                 self.resource.uid, self.resource.homeDir)
-        data_dest_uri = "file://{}".format(self.resource.homeDir)
+        data_dest_uri = self.params.get("datadestinationUri", "file://{}".format(self.resource.homeDir))
         data_source_uri = self.params.get("datasourceUri") or data_dest_uri
         self._process_data(data_source_uri, data_dest_uri)
 
@@ -200,7 +200,7 @@ class UnixAccountProcessor(ResProcessor):
                                                          "writable={0.writable})".format(self.resource))
             if not self.resource.infected:
                 taskexecutor.watchdog.ProcessWatchdog.get_uids_queue().put(-self.resource.uid)
-            data_dest_uri = "file://{}".format(self.resource.homeDir)
+            data_dest_uri = self.params.get("datadestinationUri", "file://{}".format(self.resource.homeDir))
             data_source_uri = self.params.get("datasourceUri") or data_dest_uri
             self._process_data(data_source_uri, data_dest_uri)
         else:
@@ -267,7 +267,7 @@ class WebSiteProcessor(ResProcessor):
                     config.revert()
                     raise
             config.confirm()
-        data_dest_uri = "file://{}".format(document_root_abs)
+        data_dest_uri = self.params.get("datadestinationUri", "file://{}".format(document_root_abs))
         data_source_uri = self.params.get("datasourceUri") or data_dest_uri
         given_postproc_args = self.params.get("dataPostprocessorArgs") or {}
         env = given_postproc_args.get("env") or {}
@@ -407,7 +407,8 @@ class DatabaseProcessor(ResProcessor):
             LOGGER.warning("{0} database {1} already exists, updating".format(self.service.__class__.__name__,
                                                                               self.resource.name))
             self.update()
-        data_dest_uri = "mysql://{}/{}".format(CONFIG.hostname, self.resource.name)
+        data_dest_uri = self.params.get("datadestinationUri",
+                                        "mysql://{}/{}".format(CONFIG.hostname, self.resource.name))
         data_source_uri = self.params.get("datasourceUri") or data_dest_uri
         self._process_data(data_source_uri, data_dest_uri, dict(name=self.resource.name,
                                                                 dataType="database",
@@ -461,7 +462,8 @@ class DatabaseProcessor(ResProcessor):
                                 "user {2}".format(self.service.__class__.__name__, self.resource.name, user.name))
                     addrs_set = set(self.service.normalize_addrs(user.allowedIPAddresses))
                     self.service.deny_database_access(self.resource.name, user.name, list(addrs_set))
-            data_dest_uri = "mysql://{}/{}".format(CONFIG.hostname, self.resource.name)
+            data_dest_uri = self.params.get("datadestinationUri",
+                                            "mysql://{}/{}".format(CONFIG.hostname, self.resource.name))
             data_source_uri = self.params.get("datasourceUri") or data_dest_uri
             self._process_data(data_source_uri, data_dest_uri, dict(name=self.resource.name,
                                                                     dataType="database",
