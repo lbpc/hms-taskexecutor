@@ -118,7 +118,7 @@ class RsyncDataFetcher(DataFetcher):
             args = "".join(map(lambda p: "--exclude {} ".format(p), self.exclude_patterns))
             if self.delete_extraneous:
                 args += " --delete "
-            cmd = "rsync {} -av {}/ {}".format(args, self.src_uri, dst_path)
+            cmd = "rsync {} -av {} {}".format(args, self.src_uri, dst_path)
             taskexecutor.utils.exec_command(cmd)
 
 
