@@ -557,7 +557,7 @@ class ResourceArchiveProcessor(ResProcessor):
                                           "{2}".format(self.resource.resourceType.lower(), archive_source, error))
 
     def update(self):
-        self.create()
+        pass
 
     def delete(self):
         LOGGER.info("Deleting {0} file at {1}".format(self._archive_filename, self._archive_storage.host))
