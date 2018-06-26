@@ -144,7 +144,7 @@ class MysqlDataFetcher(DataFetcher):
     def _get_dump_streams(self):
         cmd = {"mysql": "mysqldump -h{0} -P{1} -u{2} -p{3} {4}".format(self.src_host, self.src_port,
                                                                        self.user, self.password, self.src_resource),
-               "http": "curl {}".format(self.src_uri)}.get(self.src_uri_scheme, "echo")
+               "http": "curl -s {}".format(self.src_uri)}.get(self.src_uri_scheme, "echo")
         if self.src_resource.split(".")[-1] == "gz":
             cmd += " | gunzip"
         return taskexecutor.utils.exec_command(cmd, return_raw_streams=True)
