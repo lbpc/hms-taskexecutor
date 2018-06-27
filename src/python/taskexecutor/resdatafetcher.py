@@ -169,7 +169,8 @@ class Builder:
     def __new__(cls, proto):
         DataFetcherClass = {"file": FileDataFetcher,
                             "rsync": RsyncDataFetcher,
-                            "mysql": MysqlDataFetcher}.get(proto)
+                            "mysql": MysqlDataFetcher,
+                            "http": MysqlDataFetcher}.get(proto)
         if not DataFetcherClass:
             raise BuilderTypeError("Unknown data source URI scheme: {}".format(proto))
         return DataFetcherClass
