@@ -415,6 +415,13 @@ class DatabaseProcessor(ResProcessor):
                                                                 dbServer=self.service))
 
     def update(self):
+        if "dataSourceParams" in self.params.keys() and self.params["dataSourceParams"].get("deleteExtraneous", False):
+            LOGGER.info("Data cleanup requested, "
+                        "dropping {0} database {1}".format(self.service.__class__.__name__, self.resource.name))
+            self.service.drop_database(self.resource.name)
+            self.op_resource = None
+            self.create()
+            return
         database_users = self.resource.databaseUsers
         if self.params.get("delete"):
             database_users.remove(self.params["delete"])
