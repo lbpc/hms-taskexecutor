@@ -153,7 +153,11 @@ class MysqlDataFetcher(DataFetcher):
         if self.src_uri != self.dst_uri:
             data, error = self._get_dump_streams()
             if urllib.parse.urlparse(self.dst_uri).scheme == "mysql":
-                cmd = "mysql -h{0} -P{1} -u{2} -p{3} {4}".format(self.dst_host, self.dst_port,
+                if (".sql.gz") in self.src_resource:
+                    cmd = "mysql -h{0} -P{1} -u{2} -p{3} {4}".format(self.dst_host, self.dst_port,
+                                                                 self.user, self.password, self.src_resource.split('.')[0])
+                else:
+                    cmd = "mysql -h{0} -P{1} -u{2} -p{3} {4}".format(self.dst_host, self.dst_port,
                                                                  self.user, self.password, self.src_resource)
                 taskexecutor.utils.exec_command(cmd, pass_to_stdin=data)
             else:
