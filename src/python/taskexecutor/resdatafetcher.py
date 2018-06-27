@@ -126,39 +126,31 @@ class MysqlDataFetcher(DataFetcher):
     def __init__(self, src_uri, dst_uri, params):
         super().__init__(src_uri, dst_uri, params)
         src_uri_parsed = urllib.parse.urlparse(src_uri)
-        self.src_uri_scheme = src_uri_parsed.scheme
         dst_uri_parsed = urllib.parse.urlparse(dst_uri)
-        default_src_port = {"mysql": CONFIG.mysql.port, "http": 80}.get(src_uri_parsed.scheme, None)
+        self.src_uri_scheme = src_uri_parsed.scheme
         self.src_host = src_uri_parsed.netloc.split(":")[0]
-        self.src_port = src_uri_parsed.netloc.split(":")[-1] if ":" in src_uri_parsed.netloc else default_src_port
+        self.src_port = src_uri_parsed.netloc.split(":")[-1] if ":" in src_uri_parsed.netloc else CONFIG.mysql.port
+        self.src_database = os.path.basename(src_uri_parsed.path)
+        self.src_user = params.get("user") or CONFIG.mysql.user
+        self.src_password = params.get("password") or CONFIG.mysql.password
         self.dst_host = dst_uri_parsed.netloc.split(":")[0]
-        self.dst_port = CONFIG.mysql.port
-        self.user = params.get("user") or CONFIG.mysql.user
-        self.password = params.get("password") or CONFIG.mysql.password
-        self.src_resource = os.path.basename(urllib.parse.urlparse(src_uri).path)
+        self.dst_port = dst_uri_parsed.netloc.split(":")[-1] if ":" in dst_uri_parsed.netloc else CONFIG.mysql.port
+        self.dst_database = os.path.basename(dst_uri_parsed.path)
 
     @property
     def supported_dst_uri_schemes(self):
         return ["mysql", "file"]
 
     def _get_dump_streams(self):
-        cmd = {"mysql": "mysqldump -h{0} -P{1} -u{2} -p{3} {4}".format(self.src_host, self.src_port,
-                                                                       self.user, self.password, self.src_resource),
-               "http": "curl -s {}".format(self.src_uri)}.get(self.src_uri_scheme, "echo")
-        if self.src_resource.split(".")[-1] == "gz":
-            cmd += " | gunzip"
+        cmd = "mysqldump -h{0.src_host} -P{0.src_port} -u{0.src_user} -p{0.src_password} {0.src_database}".format(self)
         return taskexecutor.utils.exec_command(cmd, return_raw_streams=True)
 
     def fetch(self):
         if self.src_uri != self.dst_uri:
             data, error = self._get_dump_streams()
             if urllib.parse.urlparse(self.dst_uri).scheme == "mysql":
-                if (".sql.gz") in self.src_resource:
-                    cmd = "mysql -h{0} -P{1} -u{2} -p{3} {4}".format(self.dst_host, self.dst_port,
-                                                                 self.user, self.password, self.src_resource.split('.')[0])
-                else:
-                    cmd = "mysql -h{0} -P{1} -u{2} -p{3} {4}".format(self.dst_host, self.dst_port,
-                                                                 self.user, self.password, self.src_resource)
+                cmd = "mysql -h{0.dst_host} -P{0.dst_port} -u{1.user} -p{1.password} " \
+                      "{0.dst_database}".format(self, CONFIG.mysql)
                 taskexecutor.utils.exec_command(cmd, pass_to_stdin=data)
             else:
                 path = urllib.parse.urlparse(self.dst_uri).path
@@ -166,7 +158,42 @@ class MysqlDataFetcher(DataFetcher):
                     f.write(data)
             error = error.read().decode("UTF-8")
             if error:
-                raise DataFetchingError("Failed to dump MySQL database {}, error: {}".format(self.src_resource, error))
+                raise DataFetchingError("Failed to dump MySQL database {}, error: {}".format(self.src_database, error))
+
+
+class HttpDataFetcher(DataFetcher):
+    def __init__(self, src_uri, dst_uri, params):
+        super().__init__(src_uri, dst_uri, params)
+        self._curl_cmd = "curl -s {}".format(src_uri)
+        if urllib.parse.urlparse(src_uri).path.split(".")[-1] == "gz":
+            self._curl_cmd += " | gunzip"
+        self._dst_uri_parsed = urllib.parse.urlparse(self.dst_uri)
+
+    @property
+    def supported_dst_uri_schemes(self):
+        return ["mysql", "file"]
+
+    def _curl_to_mysql(self):
+        host = self._dst_uri_parsed.netloc.split(":")[0]
+        port = self._dst_uri_parsed.netloc.split(":")[-1] if ":" in self._dst_uri_parsed.netloc else CONFIG.mysql.port
+        db = os.path.basename(self._dst_uri_parsed.path)
+        cmd = "mysql -h{0} -P{1} -u{3.user} -p{3.password} {2}".format(host, port, db, CONFIG.mysql)
+        data, error = taskexecutor.utils.exec_command(self._curl_cmd, return_raw_streams=True)
+        taskexecutor.utils.exec_command(cmd, pass_to_stdin=data)
+        error = error.read().decode("UTF-8")
+        if error:
+            raise DataFetchingError("Failed to fetch {}, error: {}".format(self.src_uri, error))
+
+    def _curl_to_file(self):
+        data, error = taskexecutor.utils.exec_command(self._curl_cmd, return_raw_streams=True)
+        with open(self._dst_uri_parsed.path, "w") as f:
+            f.write(data)
+        error = error.read().decode("UTF-8")
+        if error:
+            raise DataFetchingError("Failed to fetch {}, error: {}".format(self.src_uri, error))
+
+    def fetch(self):
+        getattr(self, "_curl_to_{}".format(self._dst_uri_parsed.scheme))()
 
 
 class Builder:
@@ -174,7 +201,7 @@ class Builder:
         DataFetcherClass = {"file": FileDataFetcher,
                             "rsync": RsyncDataFetcher,
                             "mysql": MysqlDataFetcher,
-                            "http": MysqlDataFetcher}.get(proto)
+                            "http": HttpDataFetcher}.get(proto)
         if not DataFetcherClass:
             raise BuilderTypeError("Unknown data source URI scheme: {}".format(proto))
         return DataFetcherClass
