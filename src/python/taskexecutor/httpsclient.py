@@ -298,14 +298,14 @@ class ApiObjectMapper:
         return mapping
 
     def namedtuple_from_mapping(self, mapping):
-        class_key = mapping.get("_class") or " ".join([str(k) for k in mapping.keys()])
+        class_key = mapping.get("@type") or " ".join([str(k) for k in mapping.keys()])
+        type_name = "ApiObject"
+        if "@type" in mapping.keys():
+            type_name = mapping.pop("@type")
         for k, v in mapping.items():
             if not k.isidentifier():
-                mapping[re.sub('\W|^(?=\d)', '_', k)] = v
+                mapping[re.sub('\W|^\d', '_', k).lstrip('_')] = v
                 del mapping[k]
-        type_name = "ApiObject"
-        if "_class" in mapping.keys():
-            type_name = mapping["_class"]
         ApiObject = ApiObjectMapper._classes_mapping.get(class_key)
         if not ApiObject:
             ApiObject = collections.namedtuple(type_name, mapping.keys())
