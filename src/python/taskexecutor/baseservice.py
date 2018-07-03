@@ -239,7 +239,8 @@ class ApplicationServer(ArchivableService):
         return Interpreter(name, version_major, version_minor, suffix)
 
     def get_archive_stream(self, source, params={}):
-        stdout, stderr = taskexecutor.utils.exec_command("tar czf - -C {0} {1}".format(params.get("basedir"), source),
+        stdout, stderr = taskexecutor.utils.exec_command("nice -n 19 "
+                                                         "tar czf - -C {0} {1}".format(params.get("basedir"), source),
                                                          return_raw_streams=True)
         return stdout, stderr
 
