@@ -415,7 +415,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     def get_archive_stream(self, source, params={}):
         stdout, stderr = taskexecutor.utils.exec_command(
                 "mysqldump -h{0.address} -P{0.port} "
-                "-u{1.user} -p{1.password} {2} | gzip -9c".format(self.socket.mysql, CONFIG.mysql, source),
+                "-u{1.user} -p{1.password} {2} | nice -n 19 gzip -9c".format(self.socket.mysql, CONFIG.mysql, source),
                 return_raw_streams=True
         )
         return stdout, stderr
