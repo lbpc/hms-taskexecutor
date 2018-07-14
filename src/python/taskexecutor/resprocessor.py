@@ -203,6 +203,8 @@ class UnixAccountProcessor(ResProcessor):
             data_dest_uri = self.params.get("datadestinationUri", "file://{}".format(self.resource.homeDir))
             data_source_uri = self.params.get("datasourceUri") or data_dest_uri
             self._process_data(data_source_uri, data_dest_uri)
+            LOGGER.info("Creating 'logs' directory")
+            os.makedirs(os.path.join(self.resource.homeDir, "logs"), mode=0o755, exist_ok=True)
         else:
             LOGGER.warning("UnixAccount {0} not found, creating".format(self.resource.name))
             self.create()
