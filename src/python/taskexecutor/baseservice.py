@@ -240,7 +240,7 @@ class ApplicationServer(ArchivableService):
 
     def get_archive_stream(self, source, params={}):
         stdout, stderr = taskexecutor.utils.exec_command("nice -n 19 "
-                                                         "tar czf --ignore-failed-read - -C {0} {1}".format(params.get("basedir"), source),
+                                                         "tar --ignore-failed-read -czf - -C {0} {1}".format(params.get("basedir"), source),
                                                          return_raw_streams=True)
         return stdout, stderr
 
