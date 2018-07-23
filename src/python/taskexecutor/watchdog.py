@@ -1,6 +1,7 @@
 import psutil
 import time
 import queue
+import os
 
 from taskexecutor.logger import LOGGER
 import taskexecutor.utils
@@ -53,6 +54,9 @@ class ProcessWatchdog:
             paths.append(process.cwd())
             if "OLDPWD" in process.environ().keys():
                 paths.append(process.environ()["OLDPWD"])
+            exe_path = os.path.dirname(process.exe())
+            if not exe_path in paths:
+                paths.append(exe_path)
         except psutil.NoSuchProcess:
             pass
         return paths
