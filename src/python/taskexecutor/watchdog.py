@@ -55,7 +55,7 @@ class ProcessWatchdog:
             if "OLDPWD" in process.environ().keys():
                 paths.append(process.environ()["OLDPWD"])
             exe_path = os.path.dirname(process.exe())
-            if not exe_path in paths:
+            if os.path.exists(exe_path) and exe_path not in paths:
                 paths.append(exe_path)
         except psutil.NoSuchProcess:
             pass
