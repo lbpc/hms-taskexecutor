@@ -51,8 +51,9 @@ class ProcessWatchdog:
     def _get_related_paths(process):
         paths = list()
         try:
-            paths.append(process.cwd())
-            if "OLDPWD" in process.environ().keys():
+            if os.path.exists(process.cwd()):
+                paths.append(process.cwd())
+            if "OLDPWD" in process.environ().keys() and os.path.exists(process.environ()["OLDPWD"]):
                 paths.append(process.environ()["OLDPWD"])
             exe_path = os.path.dirname(process.exe())
             if os.path.exists(exe_path) and exe_path not in paths:
