@@ -18,6 +18,7 @@ class FTPClient:
     def _connect(self):
         self._server = ftplib.FTP(self._host)
         self._server.login(self._user, self._password)
+        self._server.encoding = 'utf-8'
 
     def _test_connection(self):
         try:
