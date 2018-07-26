@@ -407,7 +407,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         )[0][0])
 
     def get_all_databases_size(self):
-        stdout = taskexecutor.utils.exec_command('find /mysql/DB/* -maxdepth 0 -type d -printf "%f\n" | xargs -n1 du -sb')
+        stdout = taskexecutor.utils.exec_command('cd /mysql/DB/ && find ./* -maxdepth 0 -type d -printf "%f\n" | xargs -n1 du -sb')
         return dict(
             line.split('\t')[::-1] for line in stdout[0:-1].split('\n')
         )
