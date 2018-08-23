@@ -225,7 +225,7 @@ class WebSiteProcessor(ResProcessor):
         vhosts = list()
         non_ssl_domains = list()
         res_dict = self.resource._asdict()
-        for domain in self.resource.domains:
+        for domain in (d for d in self.resource.domains if d.switchedOn):
             if domain.sslCertificate and domain.sslCertificate.switchedOn:
                 res_dict["domains"] = [domain, ]
                 vhosts.append(
