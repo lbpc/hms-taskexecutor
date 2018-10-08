@@ -196,10 +196,7 @@ class MailboxCollector(ResCollector):
         if property_name == "quotaUsed":
             if os.path.exists(os.path.join(maildir_path, "maildirsize")):
                 maildir_size = self.service.get_maildir_size(self.resource.mailSpool, self.resource.name)
-                if cached and self.get_property_from_cache(key) == maildir_size:
-                    LOGGER.warning("{} size did not change since the last check".format(maildir_path))
-                    maildir_size = None
-            if not maildir_size:
+            else:
                 maildir_size = self.service.get_real_maildir_size(self.resource.mailSpool, self.resource.name)
                 self.service.create_maildirsize_file(self.resource.mailSpool, self.resource.name,
                                                      maildir_size, self.resource.uid)
