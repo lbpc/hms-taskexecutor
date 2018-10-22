@@ -64,8 +64,8 @@ class AMQPReporter(Reporter):
     def _publish_message(self, message, provider="te"):
         self._channel.basic_publish(exchange=self._exchange,
                                     routing_key=self._routing_key,
-                                    properties=pika.BasicProperties(headers={"provider": provider}),
-                                    content_type='application/json',
+                                    properties=pika.BasicProperties(headers={"provider": provider},
+                                    content_type='application/json'),
                                     body=message)
 
     def create_report(self, task):
