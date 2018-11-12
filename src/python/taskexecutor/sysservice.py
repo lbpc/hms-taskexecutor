@@ -379,7 +379,8 @@ class MaildirManager:
         if os.path.exists(maildirsize_file):
             with open(maildirsize_file, "r") as f:
                 f.readline()
-                return sum([int(l.split()[0]) for l in f.readlines() if l])
+                if len(f.readlines())>2:
+                    return sum([int(l.split()[0]) for l in f.readlines() if l])
         return 0
 
     def get_real_maildir_size(self, spool, dir):
