@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import abc
 import collections
@@ -252,10 +253,14 @@ class WebSiteProcessor(ResProcessor):
         home_dir = os.path.normpath(str(self.resource.unixAccount.homeDir))
         document_root = os.path.normpath(str(self.resource.documentRoot))
         document_root_abs = os.path.join(home_dir, document_root)
-        for directory in (os.path.join(home_dir, "logs"), document_root_abs):
+        opcache_root = os.path.join("/opcache", self.resource.id)
+        if os.path.exists(opcache_root):
+            shutil.rmtree(opcache_root)
+        for directory in (os.path.join(home_dir, "logs"), document_root_abs, opcache_root):
             os.makedirs(directory, mode=0o755, exist_ok=True)
         for directory in ["/".join(document_root.split("/")[0:i + 1]) for i, d in enumerate(document_root.split("/"))]:
             os.chown(os.path.join(home_dir, directory), self.resource.unixAccount.uid, self.resource.unixAccount.uid)
+        os.chown(opcache_root, self.resource.unixAccount.uid, self.resource.unixAccount.uid)
         for service in (self.service, self.extra_services.http_proxy):
             config = service.get_website_config(self.resource.id)
             config.render_template(service=service, vhosts=vhosts_list, params=self.params)
@@ -305,6 +310,7 @@ class WebSiteProcessor(ResProcessor):
 
     @taskexecutor.utils.synchronized
     def delete(self):
+        shutil.rmtree(os.path.join("/opcache", self.resource.id), ignore_errors=True)
         for service in (self.extra_services.http_proxy, self.service):
             config = service.get_website_config(self.resource.id)
             if not os.path.exists(config.file_path):
