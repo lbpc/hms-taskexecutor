@@ -163,7 +163,7 @@ class UnixAccountProcessor(ResProcessor):
                                                 self.resource.uid, self.resource.homeDir)
         data_dest_uri = self.params.get("datadestinationUri", "file://{}".format(self.resource.homeDir))
         data_source_uri = self.params.get("datasourceUri") or data_dest_uri
-        self._process_data(data_source_uri, data_dest_uri, {"dataType": "directory"})
+        self._process_data(data_source_uri, data_dest_uri, {"dataType": "directory", "path": self.resource.homeDir})
 
     @taskexecutor.utils.synchronized
     def update(self):
@@ -185,6 +185,9 @@ class UnixAccountProcessor(ResProcessor):
             else:
                 LOGGER.info("Setting quota for user {0.name}".format(self.resource))
                 self.service.set_quota(self.resource.uid, self.resource.quota)
+            data_dest_uri = self.params.get("datadestinationUri", "file://{}".format(self.resource.homeDir))
+            data_source_uri = self.params.get("datasourceUri") or data_dest_uri
+            self._process_data(data_source_uri, data_dest_uri, {"dataType": "directory", "path": self.resource.homeDir})
             if hasattr(self.resource, "keyPair") and self.resource.keyPair:
                 LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
                 self.service.create_authorized_keys(self.resource.keyPair.publicKey,
@@ -200,9 +203,6 @@ class UnixAccountProcessor(ResProcessor):
                                                          "writable={0.writable})".format(self.resource))
             if not self.resource.infected:
                 taskexecutor.watchdog.ProcessWatchdog.get_uids_queue().put(-self.resource.uid)
-            data_dest_uri = self.params.get("datadestinationUri", "file://{}".format(self.resource.homeDir))
-            data_source_uri = self.params.get("datasourceUri") or data_dest_uri
-            self._process_data(data_source_uri, data_dest_uri, {"dataType": "directory"})
             LOGGER.info("Creating 'logs' directory")
             os.makedirs(os.path.join(self.resource.homeDir, "logs"), mode=0o755, exist_ok=True)
         else:
