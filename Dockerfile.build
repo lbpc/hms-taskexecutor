@@ -4,7 +4,7 @@ ENV LC_ALL en_US.UTF-8
 ENV LANG en_US.UTF-8
 
 RUN  apt-get update && \
-     apt-get install -y --no-install-recommends curl bash tree python3-pip python-pip openjdk-7-jdk gcc \
+     apt-get install -y --no-install-recommends locales curl bash tree python3-pip python-pip openjdk-7-jdk gcc \
                                                 python-dev  build-essential libssl-dev libffi-dev \
                                                 libxml2-dev libxslt1-dev zlib1g-dev python3-dev && \
      cd /bin && curl -L -O https://pantsbuild.github.io/setup/pants && \
