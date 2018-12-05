@@ -255,7 +255,7 @@ class TimeListener(Listener):
             while queue.qsize() > 0:
                 task = queue.get_nowait()
                 if task.state == taskexecutor.task.FAILED:
-                    LOGGER.warning("Got failed scheduled task: {}")
+                    LOGGER.warning("Got failed scheduled task: {}".format(task))
                     del task
             sleep_interval = abs(schedule.idle_seconds()) if schedule.jobs else 10
             if not self._stopping:
