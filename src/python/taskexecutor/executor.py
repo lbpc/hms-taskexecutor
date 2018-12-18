@@ -184,26 +184,28 @@ class Executor:
         in_queue.put(task)
 
     def build_processing_sequence(self, res_type, resource, action, params):
-        res_builder = ResourceBuilder(res_type)
         sequence = list()
-        for req_r_type, req_resource in res_builder.get_required_resources(resource):
-            req_r_params = {"required_for": (res_type, resource)}
-            req_r_params.update(params.get("paramsForRequiredResources", {}))
-            sequence.extend(self.build_processing_sequence(req_r_type, req_resource, "update", req_r_params))
+        if not params.get("isolated"):
+            res_builder = ResourceBuilder(res_type)
+            for req_r_type, req_resource in res_builder.get_required_resources(resource):
+                req_r_params = {"required_for": (res_type, resource)}
+                req_r_params.update(params.get("paramsForRequiredResources", {}))
+                sequence.extend(self.build_processing_sequence(req_r_type, req_resource, "update", req_r_params))
         processor = taskexecutor.constructor.get_resprocessor(res_type, resource, params)
         sequence.append((processor, getattr(processor, action)))
-        causer_resource = resource if "required_for" not in params.keys() else params["required_for"][1]
-        for aff_r_type, aff_resource in [(t, r) for t, r in res_builder.get_affected_resources(resource)
-                                         if r.id != causer_resource.id]:
-            aff_r_params = {"caused_by": (res_type, resource)}
-            aff_r_params.update(params.get("paramsForAffectedResources", {}))
-            processor = taskexecutor.constructor.get_resprocessor(aff_r_type, aff_resource, params=aff_r_params)
-            sequence.append((processor, getattr(processor, "update")))
-        sequence_mapping = collections.OrderedDict()
-        for processor, method in sequence:
-            k = "{}{}".format(processor.resource.id, method.__name__)
-            sequence_mapping[k] = (processor, method)
-        sequence = list(sequence_mapping.values())
+        if not params.get("isolated"):
+            causer_resource = resource if "required_for" not in params.keys() else params["required_for"][1]
+            for aff_r_type, aff_resource in [(t, r) for t, r in res_builder.get_affected_resources(resource)
+                                             if r.id != causer_resource.id]:
+                aff_r_params = {"caused_by": (res_type, resource)}
+                aff_r_params.update(params.get("paramsForAffectedResources", {}))
+                processor = taskexecutor.constructor.get_resprocessor(aff_r_type, aff_resource, params=aff_r_params)
+                sequence.append((processor, getattr(processor, "update")))
+            sequence_mapping = collections.OrderedDict()
+            for processor, method in sequence:
+                k = "{}{}".format(processor.resource.id, method.__name__)
+                sequence_mapping[k] = (processor, method)
+            sequence = list(sequence_mapping.values())
         return sequence
 
     def process_task(self, task):
