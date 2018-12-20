@@ -517,7 +517,8 @@ class ServiceProcessor(ResProcessor):
         self.params.update(hostname=CONFIG.hostname)
         if isinstance(self.service, taskexecutor.opservice.Nginx):
             self._create_error_pages()
-            self.params.update(app_servers=taskexecutor.constructor.get_all_opservices_by_res_type("website"))
+            self.params.update(app_servers=taskexecutor.constructor.get_all_opservices_by_res_type("website"),
+                               anti_ddos_location=CONFIG.nginx.anti_ddos_location)
         elif isinstance(self.service, taskexecutor.opservice.Apache):
             self.params.update(admin_networks=CONFIG.apache.admin_networks)
         configs = self.service.get_concrete_configs_set()
