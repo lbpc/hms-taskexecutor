@@ -27,18 +27,20 @@ def receive_signal(signum, unused_stack):
         update_all_services(new_task_queue)
 
 
-def update_all_services(new_task_queue):
+def update_all_services(new_task_queue, isolated=False):
     logger.LOGGER.info("Perfoming Service updates")
-    for service in [s for s in CONFIG.localserver.services
-                    if s.serviceTemplate.serviceType.name.startswith("STAFF_") or
-                    s.serviceTemplate.serviceType.name.startswith("DATABASE_")]:
+    type_name_conditions = [(str.startswith, "STAFF_"), (str.startswith, "DATABASE_")]
+    if isolated:
+        type_name_conditions.append((str.startswith, "WEBSITE_"))
+    for service in (s for s in CONFIG.localserver.services
+                    if any((c[0](s.serviceTemplate.serviceType.name, c[1]) for c in type_name_conditions))):
         task = Task(None,
                     type(None),
                     "LOCAL",
                     "{}.update".format(service.name),
                     "service",
                     "update",
-                    params={"resource": service})
+                    params={"resource": service, "isolated": isolated})
         new_task_queue.put(task)
 
 
@@ -57,6 +59,7 @@ def main():
     executor_thread = threading.Thread(target=executor.run, daemon=True)
     executor_thread.start()
     logger.LOGGER.info("Executor thread started")
+    update_all_services(Executor().get_new_task_queue(), isolated=True)
     amqp_listener = constructor.get_listener("amqp")
     amqp_listener_thread = threading.Thread(target=amqp_listener.listen, daemon=True)
     amqp_listener_thread.start()
