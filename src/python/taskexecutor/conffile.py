@@ -94,7 +94,10 @@ class ConfigFile:
     def confirm(self):
         if os.path.exists(self._backup_file_path):
             LOGGER.debug("Removing {}".format(self._backup_file_path))
-            os.unlink(self._backup_file_path)
+            try:
+                os.unlink(self._backup_file_path)
+            except FileNotFoundError as e:
+                LOGGER.warning("Could not delete file cuz not exist, ERROR: {}".format(e))
 
     def save(self):
         self.write()
