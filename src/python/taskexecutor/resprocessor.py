@@ -115,6 +115,7 @@ class ResProcessor(metaclass=abc.ABCMeta):
         pass
 
     def _process_data(self, src_uri, dst_uri, extra_postproc_args={}):
+        self.params["ownerUid"] = self.params.get("ownerUid") or self.resource.uid
         datafetcher = taskexecutor.constructor.get_datafetcher(src_uri, dst_uri, self.params.get("dataSourceParams"))
         datafetcher.fetch()
         data_postprocessor_type = self.params.get("dataPostprocessorType")
@@ -172,8 +173,10 @@ class UnixAccountProcessor(ResProcessor):
             switched_on = self.resource.switchedOn and not self.params.get("forceSwitchOff")
             LOGGER.info("Modifying user {0.name}".format(self.resource))
             if self.resource.uid != self.op_resource.uid:
-                LOGGER.warning("UnixAccount {0} has wrong UID {1}, "
-                               "expected: {2}".format(self.resource.name, self.op_resource.uid, self.resource.uid))
+                LOGGER.warning("UnixAccount {0} UID changed from {1} "
+                               "to: {2}".format(self.resource.name, self.op_resource.uid, self.resource.uid))
+                self.service.change_uid(self.resource.name, self.resource.uid)
+                taskexecutor.utils.exec_command("chown -R {0}:{0} {1}".format(self.resource.uid, self.resource.homeDir))
             self.service.set_shell(self.resource.name,
                                    {True: self.service.default_shell, False: None}[switched_on])
             if self.resource.sendmailAllowed:

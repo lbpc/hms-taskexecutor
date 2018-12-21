@@ -90,6 +90,9 @@ class UnixAccountManager(metaclass=abc.ABCMeta):
     def set_comment(self, user_name, comment):
         pass
 
+    @abc.abstractmethod
+    def change_uid(self, user_name, uid):
+        pass
 
 class LinuxUserManager(UnixAccountManager):
     @property
@@ -186,6 +189,10 @@ class LinuxUserManager(UnixAccountManager):
 
     def set_comment(self, user_name, comment):
         taskexecutor.utils.exec_command("usermod --comment '{0}' {1}".format(comment, user_name))
+
+    def change_uid(self, user_name, uid):
+        taskexecutor.utils.exec_command("groupmod --gid {0} {1}".format(uid, user_name))
+        taskexecutor.utils.exec_command("usermod --uid {0} --gid {0} {1}".format(uid, user_name))
 
 
 class FreebsdUserManager(UnixAccountManager):
@@ -322,6 +329,9 @@ class FreebsdUserManager(UnixAccountManager):
                                         shell=self.default_shell)
 
     def set_comment(self, user_name, comment):
+        pass
+
+    def change_uid(self, user_name, uid):
         pass
 
 
