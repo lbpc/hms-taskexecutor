@@ -162,7 +162,9 @@ class UnixAccountProcessor(ResProcessor):
             LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
             self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                 self.resource.uid, self.resource.homeDir)
-        self.params["ownerUid"] = self.params.get("ownerUid") or self.resource.uid
+        if not "dataSourceParams" in self.params.keys():
+            self.params["dataSourceParams"] = {}
+        self.params["dataSourceParams"]["ownerUid"] = self.params["dataSourceParams"].get("ownerUid") or self.resource.uid
         data_dest_uri = self.params.get("datadestinationUri", "file://{}".format(self.resource.homeDir))
         data_source_uri = self.params.get("datasourceUri") or data_dest_uri
         self._process_data(data_source_uri, data_dest_uri, {"dataType": "directory", "path": self.resource.homeDir})
@@ -189,7 +191,9 @@ class UnixAccountProcessor(ResProcessor):
             else:
                 LOGGER.info("Setting quota for user {0.name}".format(self.resource))
                 self.service.set_quota(self.resource.uid, self.resource.quota)
-            self.params["ownerUid"] = self.params.get("ownerUid") or self.resource.uid
+            if not "dataSourceParams" in self.params.keys():
+                self.params["dataSourceParams"] = {}
+            self.params["dataSourceParams"]["ownerUid"] = self.params["dataSourceParams"].get("ownerUid") or self.resource.uid
             data_dest_uri = self.params.get("datadestinationUri", "file://{}".format(self.resource.homeDir))
             data_source_uri = self.params.get("datasourceUri") or data_dest_uri
             self._process_data(data_source_uri, data_dest_uri, {"dataType": "directory", "path": self.resource.homeDir})
