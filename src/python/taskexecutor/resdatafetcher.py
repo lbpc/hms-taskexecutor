@@ -106,6 +106,7 @@ class RsyncDataFetcher(DataFetcher):
         super().__init__(src_uri, dst_uri, params)
         self.exclude_patterns = params.get("excludePatterns", [])
         self.delete_extraneous = params.get("deleteExtraneous", False)
+        self.owner_uid = params.get("ownerUid")
 
     @property
     def supported_dst_uri_schemes(self):
@@ -120,6 +121,8 @@ class RsyncDataFetcher(DataFetcher):
                 args += " --delete "
             cmd = "rsync {} -av {} {}".format(args, shlex.quote(self.src_uri), shlex.quote(dst_path))
             taskexecutor.utils.exec_command(cmd)
+            if self.owner_uid:
+                taskexecutor.utils.exec_command("chown -R {0}:{0} {1}".format(self.owner_uid, dst_path))
 
 
 class MysqlDataFetcher(DataFetcher):
