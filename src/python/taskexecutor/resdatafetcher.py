@@ -122,6 +122,8 @@ class RsyncDataFetcher(DataFetcher):
             cmd = "rsync {} -av {} {}".format(args, shlex.quote(self.src_uri), shlex.quote(dst_path))
             taskexecutor.utils.exec_command(cmd)
             if self.owner_uid:
+                if not self.src_uri.endswith("/"):
+                    dst_path = os.path.join(dst_path, os.path.split(urllib.parse.urlparse(self.src_uri).path)[1])
                 taskexecutor.utils.exec_command("chown -R {0}:{0} {1}".format(self.owner_uid, dst_path))
 
 
