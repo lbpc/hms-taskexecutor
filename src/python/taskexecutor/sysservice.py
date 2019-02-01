@@ -110,6 +110,7 @@ class LinuxUserManager(UnixAccountManager):
     def create_user(self, name, uid, home_dir, pass_hash, shell, gecos="", extra_groups=[]):
         if os.path.exists(home_dir):
             os.chown(home_dir, uid, uid)
+        self.create_group(name, gid=uid)
         extra_groups = [g for g in extra_groups if g]
         for group in extra_groups:
             self.create_group(group)
@@ -117,6 +118,7 @@ class LinuxUserManager(UnixAccountManager):
         taskexecutor.utils.exec_command("useradd "
                                         "--comment '{0}' "
                                         "--uid {1} "
+                                        "--gid {1} "
                                         "--home {2} "
                                         "--password '{3}' "
                                         "--create-home "
