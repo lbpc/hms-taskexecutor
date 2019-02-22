@@ -344,7 +344,7 @@ class SslCertificateProcessor(ResProcessor):
     @taskexecutor.utils.synchronized
     def create(self):
         cert_file, key_file = self.service.get_ssl_key_pair_files(self.resource.name)
-        cert_file.body = self.resource.cert + self.resource.chain
+        cert_file.body = self.resource.cert + self.resource.chain or ''
         key_file.body = self.resource.key
         cert_file.save()
         key_file.save()

@@ -95,7 +95,7 @@ class DataEraser(DataPostprocessor):
         LOGGER.info("Removing all files from {}".format(path))
         uid = os.stat(path).st_uid
         shutil.rmtree(path)
-        os.mkdir(path)
+        os.mkdir(path, mode=0o700)
         os.chown(path, uid, uid)
 
     def _erase_database(self):
