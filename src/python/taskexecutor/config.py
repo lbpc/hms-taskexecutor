@@ -18,7 +18,7 @@ class __Config:
         LOGGER.info("Initializing config")
         self.hostname = socket.gethostname().split('.')[0]
         self.profile = os.environ.get("SPRING_PROFILES_ACTIVE") or "dev"
-        self.apigw = dict(host=os.environ.get("APIGW_HOST") or "api.majordomo.ru",
+        self.apigw = dict(host=os.environ.get("APIGW_HOST") or "api.intr",
                           port=int(os.environ.get("APIGW_PORT") or 443),
                           user=os.environ.get("APIGW_USER") or "service",
                           password=os.environ.get("APIGW_PASSWORD") or "Efu0ahs6")
