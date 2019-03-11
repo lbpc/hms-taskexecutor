@@ -104,6 +104,7 @@ class LinuxUserManager(UnixAccountManager):
         return "/usr/sbin/nologin"
 
     def create_group(self, name, gid=None):
+        taskexecutor.utils.exec_command("groupdel {} || true".format(name))
         setgid = "--gid {}".format(gid) if gid else ""
         taskexecutor.utils.exec_command("groupadd --force {0} {1}".format(setgid, name))
 
