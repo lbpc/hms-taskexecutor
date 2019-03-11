@@ -265,7 +265,10 @@ class WebSiteProcessor(ResProcessor):
         if os.path.exists(opcache_root):
             shutil.rmtree(opcache_root)
         for directory in (os.path.join(home_dir, "logs"), document_root_abs, opcache_root):
-            os.makedirs(directory, mode=0o755, exist_ok=True)
+            if not os.path.islink(directory):
+                os.makedirs(directory, mode=0o755, exist_ok=True)
+            else:
+                LOGGER.warning("{} is symbolic link".format(directory))
         for directory in ["/".join(document_root.split("/")[0:i + 1]) for i, d in enumerate(document_root.split("/"))]:
             os.chown(os.path.join(home_dir, directory), self.resource.unixAccount.uid, self.resource.unixAccount.uid)
         os.chown(opcache_root, self.resource.unixAccount.uid, self.resource.unixAccount.uid)
