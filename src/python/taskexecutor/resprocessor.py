@@ -263,7 +263,7 @@ class WebSiteProcessor(ResProcessor):
         document_root_abs = os.path.join(home_dir, document_root)
         opcache_root = os.path.join("/opcache", self.resource.id)
         if os.path.exists(opcache_root):
-            shutil.rmtree(opcache_root)
+            shutil.rmtree(opcache_root, ignore_errors=True)
         for directory in (os.path.join(home_dir, "logs"), document_root_abs, opcache_root):
             if not os.path.islink(directory):
                 os.makedirs(directory, mode=0o755, exist_ok=True)
