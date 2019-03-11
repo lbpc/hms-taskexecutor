@@ -270,7 +270,11 @@ class WebSiteProcessor(ResProcessor):
             else:
                 LOGGER.warning("{} is symbolic link".format(directory))
         for directory in ["/".join(document_root.split("/")[0:i + 1]) for i, d in enumerate(document_root.split("/"))]:
-            os.chown(os.path.join(home_dir, directory), self.resource.unixAccount.uid, self.resource.unixAccount.uid)
+            if os.path.exists(directory):
+                os.chown(os.path.join(home_dir, directory),
+                         self.resource.unixAccount.uid, self.resource.unixAccount.uid)
+            else:
+                LOGGER.warning("{} does not exist".format(directory))
         os.chown(opcache_root, self.resource.unixAccount.uid, self.resource.unixAccount.uid)
         for service in (self.service, self.extra_services.http_proxy):
             config = service.get_website_config(self.resource.id)
