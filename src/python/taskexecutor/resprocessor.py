@@ -149,7 +149,7 @@ class UnixAccountProcessor(ResProcessor):
                                  "writable={0.writable})".format(self.resource),
                                  CONFIG.unix_account.groups)
         try:
-            LOGGER.info("Setting quota for user {0.name}".format(self.resource))
+            LOGGER.info("Setting quota for user {0.name}: {0.quota} bytes".format(self.resource))
             self.service.set_quota(self.resource.uid, self.resource.quota)
         except Exception:
             LOGGER.error("Setting quota failed "
@@ -186,10 +186,11 @@ class UnixAccountProcessor(ResProcessor):
             else:
                 self.service.disable_sendmail(self.resource.uid)
             if not self.resource.writable:
-                LOGGER.info("Disabling writes by setting quota=quotaUsed for user {0.name}".format(self.resource))
+                LOGGER.info("Disabling writes by setting quota=quotaUsed for user {0.name} "
+                            "(quotaUsed={0.quotaUsed})".format(self.resource))
                 self.service.set_quota(self.resource.uid, self.resource.quotaUsed)
             else:
-                LOGGER.info("Setting quota for user {0.name}".format(self.resource))
+                LOGGER.info("Setting quota for user {0.name}: {0.quota} bytes".format(self.resource))
                 self.service.set_quota(self.resource.uid, self.resource.quota)
             if not "dataSourceParams" in self.params.keys():
                 self.params["dataSourceParams"] = {}
