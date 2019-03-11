@@ -149,7 +149,7 @@ class UnixAccountProcessor(ResProcessor):
                                  "writable={0.writable})".format(self.resource),
                                  CONFIG.unix_account.groups)
         try:
-            LOGGER.info("Setting quota for user {0.name}".format(self.resource))
+            LOGGER.info("Setting quota for user {0.name}: {0.quota} bytes".format(self.resource))
             self.service.set_quota(self.resource.uid, self.resource.quota)
         except Exception:
             LOGGER.error("Setting quota failed "
