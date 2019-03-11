@@ -269,10 +269,11 @@ class WebSiteProcessor(ResProcessor):
                 os.makedirs(directory, mode=0o755, exist_ok=True)
             else:
                 LOGGER.warning("{} is symbolic link".format(directory))
-        for directory in ["/".join(document_root.split("/")[0:i + 1]) for i, d in enumerate(document_root.split("/"))]:
+        for directory in map(lambda d: os.path.join(home_dir, d),
+                             ["/".join(document_root.split("/")[0:i + 1])
+                              for i, d in enumerate(document_root.split("/"))]):
             if os.path.exists(directory):
-                os.chown(os.path.join(home_dir, directory),
-                         self.resource.unixAccount.uid, self.resource.unixAccount.uid)
+                os.chown(directory, self.resource.unixAccount.uid, self.resource.unixAccount.uid)
             else:
                 LOGGER.warning("{} does not exist".format(directory))
         os.chown(opcache_root, self.resource.unixAccount.uid, self.resource.unixAccount.uid)
