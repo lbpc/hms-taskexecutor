@@ -31,7 +31,7 @@ class UnixAccountManager(metaclass=abc.ABCMeta):
         return
 
     @abc.abstractmethod
-    def create_group(self, name, gid=None):
+    def create_group(self, name, gid=None, delete_first=False):
         pass
 
     @abc.abstractmethod
@@ -103,8 +103,8 @@ class LinuxUserManager(UnixAccountManager):
     def disabled_shell(self):
         return "/usr/sbin/nologin"
 
-    def create_group(self, name, gid=None):
-        if not 'hosting_accounts' in name:
+    def create_group(self, name, gid=None, delete_first=False):
+        if delete_first:
             taskexecutor.utils.exec_command("groupdel {} || true".format(name))
         setgid = "--gid {}".format(gid) if gid else ""
         taskexecutor.utils.exec_command("groupadd --force {0} {1}".format(setgid, name))
@@ -112,7 +112,7 @@ class LinuxUserManager(UnixAccountManager):
     def create_user(self, name, uid, home_dir, pass_hash, shell, gecos="", extra_groups=[]):
         if os.path.exists(home_dir):
             os.chown(home_dir, uid, uid)
-        self.create_group(name, gid=uid)
+        self.create_group(name, gid=uid, delete_first=True)
         extra_groups = [g for g in extra_groups if g]
         for group in extra_groups:
             self.create_group(group)
@@ -233,7 +233,7 @@ class FreebsdUserManager(UnixAccountManager):
                                         "pgrep sshd | xargs kill -HUP".format(self.jail_id),
                                         shell=self.default_shell)
 
-    def create_group(self, name, gid=None):
+    def create_group(self, name, gid=None, delete_first=False):
         taskexecutor.utils.exec_command("jexec {0} pw groupadd {1}".format(self.jail_id, name))
 
     def create_user(self, name, uid, home_dir, pass_hash, shell, gecos="", extra_groups=[]):
