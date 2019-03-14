@@ -32,6 +32,7 @@ pipeline {
             steps {
                 gitlabCommitStatus(STAGE_NAME) {
                     sh 'cp -pr /bin/pants . '
+                    sh './pants -v'
                     sh './pants binary src/python/te'
                 }
             }
