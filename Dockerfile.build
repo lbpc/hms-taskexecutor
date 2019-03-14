@@ -14,8 +14,6 @@ RUN  set -xe && \
     apt-get update && apt-get install -y --no-install-recommends python2.7 && \
      cd /bin && curl -L -O https://pantsbuild.github.io/setup/pants && \
      chmod +x pants && touch /bin/pants.ini && \
-     pip install --upgrade pip && \
-     pip2 install --upgrade pip && \
      pip3 install --upgrade pip && \
      mkdir /app && \
      /bin/pants -V && \
