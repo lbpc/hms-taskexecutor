@@ -26,7 +26,7 @@ pipeline {
             agent {
                 dockerfile {
                     filename 'Dockerfile.build'
-                    args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache"
+                    args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache -u root:root"
                 }
             }
             steps {
