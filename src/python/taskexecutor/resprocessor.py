@@ -378,14 +378,6 @@ class MailboxProcessor(ResProcessor):
 
 
 class DatabaseUserProcessor(ResProcessor):
-    def _apply_restrictions(self):
-        if self.resource.maxCpuTimePerSecond and float(self.resource.maxCpuTimePerSecond) > 0:
-            LOGGER.info("{0.name} should be restricted to use no more than "
-                        "{0.maxCpuTimePerSecond} CPU seconds per wall clock second".format(self.resource))
-            self.service.restrict_user_cpu(self.resource.name, self.resource.maxCpuTimePerSecond)
-        else:
-            self.service.unrestrict_user_cpu(self.resource.name)
-
     def create(self):
         if not self.op_resource:
             addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
@@ -393,7 +385,6 @@ class DatabaseUserProcessor(ResProcessor):
                                                                           self.resource.name,
                                                                           addrs_set))
             self.service.create_user(self.resource.name, self.resource.passwordHash, list(addrs_set))
-            self._apply_restrictions()
         else:
             LOGGER.warning("{0} user {1} already exists, updating".format(self.service.__class__.__name__,
                                                                           self.resource.name))
@@ -413,7 +404,6 @@ class DatabaseUserProcessor(ResProcessor):
                                      list(staging_addrs_set.difference(current_addrs_set)))
             self.service.set_password(self.resource.name, self.resource.passwordHash,
                                       list(current_addrs_set.intersection(staging_addrs_set)))
-            self._apply_restrictions()
         else:
             LOGGER.warning("{0} user {1} not found, creating".format(self.service.__class__.__name__,
                                                                      self.resource.name))

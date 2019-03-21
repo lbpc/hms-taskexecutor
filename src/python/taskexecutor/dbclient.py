@@ -21,14 +21,6 @@ class DBClient(metaclass=abc.ABCMeta):
     def execute_query(self, query, values):
         pass
 
-    @abc.abstractmethod
-    def select_db(self, database):
-        pass
-
-    @abc.abstractmethod
-    def select_default_db(self):
-        pass
-
 
 class MySQLClient(DBClient):
     def __init__(self, host, user, password, port, database):
@@ -55,14 +47,6 @@ class MySQLClient(DBClient):
             else:
                 raise
 
-    def select_db(self, database):
-        self._connection.ping(reconnect=True)
-        self._connection.select_db(database)
-
-    def select_default_db(self):
-        self._connection.ping(reconnect=True)
-        self._connection.select_db(self._database)
-
 
 class PostgreSQLClient(DBClient):
     def __init__(self, host, user, password, port, database):
@@ -86,14 +70,3 @@ class PostgreSQLClient(DBClient):
             self.execute_query(query, values)
         self._connection.commit()
         return self._cursor.fetchall()
-
-    def select_db(self, database):
-        self._connection = pg8000.connect(database=database,
-                                          host=self._host,
-                                          port=self._port,
-                                          user=self._user,
-                                          password=self._password)
-        self._cursor = self._connection.cursor()
-
-    def select_default_db(self):
-        self._connect()

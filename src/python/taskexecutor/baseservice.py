@@ -314,11 +314,3 @@ class DatabaseServer(ConfigurableService, NetworkingService, ArchivableService, 
     @abc.abstractmethod
     def get_all_databases_size(self):
         pass
-
-    @abc.abstractmethod
-    def restrict_user_cpu(self, name, time):
-        pass
-
-    @abc.abstractmethod
-    def unrestrict_user_cpu(self, name):
-        pass
