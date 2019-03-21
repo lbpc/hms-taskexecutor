@@ -422,6 +422,12 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         )
         return stdout, stderr
 
+    def restrict_user_cpu(self, name, time):
+        self.dbclient.execute_query("REPLACE INTO mysql_restrict.CPU_RESTRICT (USER, MAX_CPU) VALUES (%s, %s)", (name, time))
+
+    def unrestrict_user_cpu(self, name):
+        self.dbclient.execute_query("DELETE FROM mysql.restrict.CPU_RESTRICT WHERE USER = %s", (name,))
+
 
 class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     def __init__(self, name):
@@ -605,6 +611,12 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                 "{2} | gzip -9c".format(self.socket.psql, CONFIG.postgresql, source), return_raw_streams=True
         )
         return stdout, stderr
+
+    def restrict_user_cpu(self, name, time):
+        return
+
+    def unrestrict_user_cpu(self, name):
+        return
 
 
 class Builder:
