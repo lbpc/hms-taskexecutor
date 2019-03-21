@@ -34,6 +34,8 @@ pipeline {
                     sh 'cp -pr /bin/pants . '
                     sh './pants -v'
                     sh './pants binary src/python/te'
+                    sh 'chown -R jenkins:jenkins ./*'
+                    sh 'chown -R jenkins:jenkins /home/jenkins/.cache'                    
                 }
             }
         }
