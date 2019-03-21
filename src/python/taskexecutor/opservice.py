@@ -426,7 +426,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         self.dbclient.execute_query("REPLACE INTO mysql_restrict.CPU_RESTRICT (USER, MAX_CPU) VALUES (%s, %s)", (name, time))
 
     def unrestrict_user_cpu(self, name):
-        self.dbclient.execute_query("DELETE FROM mysql.restrict.CPU_RESTRICT WHERE USER = %s", (name,))
+        self.dbclient.execute_query("DELETE FROM mysql_restrict.CPU_RESTRICT WHERE USER = %s", (name,))
 
 
 class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
