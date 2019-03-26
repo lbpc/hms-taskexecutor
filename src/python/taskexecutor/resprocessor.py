@@ -561,8 +561,7 @@ class ServiceProcessor(ResProcessor):
             if self.service.status() is taskexecutor.opservice.UP:
                 self.service.reload()
             else:
-                LOGGER.warning("{} is down, trying to start it".format(self.service.name))
-                self.service.start()
+                LOGGER.warning("{} is down".format(self.service.name))
         except:
             for config in configs:
                 config.revert()
