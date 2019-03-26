@@ -182,7 +182,8 @@ class SysVService(OpService):
         try:
             taskexecutor.utils.exec_command("invoke-rc.d {} status".format(self.name))
             return UP
-        except:
+        except Exception as e:
+            LOGGER.warn(e)
             return DOWN
 
 
@@ -334,6 +335,14 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                     self.dbclient.execute_query("SET GLOBAL {0}={1}".format(variable, value), ())
                 else:
                     self.dbclient.execute_query("SET GLOBAL {0}=%s".format(variable), (value,))
+
+    def status(self):
+        try:
+            if self.dbclient.execute_query("SELECT 1", ())[0][0] == 1:
+                return UP
+        except Exception as e:
+            LOGGER.warn(e)
+            return DOWN
 
     def get_user(self, name):
         name, password_hash, comma_separated_addrs = self.dbclient.execute_query(
