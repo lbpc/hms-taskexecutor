@@ -7,3 +7,4 @@ psutil==5.4.1
 pyaml==16.12.2
 docker==2.6.1
 pg8000==1.10.6
+requests==2.21.0
