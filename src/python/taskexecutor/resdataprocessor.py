@@ -79,7 +79,7 @@ class StringReplaceDataProcessor(DataPostprocessor):
                     "in {} files from {}".format(search_pattern, replace_string, file_globs, cwd))
         cmd = ("find -O3 {0} {1} -type f "
                "-exec grep -q -e'{2}' {{}} \; -and "
-               "-exec sed -i 's/{2}/{3}/g' {{}} \;").format(cwd, find_expr, search_pattern, replace_string)
+               "-exec sed -i 's#{2}#{3}#g' {{}} \;").format(cwd, find_expr, search_pattern, replace_string)
         taskexecutor.utils.exec_command(cmd)
 
 
