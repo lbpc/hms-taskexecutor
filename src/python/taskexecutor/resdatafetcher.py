@@ -109,23 +109,23 @@ class RsyncDataFetcher(DataFetcher):
         self.exclude_patterns = params.get("excludePatterns", [])
         self.delete_extraneous = params.get("deleteExtraneous", False)
         self.owner_uid = params.get("ownerUid")
-        self.dst_host = urllib.parse.urlparse(dst_uri).netloc
+        self.src_host = urllib.parse.urlparse(src_uri).netloc
+        self.src_path = urllib.parse.urlparse(src_uri).path
+        self.dst_path = urllib.parse.urlparse(src_uri).path
         self.restic_repo = None
-        self.dst_path = urllib.parse.urlparse(dst_uri).path
-        LOGGER.info(str(self.dst_host.split(":")[0]) + ' '  + str(CONFIG.backup.server.names) + ' ' + str(self.dst_path.split('/')[1:2]) + ' ' + str([CONFIG.backup.server.restic_location]))
-        if self.dst_host.split(":")[0] in CONFIG.backup.server.names and \
-                self.dst_path.split('/')[1:2] == [CONFIG.backup.server.restic_location]:
-            self.restic_repo = self.dst_path.split('/')[2:3]
+        if self.src_host.split(":")[0] in CONFIG.backup.server.names and \
+                self.src_path.split('/')[1:2] == CONFIG.backup.server.restic_location:
+            self.restic_repo = self.src_path.split('/')[2:3]
 
     def _mount_restic_repo(self):
-        url = "http://{}/_mount/{}".format(self.dst_host, self.restic_repo)
+        url = "http://{}/_mount/{}".format(self.src_host, self.restic_repo)
         LOGGER.info("Requesting restic repo mount: {}".format(url))
         res = requests.post(url, params={"wait": True, "timeout": CONFIG.backup.server.mount_timeout})
         if not res.ok:
             raise DataFetchingError("Failed to mount Restic repo: {}".format(json.loads(res.text).get("error")))
 
     def _umount_restic_repo(self):
-        url = "http://{}/_mount/{}".format(self.dst_host, self.restic_repo)
+        url = "http://{}/_mount/{}".format(self.src_host, self.restic_repo)
         LOGGER.info("Requesting restic repo umount: {}".format(url))
         requests.delete(url)
 
