@@ -3,6 +3,8 @@ import shlex
 import os
 import shutil
 import urllib.parse
+import requests
+import json
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
@@ -107,24 +109,46 @@ class RsyncDataFetcher(DataFetcher):
         self.exclude_patterns = params.get("excludePatterns", [])
         self.delete_extraneous = params.get("deleteExtraneous", False)
         self.owner_uid = params.get("ownerUid")
+        self.dst_host = urllib.parse.urlparse(dst_uri).netloc
+        self.restic_repo = None
+        self.dst_path = urllib.parse.urlparse(dst_uri).path
+        if self.dst_host.split(":")[0] in CONFIG.backup.server.names and \
+                self.dst_path.split('/')[1:2] == CONFIG.backup.server.restic_location:
+            self.restic_repo = self.dst_path.split('/')[2:3]
+
+    def _mount_restic_repo(self):
+        url = "http://{}/_mount/{}".format(self.dst_host, self.restic_repo)
+        LOGGER.info("Requesting restic repo mount: {}".format(url))
+        res = requests.post(url, params={"wait": True, "timeout": CONFIG.backup.server.mount_timeout})
+        if not res.ok:
+            raise DataFetchingError("Failed to mount Restic repo: {}".format(json.loads(res.text).get("error")))
+
+    def _umount_restic_repo(self):
+        url = "http://{}/_mount/{}".format(self.dst_host, self.restic_repo)
+        LOGGER.info("Requesting restic repo umount: {}".format(url))
+        requests.delete(url)
 
     @property
     def supported_dst_uri_schemes(self):
         return ["file"]
 
     def fetch(self):
-        dst_path = urllib.parse.urlparse(self.dst_uri).path
         if urllib.parse.urlparse(self.src_uri).netloc != CONFIG.localserver.name:
-            LOGGER.info("Syncing files between {} and {}".format(self.src_uri, dst_path))
+            if self.restic_repo:
+                self._mount_restic_repo()
+            LOGGER.info("Syncing files between {} and {}".format(self.src_uri, self.dst_path))
             args = "".join(map(lambda p: "--exclude {} ".format(p), self.exclude_patterns))
             if self.delete_extraneous:
                 args += " --delete "
-            cmd = "rsync {} -av {} {}".format(args, shlex.quote(self.src_uri), shlex.quote(dst_path))
+            cmd = "rsync {} -av {} {}".format(args, shlex.quote(self.src_uri), shlex.quote(self.dst_path))
             taskexecutor.utils.exec_command(cmd)
+            if self.restic_repo:
+                self._umount_restic_repo()
             if self.owner_uid:
                 if not self.src_uri.endswith("/"):
-                    dst_path = os.path.join(dst_path, os.path.split(urllib.parse.urlparse(self.src_uri).path)[1])
-                taskexecutor.utils.exec_command("chown -R {0}:{0} {1}".format(self.owner_uid, dst_path))
+                    self.dst_path = os.path.join(self.dst_path,
+                                                 os.path.split(urllib.parse.urlparse(self.src_uri).path)[1])
+                taskexecutor.utils.exec_command("chown -R {0}:{0} {1}".format(self.owner_uid, self.dst_path))
 
 
 class MysqlDataFetcher(DataFetcher):
