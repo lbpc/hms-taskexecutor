@@ -112,7 +112,7 @@ class RsyncDataFetcher(DataFetcher):
         self.dst_host = urllib.parse.urlparse(dst_uri).netloc
         self.restic_repo = None
         self.dst_path = urllib.parse.urlparse(dst_uri).path
-        LOGGER.info(self.dst_host.split(":")[0] + ' '  + CONFIG.backup.server.names + ' ' + self.dst_path.split('/')[1:2] + ' ' + [CONFIG.backup.server.restic_location])
+        LOGGER.info(str(self.dst_host.split(":")[0]) + ' '  + str(CONFIG.backup.server.names) + ' ' + str(self.dst_path.split('/')[1:2]) + ' ' + str([CONFIG.backup.server.restic_location]))
         if self.dst_host.split(":")[0] in CONFIG.backup.server.names and \
                 self.dst_path.split('/')[1:2] == [CONFIG.backup.server.restic_location]:
             self.restic_repo = self.dst_path.split('/')[2:3]
