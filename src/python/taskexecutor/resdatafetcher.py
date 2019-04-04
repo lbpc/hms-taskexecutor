@@ -142,9 +142,15 @@ class RsyncDataFetcher(DataFetcher):
             if self.delete_extraneous:
                 args += " --delete "
             cmd = "rsync {} -av {} {}".format(args, shlex.quote(self.src_uri), shlex.quote(self.dst_path))
-            taskexecutor.utils.exec_command(cmd)
+            error = None
+            try:
+                taskexecutor.utils.exec_command(cmd)
+            except Exception as e:
+                error = e
             if self.restic_repo:
                 self._umount_restic_repo()
+            if error:
+                raise error
             if self.owner_uid:
                 if not self.src_uri.endswith("/"):
                     self.dst_path = os.path.join(self.dst_path,
