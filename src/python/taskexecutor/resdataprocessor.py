@@ -69,7 +69,7 @@ class StringReplaceDataProcessor(DataPostprocessor):
                 "?": r"\?"}
 
     def process(self):
-        cwd = self.args.get("cwd")
+        cwd = self.args.get("path") or self.args.get("cwd")
         file_globs = self.args.get("fileNameGlobs") or self.default_file_globs
         search_pattern = self.args.get("searchPattern")
         replace_string = self.args.get("replaceString")
