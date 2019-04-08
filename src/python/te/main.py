@@ -75,7 +75,10 @@ def main():
     logger.LOGGER.info("Process watchdog thread started")
     while True:
         if not amqp_listener_thread.is_alive():
-            logger.LOGGER.error("AMQP Listener is dead, exiting right now!")
+            logger.LOGGER.error("AMQP Listener is dead, exiting now")
+            executor.stop()
+            time_listener.stop()
+            process_watchdog.stop()
             sys.exit(1)
         if STOP:
             logger.LOGGER.info("Stopping AMQP listener")
@@ -86,7 +89,7 @@ def main():
             time_listener.stop()
             time_listener_thread.join()
             logger.LOGGER.info("Scheduler stopped")
-            executor.stop()
+            executor.stop(wait=True)
             executor_thread.join()
             logger.LOGGER.info("Executor stopped")
             logger.LOGGER.info("Stopping process watchdog")
