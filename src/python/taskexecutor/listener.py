@@ -4,9 +4,11 @@ import abc
 import itertools
 import pika
 import pika.exceptions
+import platform
 import time
 import schedule
 import queue
+from pika.connection import Connection
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.constructor
@@ -14,6 +16,28 @@ import taskexecutor.task
 import taskexecutor.utils
 
 __all__ = ["Builder"]
+
+
+class OverridenPikaConnection(Connection):
+    @property
+    def _client_properties(self):
+        return {
+            "product": "HMS.Taskexecutor (Pika Python Client Library)",
+            "platform": "Python {}".format(platform.python_version()),
+            "capabilities": {
+                "authentication_failure_close": True,
+                "basic.nack": True,
+                "connection.blocked": True,
+                "consumer_cancel_notify": True,
+                "publisher_confirms": True
+            },
+            "connection_name": "taskexecutor@{}".format(CONFIG.hostname),
+            "information": "See http://pika.rtfd.org",
+            "version": "0.10.0"
+        }
+
+
+Connection._client_properties = OverridenPikaConnection._client_properties
 
 
 class BuilderTypeError(Exception):
@@ -259,8 +283,7 @@ class TimeListener(Listener):
                     del task
             sleep_interval = abs(schedule.idle_seconds()) if schedule.jobs else 10
             if not self._stopping:
-                LOGGER.debug("Sleeping for {} s".format(sleep_interval))
-                time.sleep(sleep_interval)
+                time.sleep(sleep_interval if sleep_interval < 1 else 1)
 
     def take_event(self, context, message):
         action_id = "{0}.{1}".format(context["res_type"], context["action"])

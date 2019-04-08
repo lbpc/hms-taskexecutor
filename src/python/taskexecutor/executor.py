@@ -114,6 +114,7 @@ class Executor:
 
     def __init__(self):
         self._stopping = False
+        self._shutdown_wait = False
         self._command_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.command)
         self._long_command_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.command // 2)
         self._query_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.query)
@@ -167,6 +168,8 @@ class Executor:
             params.update({"resource": resource})
             tag = task.tag if idx == last_idx else None
             actid_suffix = resource.name
+            if (hasattr(resource, "quota") and resource.quota == 0) or not resource.switchedOn:
+                continue
             if hasattr(resource, "domain"):
                 actid_suffix = "{0}@{1}".format(actid_suffix, resource.domain.name)
             subtasks.append(taskexecutor.task.Task(tag=tag,
@@ -294,9 +297,12 @@ class Executor:
                             out_queue.put(task)
                         del self._future_to_task_map[future]
                 del future_to_task_map
-        self._command_task_pool.shutdown()
-        self._long_command_task_pool.shutdown()
-        self._query_task_pool.shutdown()
+        LOGGER.info("Shutting all pools down {}"
+                    "waiting for workers".format({True: "", False: "not "}[self._shutdown_wait]))
+        self._command_task_pool.shutdown(wait=self._shutdown_wait)
+        self._long_command_task_pool.shutdown(wait=self._shutdown_wait)
+        self._query_task_pool.shutdown(wait=self._shutdown_wait)
 
-    def stop(self):
+    def stop(self, wait=False):
+        self._shutdown_wait = wait
         self._stopping = True
