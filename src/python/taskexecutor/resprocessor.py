@@ -386,6 +386,21 @@ class DatabaseUserProcessor(ResProcessor):
         else:
             self.service.unrestrict_user_cpu(self.resource.name)
 
+    def _apply_customizations(self):
+        vars = dict(query_cache_type=getattr(self.resource, "queryCacheType", None),
+                    character_set_client=getattr(self.resource, "characterSetClient", None),
+                    character_set_connection=getattr(self.resource, "characterSetConnection", None),
+                    character_set_results=getattr(self.resource, "characterSetResults", None),
+                    collation_connection=getattr(self.resource, "collationConnection", None))
+        if any(vars.values()):
+            addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
+            LOGGER.info("Presetting session variables for user {0} with addresses {1}: {2}".format(
+                    self.resource.name,
+                    addrs_set,
+                    ", ".join(("{}={}".format(k ,v) for k, v in vars.items()))
+            ))
+            self.service.preset_user_session_vars(self.resource.name, list(addrs_set), vars)
+
     def create(self):
         if not self.op_resource:
             addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
@@ -394,6 +409,7 @@ class DatabaseUserProcessor(ResProcessor):
                                                                           addrs_set))
             self.service.create_user(self.resource.name, self.resource.passwordHash, list(addrs_set))
             self._apply_restrictions()
+            self._apply_customizations()
         else:
             LOGGER.warning("{0} user {1} already exists, updating".format(self.service.__class__.__name__,
                                                                           self.resource.name))
@@ -414,6 +430,7 @@ class DatabaseUserProcessor(ResProcessor):
             self.service.set_password(self.resource.name, self.resource.passwordHash,
                                       list(current_addrs_set.intersection(staging_addrs_set)))
             self._apply_restrictions()
+            self._apply_customizations()
         else:
             LOGGER.warning("{0} user {1} not found, creating".format(self.service.__class__.__name__,
                                                                      self.resource.name))

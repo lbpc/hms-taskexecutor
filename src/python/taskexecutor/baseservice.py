@@ -322,3 +322,7 @@ class DatabaseServer(ConfigurableService, NetworkingService, ArchivableService, 
     @abc.abstractmethod
     def unrestrict_user_cpu(self, name):
         pass
+
+    @abc.abstractmethod
+    def preset_user_session_vars(self, user_name, addrs_list, vars_map):
+        pass

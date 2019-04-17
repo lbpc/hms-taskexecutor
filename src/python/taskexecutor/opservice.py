@@ -366,6 +366,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     def create_user(self, name, password_hash, addrs_list):
         for address in addrs_list:
             self.dbclient.execute_query("CREATE USER %s@%s IDENTIFIED BY PASSWORD %s", (name, address, password_hash))
+            self.dbclient.execute_query("GRANT SELECT ON mysql_custom.session_vars TO %s@%s", (name, address))
 
     def set_password(self, name, password_hash, addrs_list):
         for address in addrs_list:
@@ -436,6 +437,22 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
 
     def unrestrict_user_cpu(self, name):
         self.dbclient.execute_query("DELETE FROM mysql_restrict.CPU_RESTRICT WHERE USER = %s", (name,))
+
+    def preset_user_session_vars(self, user_name, addrs_list, vars_map):
+        for address in addrs_list:
+            self.dbclient.execute_query("REPLACE INTO mysql_custom.session_vars("
+                                        "user, "
+                                        "query_cache_type, "
+                                        "character_set_client, "
+                                        "character_set_connection, "
+                                        "character_set_results, "
+                                        "collation_connection"
+                                        ") VALUES(%s, %s, %s, %s, %s, %s)",
+                                        ("'{}'@'{}'".format(user_name, address),
+                                         vars_map.get("query_cache_type"),
+                                         vars_map.get("character_set_client"),
+                                         vars_map.get("character_set_connection"),
+                                         vars_map.get("collation_connection")))
 
 
 class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
@@ -625,6 +642,9 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         return
 
     def unrestrict_user_cpu(self, name):
+        return
+
+    def preset_user_session_vars(self, user_name, addrs_list, vars_map):
         return
 
 
