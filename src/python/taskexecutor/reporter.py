@@ -1,6 +1,7 @@
 import abc
 import json
 import pika
+import alertaclient.api as alerta
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
@@ -122,6 +123,35 @@ class HttpsReporter(Reporter):
             Resource = getattr(api, taskexecutor.utils.to_camel_case(self._task.res_type))
             endpoint = "{0}/{1}".format(self._resource.id, taskexecutor.utils.to_lower_dashed(self._task.action))
             Resource(endpoint).post(json.dumps(self._report))
+
+
+class AlertaReporter(Reporter):
+    def __init__(self):
+        super().__init__()
+        self._alerta = alerta.Client(**CONFIG.alerta)
+
+    def create_report(self, task):
+        success = bool(task.state ^ taskexecutor.task.FAILED)
+        attributes = dict(publicParams=[],
+                          tag=task.tag,
+                          origin=task.origin,
+                          opid=task.opid,
+                          actid=task.actid,
+                          res_type=task.res_type,
+                          action=task.action)
+        attributes.update(task.params)
+        self._report = dict(environment="HMS",
+                            service="taskexecutor",
+                            resource=task.actid,
+                            event=task.finished,
+                            value={True: "Ok", False: "Failed"}[success],
+                            text=task.params.get("last_exception", "Done"),
+                            severity={True: "Ok", False: "Minor"}[success],
+                            attributes=attributes)
+        return self._report
+
+    def send_report(self):
+        self._alerta.send_alert(**self._report)
 
 
 class NullReporter(Reporter):

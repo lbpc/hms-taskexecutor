@@ -1,4 +1,5 @@
 import concurrent.futures
+import time
 import traceback
 import re
 import subprocess
@@ -27,7 +28,7 @@ class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
             raise e
 
 
-def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_streams=False):
+def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_streams=False, raise_exc=True):
     LOGGER.debug("Running shell command: {}".format(command))
     proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             shell=True, executable=shell)
@@ -42,13 +43,13 @@ def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_stre
     else:
         stdout, stderr = proc.communicate()
     ret_code = proc.returncode
-    if ret_code != 0:
+    if ret_code != 0 and raise_exc:
         raise CommandExecutionError("Failed to execute command '{}'\n"
                                     "CODE: {}\n"
                                     "STDOUT: {}"
                                     "STDERR: {}".format(command, ret_code, stdout.decode(), stderr.decode()))
 
-    return stdout.decode("UTF-8")
+    return stdout.decode("UTF-8") if ret_code == 0 else stderr.decode("UTF-8")
 
 
 def set_apparmor_mode(mode, binary):
@@ -113,5 +114,18 @@ def synchronized(f):
             LOCKS[f] = threading.RLock()
         with LOCKS[f]:
             return f(self, *args, **kwargs)
+
+    return wrapper
+
+def timed(f):
+    @functools.wraps(f)
+    def wrapper(self, *args, **kwargs):
+        start = time.time()
+        f(self, *args, **kwargs)
+        duration = time.time() - start
+        logger = {duration < 2: LOGGER.debug,
+                  2 <= duration < 3: LOGGER.info,
+                  3 <= duration: LOGGER.warn}[True]
+        logger("{} execution took {} seconds".format(f, duration))
 
     return wrapper

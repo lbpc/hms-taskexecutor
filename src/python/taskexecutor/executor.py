@@ -118,6 +118,8 @@ class Executor:
         self._command_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.command)
         self._long_command_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.command // 2)
         self._query_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.query)
+        self._backup_files_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.backup.files)
+        self._backup_dbs_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.backup.dbs)
         self._future_to_task_map = dict()
 
     @classmethod
@@ -146,7 +148,9 @@ class Executor:
     def select_pool(self, task):
         return {True: self._query_task_pool,
                 task.action in ("create", "update", "delete"): self._command_task_pool,
-                "oldServerName" in task.params.keys(): self._long_command_task_pool}[True]
+                "oldServerName" in task.params.keys(): self._long_command_task_pool,
+                task.action == "backup": self._backup_files_task_pool,
+                task.action == "backup" and task.res_type == "database": self._backup_dbs_task_pool}[True]
 
     def select_reporter(self, task):
         if task.origin.__name__ == "AMQPListener" and task.action in ("create", "update", "delete"):
@@ -166,16 +170,16 @@ class Executor:
         for idx, resource in enumerate(resources):
             params = copy.copy(task.params)
             params.update({"resource": resource})
-            tag = task.tag if idx == last_idx else None
-            actid_suffix = resource.name
+            suffix = resource.name
+            tag = task.tag if idx == last_idx else "{0}.{1}".format(task.tag, suffix)
             if (hasattr(resource, "quota") and resource.quota == 0) or not resource.switchedOn:
                 continue
             if hasattr(resource, "domain"):
-                actid_suffix = "{0}@{1}".format(actid_suffix, resource.domain.name)
+                suffix = "{0}@{1}".format(suffix, resource.domain.name)
             subtasks.append(taskexecutor.task.Task(tag=tag,
                                                    origin=task.origin,
                                                    opid=task.opid,
-                                                   actid="{}.{}".format(task.actid, actid_suffix),
+                                                   actid="{}.{}".format(task.actid, suffix),
                                                    res_type=task.res_type,
                                                    action=task.action,
                                                    params=params))
@@ -213,7 +217,7 @@ class Executor:
 
     def process_task(self, task):
         taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0.opid} ACTION IDENTITY: {0.actid}".format(task))
-        if task.params.get("failcount") and task.origin is not taskexecutor.listener.TimeListener:
+        if task.params.get("failcount"):
             if task.params["failcount"] >= CONFIG.task.max_retries:
                 LOGGER.warning("Currently processed task had failed {0} times before, "
                                "giving up".format(task.params["failcount"]))
@@ -245,6 +249,9 @@ class Executor:
                 method()
                 if processor.extra_services and hasattr(processor.extra_services, "http_proxy"):
                     task.params["httpProxyIp"] = processor.extra_services.http_proxy.socket.http.address
+        elif task.action == "backup":
+            backuper = taskexecutor.constructor.get_backuper(task.res_type, task.params["resource"])
+            backuper.backup()
         else:
             collector = taskexecutor.constructor.get_rescollector(task.res_type, task.params["resource"])
             task.params["data"] = dict()
@@ -287,8 +294,10 @@ class Executor:
                 future_to_task_map = copy.copy(self._future_to_task_map)
                 for future, task in future_to_task_map.items():
                     if future.done():
-                        if future.exception():
+                        exc  = future.exception()
+                        if exc:
                             task.state = taskexecutor.task.FAILED
+                            task.params['last_exception'] = str(exc)
                             self._remember_failed_task(task)
                         elif self._get_task_failcount(task) > 0:
                             self._forget_failed_task(task)
@@ -302,6 +311,8 @@ class Executor:
         self._command_task_pool.shutdown(wait=self._shutdown_wait)
         self._long_command_task_pool.shutdown(wait=self._shutdown_wait)
         self._query_task_pool.shutdown(wait=self._shutdown_wait)
+        self._backup_files_task_pool.shutdown(wait=self._shutdown_wait)
+        self._backup_dbs_task_pool.shutdown(wait=self._shutdown_wait)
 
     def stop(self, wait=False):
         self._shutdown_wait = wait

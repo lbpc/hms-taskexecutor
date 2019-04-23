@@ -5,6 +5,7 @@ import itertools
 import pika
 import pika.exceptions
 import platform
+import datetime
 import time
 import schedule
 import queue
@@ -280,14 +281,14 @@ class TimeListener(Listener):
                 task = queue.get_nowait()
                 if task.state == taskexecutor.task.FAILED:
                     LOGGER.warning("Got failed scheduled task: {}".format(task))
-                    del task
+                    self._new_task_queue.put()
             sleep_interval = abs(schedule.idle_seconds()) if schedule.jobs else 10
             if not self._stopping:
                 time.sleep(sleep_interval if sleep_interval < 1 else 1)
 
     def take_event(self, context, message):
         action_id = "{0}.{1}".format(context["res_type"], context["action"])
-        task = taskexecutor.task.Task(tag=action_id,
+        task = taskexecutor.task.Task(tag="{0}.{1}".format(datetime.datetime.now().isoformat(), action_id),
                                       origin=self.__class__,
                                       opid="LOCAL-SCHED",
                                       actid=action_id,

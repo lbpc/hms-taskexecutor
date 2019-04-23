@@ -39,6 +39,13 @@ pipeline {
                 }
             }
         }
+        stage('Publish') {
+            steps {
+               gitlabCommitStatus(STAGE_NAME) {
+                    nexusRawUpload file: 'dist/te.pex', group: 'pex', version: GIT_COMMIT[0..7]
+               }
+            }
+        }
         stage('Deploy') {
             when { branch 'master' }
             agent {

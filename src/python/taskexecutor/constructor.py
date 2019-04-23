@@ -131,3 +131,7 @@ def get_listener(listener_type):
 def get_reporter(reporter_type):
     Reporter = taskexecutor.reporter.Builder(reporter_type)
     return Reporter()
+
+def get_backuper(res_type, resource):
+    Backuper = taskexecutor.backup.Builder(res_type)
+    return Backuper(resource)

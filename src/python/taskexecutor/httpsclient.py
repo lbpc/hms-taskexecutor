@@ -180,7 +180,8 @@ class ConfigServerClient(ApiClient):
     @extra_attrs.setter
     def extra_attrs(self, lst):
         for prop in lst:
-            attr, value = prop.split("=")
+            attr, *value = prop.split("=")
+            value = "=".join(value)
             tree = self._extra_attrs
             for idx, k in enumerate(attr.split(".")):
                 if idx != len(attr.split(".")) - 1:
