@@ -40,6 +40,12 @@ pipeline {
             }
         }
         stage('Publish') {
+            agent {
+                dockerfile {
+                    filename 'Dockerfile.build'
+                    args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache"
+                }
+            }
             steps {
                gitlabCommitStatus(STAGE_NAME) {
                     nexusRawUpload file: 'dist/te.pex', group: 'pex', version: GIT_COMMIT[0..7]
