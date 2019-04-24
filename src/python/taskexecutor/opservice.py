@@ -375,6 +375,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     def drop_user(self, name, addrs_list):
         for address in addrs_list:
             self.dbclient.execute_query("DROP USER %s@%s", (name, address))
+            self.dbclient.execute_query("DELETE FROM mysql_custom.session_vars WHERE user='%s@%s'", (name, address))
 
     def create_database(self, name):
         self.dbclient.execute_query("CREATE DATABASE IF NOT EXISTS `{}`".format(name), ())
