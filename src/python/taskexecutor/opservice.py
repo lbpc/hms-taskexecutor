@@ -452,6 +452,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                                          vars_map.get("query_cache_type"),
                                          vars_map.get("character_set_client"),
                                          vars_map.get("character_set_connection"),
+                                         vars_map.get("character_set_results"),
                                          vars_map.get("collation_connection")))
 
 
