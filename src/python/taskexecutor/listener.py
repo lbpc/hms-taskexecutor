@@ -292,7 +292,7 @@ class TimeListener(Listener):
                 task = queue.get_nowait()
                 if task.state == taskexecutor.task.FAILED:
                     LOGGER.warning("Got failed scheduled task: {}".format(task))
-                    self._new_task_queue.put()
+                    self._new_task_queue.put(task)
             sleep_interval = abs(schedule.idle_seconds()) if schedule.jobs else 10
             if not self._stopping:
                 time.sleep(sleep_interval if sleep_interval < 1 else 1)
