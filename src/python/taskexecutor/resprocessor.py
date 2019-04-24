@@ -387,12 +387,9 @@ class DatabaseUserProcessor(ResProcessor):
             self.service.unrestrict_user_cpu(self.resource.name)
 
     def _apply_customizations(self):
-        vars = dict(query_cache_type=getattr(self.resource, "queryCacheType", None),
-                    character_set_client=getattr(self.resource, "characterSetClient", None),
-                    character_set_connection=getattr(self.resource, "characterSetConnection", None),
-                    character_set_results=getattr(self.resource, "characterSetResults", None),
-                    collation_connection=getattr(self.resource, "collationConnection", None))
-        if any(vars.values()):
+        vars = getattr(self.resource, "sessionVariables", {})
+        if len(set(vars.keys()).intersection({"queryCacheType", "characterSetClient", "characterSetConnection",
+                                              "characterSetResults", "collationConnection"})) > 0:
             addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
             LOGGER.info("Presetting session variables for user {0} with addresses {1}: {2}".format(
                     self.resource.name,
