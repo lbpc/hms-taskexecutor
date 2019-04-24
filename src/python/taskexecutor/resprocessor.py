@@ -388,6 +388,8 @@ class DatabaseUserProcessor(ResProcessor):
 
     def _apply_customizations(self):
         vars = getattr(self.resource, "sessionVariables", {})
+        if not isinstance(vars, dict):
+            vars = vars._asdict()
         if len(set(vars.keys()).intersection({"queryCacheType", "characterSetClient", "characterSetConnection",
                                               "characterSetResults", "collationConnection"})) > 0:
             addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
