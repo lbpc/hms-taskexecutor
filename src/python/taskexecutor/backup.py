@@ -52,7 +52,7 @@ class ResticBackup(Backuper):
         base_cmd = ("RESTIC_PASSWORD={0.password} "
                "{0.binary.path} -r rest:http://restic:{0.password}@{0.host}:{0.port}/{1} ".format(CONFIG.restic, repo))
         backup_cmd = "backup {0} {1}".format("".join((" -e {}".format(e) for e in exclude)), dir)
-        code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + "init")
+        code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + "init", raise_exc=False)
         if code > 0 and not stderr.rstrip().endswith("already exists"):
             raise BackupError(stderr)
         code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + backup_cmd, raise_exc=False)
