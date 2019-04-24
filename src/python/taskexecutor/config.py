@@ -37,10 +37,9 @@ class __Config:
             extra_attrs = ["amqp.{0}={1}".format(k, v) for k, v in self._amqp.items() if v]
             extra_attrs.append("amqp.consumer_routing_key=te.{}".format(self.hostname))
             for k, v in os.environ.items():
-                k = k.lower().replace("_", ".").replace("-", "_")
-                if k == ".":
-                    k = "last_arg"
-                extra_attrs.append("{0}={1}".format(k, v))
+                if k.startswith("TE_"):
+                    k = k[3:].lower().replace("_", ".").replace("-", "_")
+                    extra_attrs.append("{0}={1}".format(k, v))
             cfg_srv.extra_attrs = extra_attrs
             props = cfg_srv.te(self.profile).get().propertySources[0].source
             for attr, value in props._asdict().items():
