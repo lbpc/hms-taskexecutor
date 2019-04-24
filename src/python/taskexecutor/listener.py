@@ -268,7 +268,18 @@ class TimeListener(Listener):
                 if res_type in CONFIG.enabled_resources:
                     context = {"res_type": res_type, "action": action}
                     message = {"params": dict(params._asdict())}
-                    job = schedule.every(params.interval).seconds.do(self.take_event, context, message)
+                    if hasattr(params, "daily") and params.daily:
+                        if not hasattr(params, "at"):
+                            LOGGER.warning("Invalid schedule definition for {}: {},"
+                                           "`at` time needs to be specified".format(res_type, params))
+                            continue
+                        job = schedule.every().day.at(params.at).do(self.take_event, context, message)
+                    else:
+                        if not hasattr(params, "interval"):
+                            LOGGER.warning("Invalid schedule definition for {}: {},"
+                                           "interval needs to be specified".format(res_type, params))
+                            continue
+                        job = schedule.every(params.interval).seconds.do(self.take_event, context, message)
                     LOGGER.debug(job)
 
     def listen(self):
