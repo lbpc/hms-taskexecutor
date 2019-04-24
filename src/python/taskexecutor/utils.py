@@ -48,8 +48,9 @@ def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_stre
                                     "CODE: {}\n"
                                     "STDOUT: {}"
                                     "STDERR: {}".format(command, ret_code, stdout.decode(), stderr.decode()))
-
-    return stdout.decode("UTF-8") if ret_code == 0 else stderr.decode("UTF-8")
+    if not raise_exc:
+        return ret_code, stdout, stderr
+    return stdout.decode("UTF-8")
 
 
 def set_apparmor_mode(mode, binary):
