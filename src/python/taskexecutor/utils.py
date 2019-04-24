@@ -105,6 +105,13 @@ def to_lower_dashed(name):
     ).lower().replace("_", "-")
 
 
+def to_snake_case(name):
+    return re.sub(
+            "([a-z0-9])([A-Z])", r"\1_\2",
+            re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
+    ).lower()
+
+
 def synchronized(f):
     @functools.wraps(f)
     def wrapper(self, *args, **kwargs):
