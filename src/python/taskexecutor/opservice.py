@@ -318,7 +318,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                 variable, *value = line.split("=")
                 value = "=".join(value)
                 if "-" not in variable:
-                    config_vars[variable.strip()] = value.strip()
+                    config_vars[variable.strip()] = value.strip().strip('"\'')
         actual_vars = {row[0]: row[1] for row in self.dbclient.execute_query("SHOW VARIABLES", ())}
         for variable, value in config_vars.items():
             if variable in self._ignored_config_variables:
