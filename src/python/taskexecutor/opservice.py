@@ -448,7 +448,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                                         "character_set_results, "
                                         "collation_connection"
                                         ") VALUES(%s, %s, %s, %s, %s, %s)",
-                                        ("'{}'@'{}'".format(user_name, address),
+                                        ("{}@{}".format(user_name, address),
                                          vars_map.get("query_cache_type"),
                                          vars_map.get("character_set_client"),
                                          vars_map.get("character_set_connection"),
