@@ -375,6 +375,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     def drop_user(self, name, addrs_list):
         for address in addrs_list:
             self.dbclient.execute_query("DROP USER %s@%s", (name, address))
+            self.dbclient.execute_query("DELETE FROM mysql_custom.session_vars WHERE user='%s@%s'", (name, address))
 
     def create_database(self, name):
         self.dbclient.execute_query("CREATE DATABASE IF NOT EXISTS `{}`".format(name), ())
@@ -448,10 +449,11 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                                         "character_set_results, "
                                         "collation_connection"
                                         ") VALUES(%s, %s, %s, %s, %s, %s)",
-                                        ("'{}'@'{}'".format(user_name, address),
+                                        ("{}@{}".format(user_name, address),
                                          vars_map.get("query_cache_type"),
                                          vars_map.get("character_set_client"),
                                          vars_map.get("character_set_connection"),
+                                         vars_map.get("character_set_results"),
                                          vars_map.get("collation_connection")))
 
 
