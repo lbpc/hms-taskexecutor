@@ -134,7 +134,7 @@ class AlertaReporter(Reporter):
         success = bool(task.state ^ taskexecutor.task.FAILED)
         attributes = dict(publicParams=[],
                           tag=task.tag,
-                          origin=task.origin,
+                          origin=str(task.origin),
                           opid=task.opid,
                           actid=task.actid,
                           res_type=task.res_type,
