@@ -1,6 +1,7 @@
 import abc
 import os
 import requests
+import shlex
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
@@ -51,7 +52,7 @@ class ResticBackup(Backuper):
         exclude = exclude or self.default_excludes
         base_cmd = ("RESTIC_PASSWORD={0.password} "
                "{0.binary.path} -r rest:http://restic:{0.password}@{0.host}:{0.port}/{1} ".format(CONFIG.restic, repo))
-        backup_cmd = "backup {0} {1}".format("".join((" -e {}".format(e) for e in exclude)), dir)
+        backup_cmd = "backup {0} {1}".format("".join((" -e {}".format(shlex.quote(e)) for e in exclude)), dir)
         code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + "init", raise_exc=False)
         if code > 0 and not stderr.rstrip().endswith("already exists"):
             raise BackupError(stderr)
