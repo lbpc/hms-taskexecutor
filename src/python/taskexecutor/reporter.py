@@ -139,6 +139,11 @@ class AlertaReporter(Reporter):
                           actid=task.actid,
                           res_type=task.res_type,
                           action=task.action)
+        try:
+            resource = task.params.pop("resource")
+            task.params["hmsResource"] = resource._asdict()
+        except KeyError:
+            pass
         attributes.update(task.params)
         self._report = dict(environment="HMS",
                             service=["taskexecutor"],
