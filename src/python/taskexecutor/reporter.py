@@ -141,7 +141,7 @@ class AlertaReporter(Reporter):
                           action=task.action)
         attributes.update(task.params)
         self._report = dict(environment="HMS",
-                            service="taskexecutor",
+                            service=["taskexecutor"],
                             resource=task.actid,
                             event="task.finished",
                             value={True: "Ok", False: "Failed"}[success],
