@@ -333,6 +333,8 @@ class ApiObjectMapper:
 
     def object_hook(self, dct, extra, overwrite, expand, comma, numcast):
         dct = self.cast_to_numeric_recursively(dct) if numcast else dct
+        if extra and numcast:
+            extra = self.cast_to_numeric_recursively(extra)
         if comma:
             dct = self.comma_separated_to_list(dct)
         if expand:
