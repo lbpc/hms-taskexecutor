@@ -128,7 +128,7 @@ class HttpsReporter(Reporter):
 class AlertaReporter(Reporter):
     def __init__(self):
         super().__init__()
-        self._alerta = alerta.Client(**CONFIG.alerta)
+        self._alerta = alerta.Client(**CONFIG.alerta._asdict())
 
     def create_report(self, task):
         success = bool(task.state ^ taskexecutor.task.FAILED)
