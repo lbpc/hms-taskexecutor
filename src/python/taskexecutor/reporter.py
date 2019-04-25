@@ -143,7 +143,7 @@ class AlertaReporter(Reporter):
         self._report = dict(environment="HMS",
                             service="taskexecutor",
                             resource=task.actid,
-                            event=task.finished,
+                            event="task.finished",
                             value={True: "Ok", False: "Failed"}[success],
                             text=task.params.get("last_exception", "Done"),
                             severity={True: "Ok", False: "Minor"}[success],
