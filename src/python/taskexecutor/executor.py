@@ -1,5 +1,6 @@
 import copy
 import collections
+import datetime
 import time
 import urllib.parse
 import queue
@@ -155,6 +156,8 @@ class Executor:
     def select_reporter(self, task):
         if task.origin.__name__ == "AMQPListener" and task.action in ("create", "update", "delete"):
             return taskexecutor.constructor.get_reporter("amqp")
+        elif task.action == "backup":
+            return taskexecutor.constructor.get_reporter("alerta")
         elif task.action in ("quota_report", "malware_report"):
             return taskexecutor.constructor.get_reporter("https")
         else:
@@ -216,6 +219,7 @@ class Executor:
         return sequence
 
     def process_task(self, task):
+        task.params["started"] = datetime.datetime.now().isoformat()
         taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0.opid} ACTION IDENTITY: {0.actid}".format(task))
         if task.params.get("failcount"):
             if task.params["failcount"] >= CONFIG.task.max_retries:

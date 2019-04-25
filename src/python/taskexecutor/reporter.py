@@ -166,6 +166,7 @@ class Builder:
     def __new__(cls, reporter_type):
         ReporterClass = {"amqp": AMQPReporter,
                          "https": HttpsReporter,
+                         "alerta": AlertaReporter,
                          "null": NullReporter}.get(reporter_type)
         if not ReporterClass:
             raise BuilderTypeError("Unknown Reporter type: {}".format(reporter_type))
