@@ -78,13 +78,14 @@ class ResticBackup(Backuper):
                 LOGGER.warn("Failed to forget old snapshots for repo {}, "
                             "STDOUT: {} STDERR: {}".format(repo, stdout.strip(), stderr.strip()))
                 break
-            pid, host = matched.groups() if matched else (0, None)
-            if host == CONFIG.hostname and not pid_exists(pid):
-            # Considering that repository was locked from here and PID is no longer exist, it's safe to unlock now
-                taskexecutor.utils.exec_command(base_cmd + " unlock")
-            else:
-                LOGGER.warn("{} is locked by PID {} at {}, waiting for 5s".format(repo, pid, host))
-                time.sleep(5)
+            elif code > 0:
+                pid, host = matched.groups()
+                if host == CONFIG.hostname and not pid_exists(pid):
+                # Considering that repository was locked from here and PID is no longer exist, it's safe to unlock now
+                    taskexecutor.utils.exec_command(base_cmd + " unlock")
+                else:
+                    LOGGER.warn("{} is locked by PID {} at {}, waiting for 5s".format(repo, pid, host))
+                    time.sleep(5)
         try:
             requests.get("http://{}/_snapshot/{}".format(CONFIG.backup.server.names[0], repo))
         except Exception as e:
