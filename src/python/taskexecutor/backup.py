@@ -72,8 +72,7 @@ class ResticBackup(Backuper):
         while code > 0:
             code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd +
                                                                    " forget --keep-within 31d", raise_exc=False)
-            matched = re.match(r"Fatal: unable to create lock in backend: repository is already locked exclusively "
-                               r"by PID (\d+) on ([^.]+)", stderr or "")
+            matched = re.match(r".*locked.*by PID (\d+) on ([^.]+)", stderr or "")
             if code > 0 and not matched:
                 LOGGER.warn("Failed to forget old snapshots for repo {}, "
                             "STDOUT: {} STDERR: {}".format(repo, stdout.strip(), stderr.strip()))
