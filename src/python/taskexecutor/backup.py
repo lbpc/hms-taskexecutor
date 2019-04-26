@@ -78,7 +78,7 @@ class ResticBackup(Backuper):
                 LOGGER.warn("Failed to forget old snapshots for repo {}, "
                             "STDOUT: {} STDERR: {}".format(repo, stdout.strip(), stderr.strip()))
                 break
-            pid, host = matched.groups()
+            pid, host = matched.groups() if matched else (0, None)
             if host == CONFIG.hostname and not pid_exists(pid):
             # Considering that repository was locked from here and PID is no longer exist, it's safe to unlock now
                 taskexecutor.utils.exec_command(base_cmd + " unlock")
