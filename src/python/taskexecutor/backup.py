@@ -40,6 +40,29 @@ class ResticBackup(Backuper):
     def default_excludes(self):
         return ("/home/**/tmp", "/home/*/logs")
 
+    @staticmethod
+    def _run_expecting_restic_lock(base_cmd, cmd):
+        cmd = " " + cmd.lstrip()
+        code = 1
+        stdout = stderr = ""
+        while code > 0:
+            code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + cmd, raise_exc=False)
+            matched = re.match(r".*locked.*by PID (\d+) on ([^.]+)", stderr or "")
+            if code > 0 and not matched:
+                break
+            elif code > 0:
+                pid, host = matched.groups()
+                if host == CONFIG.hostname and not pid_exists(int(pid)):
+                    # Considering that repository was locked from here and PID is no longer exist,
+                    # it's safe to unlock now
+                    LOGGER.warn("repo is locked by PID {} from {} which is no longer running, "
+                                "unlocking".format(pid, host))
+                    taskexecutor.utils.exec_command(base_cmd + " unlock")
+                else:
+                    LOGGER.warn("repo is locked by PID {} at {}, waiting for 5s".format(pid, host))
+                    time.sleep(5)
+        return code, stdout.strip(), stderr.strip()
+
     def backup(self, exclude=()):
         dir = "/dev/null"
         if hasattr(self._resource, "homeDir"):
@@ -59,32 +82,19 @@ class ResticBackup(Backuper):
         code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + "init", raise_exc=False)
         if code > 0 and not stderr.rstrip().endswith("already exists"):
             raise BackupError("Resic error: {}".format(stderr.strip()))
-        code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + backup_cmd, raise_exc=False)
+        code, stdout, stderr = self._run_expecting_restic_lock(base_cmd, backup_cmd)
         if code > 0:
-            raise BackupError("Resic error: {}".format(stderr.strip()))
+            raise BackupError("Resic error: {}".format(stderr))
         try:
-            snapshot_id = stdout.strip().split("\n")[-1].split()[1]
+            snapshot_id = stdout.split("\n")[-1].split()[1]
             LOGGER.info("{} saved in {} repo".format(snapshot_id, repo))
         except IndexError:
-            LOGGER.warn("{} snapshotted successfully, but no snapshot ID found, "
+            LOGGER.warn("{} snapshotted successfully, but no snapshot ID found in stdout, "
                         "STDOUT: {} STDERR: {}".format(repo, stdout.strip(), stderr.strip()))
-        code = 1
-        while code > 0:
-            code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd +
-                                                                   " forget --keep-within 31d", raise_exc=False)
-            matched = re.match(r".*locked.*by PID (\d+) on ([^.]+)", stderr or "")
-            if code > 0 and not matched:
-                LOGGER.warn("Failed to forget old snapshots for repo {}, "
-                            "STDOUT: {} STDERR: {}".format(repo, stdout.strip(), stderr.strip()))
-                break
-            elif code > 0:
-                pid, host = matched.groups()
-                if host == CONFIG.hostname and not pid_exists(int(pid)):
-                # Considering that repository was locked from here and PID is no longer exist, it's safe to unlock now
-                    taskexecutor.utils.exec_command(base_cmd + " unlock")
-                else:
-                    LOGGER.warn("{} is locked by PID {} at {}, waiting for 5s".format(repo, pid, host))
-                    time.sleep(5)
+        code, stdout, stderr = self._run_expecting_restic_lock(base_cmd, "forget --keep-within 31d")
+        if code > 0:
+            LOGGER.warn("Failed to forget old snapshots for repo {}, "
+                        "STDOUT: {} STDERR: {}".format(repo, stdout, stderr))
         try:
             requests.get("http://{}/_snapshot/{}".format(CONFIG.backup.server.names[0], repo))
         except Exception as e:
