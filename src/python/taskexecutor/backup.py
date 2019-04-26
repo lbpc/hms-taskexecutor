@@ -79,7 +79,7 @@ class ResticBackup(Backuper):
                 break
             elif code > 0:
                 pid, host = matched.groups()
-                if host == CONFIG.hostname and not pid_exists(pid):
+                if host == CONFIG.hostname and not pid_exists(int(pid)):
                 # Considering that repository was locked from here and PID is no longer exist, it's safe to unlock now
                     taskexecutor.utils.exec_command(base_cmd + " unlock")
                 else:
