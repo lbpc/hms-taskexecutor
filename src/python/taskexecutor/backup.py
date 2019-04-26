@@ -1,7 +1,10 @@
 import abc
 import os
+import re
 import requests
 import shlex
+import time
+from psutil import pid_exists
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
@@ -55,20 +58,33 @@ class ResticBackup(Backuper):
         backup_cmd = "backup {0} {1}".format("".join((" -e {}".format(shlex.quote(e)) for e in exclude)), dir)
         code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + "init", raise_exc=False)
         if code > 0 and not stderr.rstrip().endswith("already exists"):
-            raise BackupError(stderr)
+            raise BackupError("Resic error: {}".format(stderr.strip()))
         code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + backup_cmd, raise_exc=False)
         if code > 0:
-            raise BackupError(stderr)
+            raise BackupError("Resic error: {}".format(stderr.strip()))
         try:
             snapshot_id = stdout.strip().split("\n")[-1].split()[1]
             LOGGER.info("{} saved in {} repo".format(snapshot_id, repo))
         except IndexError:
             LOGGER.warn("{} snapshotted successfully, but no snapshot ID found, "
-                        "STDOUT: {} STDERR: {}".format(repo, stdout, stderr))
-        code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + " forget --keep-within 31d", raise_exc=False)
-        if code > 0:
-            LOGGER.warn("Failed to forget old snapshots for repo {}, "
-                        "STDOUT: {} STDERR: {}".format(repo, stdout, stderr))
+                        "STDOUT: {} STDERR: {}".format(repo, stdout.strip(), stderr.strip()))
+        code = 1
+        while code > 0:
+            code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd +
+                                                                   " forget --keep-within 31d", raise_exc=False)
+            matched = re.match(r"Fatal: unable to create lock in backend: repository is already locked exclusively "
+                               r"by PID (\d+) on ([^.]+)", stderr or "")
+            if code > 0 and not matched:
+                LOGGER.warn("Failed to forget old snapshots for repo {}, "
+                            "STDOUT: {} STDERR: {}".format(repo, stdout.strip(), stderr.strip()))
+                break
+            pid, host = matched.groups()
+            if host == CONFIG.hostname and not pid_exists(pid):
+            # Considering that repository was locked from here and PID is no longer exist, it's safe to unlock now
+                taskexecutor.utils.exec_command(base_cmd + " unlock")
+            else:
+                LOGGER.warn("{} is locked by PID {} at {}, waiting for 5s".format(repo, pid, host))
+                time.sleep(5)
         try:
             requests.get("http://{}/_snapshot/{}".format(CONFIG.backup.server.names[0], repo))
         except Exception as e:

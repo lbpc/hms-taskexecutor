@@ -150,8 +150,9 @@ class AlertaReporter(Reporter):
                             resource=task.actid,
                             event="task.finished",
                             value={True: "Ok", False: "Failed"}[success],
-                            text=task.params.get("last_exception", "Done"),
+                            text="Done" if success else task.params.get("last_exception", "Failed"),
                             severity={True: "Ok", False: "Minor"}[success],
+                            hostname=CONFIG.hostname,
                             attributes=attributes)
         return self._report
 
