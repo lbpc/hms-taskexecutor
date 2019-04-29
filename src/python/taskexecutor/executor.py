@@ -335,6 +335,7 @@ class Executor:
                      self._query_task_pool, self._backup_files_task_pool, self._backup_dbs_task_pool):
             q = list(pool.dump_work_queue(lambda i: i[1].origin is not taskexecutor.listener.AMQPListener))
             if q:
+                LOGGER.debug("Got pending tasks from {}: {}".format(pool.name, q))
                 filename = self.pool_dump_template.format(pool.name)
                 LOGGER.info("Dumping {0} tasks from {1} to disk: {2}".format(len(q), pool.name, filename))
                 with open(filename, "wb") as f:
