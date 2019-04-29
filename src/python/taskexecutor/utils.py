@@ -48,7 +48,7 @@ class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
                 break
 
     def dump_work_queue(self, filter_fn):
-        return ((i.fn, i.args, i.kwargs) for i in self._get_workqueue_items() if filter_fn(i))
+        return (i.args for i in self._get_workqueue_items() if filter_fn(i.args))
 
 
 def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_streams=False, raise_exc=True):
