@@ -298,9 +298,9 @@ class Executor:
             if os.path.exists(filename):
                 LOGGER.info("Restoring {} tasks from disk".format(pool.name))
                 with open(filename, "wb") as f:
-                    for args in pickle.load(f):
-                        LOGGER.debug("Submitting {} to {}".format(args, pool.name))
-                        pool.submit(*args)
+                    for task in pickle.load(f):
+                        in_queue.put(task)
+                        LOGGER.info("Task restored: {}".format(task))
                 os.unlink(filename)
 
         while not self._stopping:
@@ -333,13 +333,14 @@ class Executor:
                     "waiting for workers".format({True: "", False: "not "}[self._shutdown_wait]))
         for pool in (self._command_task_pool, self._long_command_task_pool,
                      self._query_task_pool, self._backup_files_task_pool, self._backup_dbs_task_pool):
-            q = list(pool.dump_work_queue(lambda i: i[1].origin is not taskexecutor.listener.AMQPListener))
-            if q:
-                LOGGER.debug("Got pending tasks from {}: {}".format(pool.name, q))
+            tasks = [pair[1] for pair in pool.dump_work_queue(
+                    lambda i: i[1].origin is not taskexecutor.listener.AMQPListener
+            )]
+            if tasks:
                 filename = self.pool_dump_template.format(pool.name)
                 LOGGER.info("Dumping {0} tasks from {1} to disk: {2}".format(len(q), pool.name, filename))
                 with open(filename, "wb") as f:
-                    pickle.dump(q, f)
+                    pickle.dump(tasks, f)
             pool.shutdown(wait=self._shutdown_wait)
 
     def stop(self, wait=False):
