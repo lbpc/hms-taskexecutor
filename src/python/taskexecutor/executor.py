@@ -332,9 +332,12 @@ class Executor:
                 del future_to_task_map
         LOGGER.info("Shutting all pools down {}"
                     "waiting for workers".format({True: "", False: "not "}[self._shutdown_wait]))
+        def filter(i):
+            LOGGER.debug("fn: {0.fn} args: {0.args} kwargs: {0.kwargs}".format(i))
+            return i.args[0].origin is not taskexecutor.listener.AMQPListener
         for pool in (self._command_task_pool, self._long_command_task_pool,
                      self._query_task_pool, self._backup_files_task_pool, self._backup_dbs_task_pool):
-            q = list(pool.dump_work_queue(lambda i: i.args[0].origin is not taskexecutor.listener.AMQPListener))
+            q = list(pool.dump_work_queue(filter))
             if q:
                 filename = self.pool_dump_template.format(pool.name)
                 LOGGER.info("Dumping {0} tasks from {1} to disk: {2}".format(len(q), pool.name, filename))
