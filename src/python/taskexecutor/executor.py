@@ -338,7 +338,7 @@ class Executor:
             )]
             if tasks:
                 filename = self.pool_dump_template.format(pool.name)
-                LOGGER.info("Dumping {0} tasks from {1} to disk: {2}".format(len(q), pool.name, filename))
+                LOGGER.info("Dumping {0} tasks from {1} to disk: {2}".format(len(tasks), pool.name, filename))
                 with open(filename, "wb") as f:
                     pickle.dump(tasks, f)
             pool.shutdown(wait=self._shutdown_wait)
