@@ -128,7 +128,7 @@ class Executor:
         self._backup_files_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.backup.files)
         self._backup_files_task_pool.name = "backup_files_task_pool"
         self._backup_dbs_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.backup.dbs)
-        self._backup_dbs_task_pool = "backup_dbs_task_pool"
+        self._backup_dbs_task_pool.name = "backup_dbs_task_pool"
         self._future_to_task_map = dict()
 
     @classmethod
