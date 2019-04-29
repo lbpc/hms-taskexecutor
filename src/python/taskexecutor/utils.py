@@ -5,6 +5,7 @@ import re
 import subprocess
 import functools
 import threading
+import queue
 
 from taskexecutor.logger import LOGGER
 
@@ -16,8 +17,17 @@ class CommandExecutionError(Exception):
 
 
 class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
-    def submit(self, f, *args, **kwargs):
-        return super(ThreadPoolExecutorStackTraced, self).submit(self._function_wrapper, f, *args, **kwargs)
+    def __init__(self, max_workers):
+        self._name = None
+        super().__init__(max_workers=max_workers)
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, name):
+        self._name = name
 
     @staticmethod
     def _function_wrapper(fn, *args, **kwargs):
@@ -26,6 +36,19 @@ class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
         except Exception as e:
             LOGGER.error("{}EOT".format(traceback.format_exc()))
             raise e
+
+    def submit(self, f, *args, **kwargs):
+        return super(ThreadPoolExecutorStackTraced, self).submit(self._function_wrapper, f, *args, **kwargs)
+
+    def _get_workqueue_items(self):
+        while True:
+            try:
+                yield self._work_queue.get(block=False)
+            except queue.Empty:
+                break
+
+    def dump_work_queue(self, filter_fn):
+        return (i.fn, i.args, i.kwargs for i in self._get_workqueue_items() if filter_fn(i))
 
 
 def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_streams=False, raise_exc=True):

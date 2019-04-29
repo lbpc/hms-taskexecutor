@@ -1,6 +1,8 @@
 import copy
 import collections
 import datetime
+import os
+import pickle
 import time
 import urllib.parse
 import queue
@@ -112,15 +114,21 @@ class ResourceBuilder:
 class Executor:
     __new_task_queue = queue.Queue()
     __failed_tasks = dict()
+    pool_dump_template = "/var/cache/te/{}.pkl"
 
     def __init__(self):
         self._stopping = False
         self._shutdown_wait = False
         self._command_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.command)
+        self._command_task_pool.name = "command_task_pool"
         self._long_command_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.command // 2)
+        self._long_command_task_pool.name = "long_command_task_pool"
         self._query_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.query)
+        self._query_task_pool.name = "query_task_pool"
         self._backup_files_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.backup.files)
+        self._backup_files_task_pool.name = "backup_files_task_pool"
         self._backup_dbs_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.backup.dbs)
+        self._backup_dbs_task_pool = "backup_dbs_task_pool"
         self._future_to_task_map = dict()
 
     @classmethod
@@ -284,6 +292,18 @@ class Executor:
     def run(self):
         taskexecutor.utils.set_thread_name("Executor")
         in_queue = self.get_new_task_queue()
+        for pool in (self._command_task_pool, self._long_command_task_pool,
+                     self._query_task_pool, self._backup_files_task_pool, self._backup_dbs_task_pool):
+            filename = self.pool_dump_template.format(pool.name)
+            if os.path.exists(filename):
+                LOGGER.info("Restoring {} tasks from disk".format(pool.name))
+                with open(filename, "wb") as f:
+                    for fn, args, kwargs in pickle.load(f):
+                        LOGGER.debug("Submitting to {} {} "
+                                     "with args {} and keyword args {}".format(pool.name, fn, args, kwargs))
+                        pool.submit(fn, *args, **kwargs)
+                os.unlink(filename)
+
         while not self._stopping:
             try:
                 task = in_queue.get(timeout=.2)
@@ -312,11 +332,15 @@ class Executor:
                 del future_to_task_map
         LOGGER.info("Shutting all pools down {}"
                     "waiting for workers".format({True: "", False: "not "}[self._shutdown_wait]))
-        self._command_task_pool.shutdown(wait=self._shutdown_wait)
-        self._long_command_task_pool.shutdown(wait=self._shutdown_wait)
-        self._query_task_pool.shutdown(wait=self._shutdown_wait)
-        self._backup_files_task_pool.shutdown(wait=self._shutdown_wait)
-        self._backup_dbs_task_pool.shutdown(wait=self._shutdown_wait)
+        for pool in (self._command_task_pool, self._long_command_task_pool,
+                     self._query_task_pool, self._backup_files_task_pool, self._backup_dbs_task_pool):
+            q = list(pool.dump_work_queue(lambda i: i.args[0].origin is not taskexecutor.listener.AMQPListener))
+            if q:
+                filename = self.pool_dump_template.format(pool.name)
+                LOGGER.info("Dumping {0} tasks from {1} to disk: {2}".format(len(q), pool.name, filename))
+                with open(filename, "wb") as f:
+                    pickle.dump(q, f)
+            pool.shutdown(wait=self._shutdown_wait)
 
     def stop(self, wait=False):
         self._shutdown_wait = wait
