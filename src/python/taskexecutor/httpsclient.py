@@ -1,12 +1,8 @@
 import abc
 import http.client
 import json
-import re
 import time
 import base64
-import functools
-import collections
-import copy
 import urllib.parse
 
 from taskexecutor.logger import LOGGER
@@ -268,97 +264,16 @@ class GitLabClient(HttpsClient):
 
 
 class ApiObjectMapper:
-    _classes_mapping = dict()
-
     def __init__(self, json_string):
         self._json_string = json_string
 
-    def dict_merge(self, target, *args, overwrite=False):
-        if len(args) > 1:
-            for obj in args:
-                self.dict_merge(target, obj, overwrite=overwrite)
-            return target
-
-        obj = args[0]
-        if not isinstance(obj, dict):
-            return obj
-        for k, v in obj.items():
-            if k in target and isinstance(target[k], dict):
-                self.dict_merge(target[k], v, overwrite=overwrite)
-            elif k in target.keys() and overwrite:
-                target[k] = v
-            elif k not in target.keys():
-                target[k] = copy.deepcopy(v)
-        return target
-
-    def to_namedtuple(self, mapping):
-        if isinstance(mapping, collections.Mapping):
-            for k, v in mapping.items():
-                mapping[k] = self.to_namedtuple(v)
-            return self.namedtuple_from_mapping(mapping)
-        return mapping
-
-    def namedtuple_from_mapping(self, mapping):
-        class_key = mapping.get("@type") or " ".join([str(k) for k in mapping.keys()])
-        type_name = "ApiObject"
-        if "@type" in mapping.keys():
-            type_name = mapping.pop("@type")
-        for k, v in mapping.items():
-            if not k.isidentifier():
-                mapping[re.sub('\W|^\d', '_', k).lstrip('_')] = v
-                del mapping[k]
-        ApiObject = ApiObjectMapper._classes_mapping.get(class_key)
-        if not ApiObject:
-            ApiObject = collections.namedtuple(type_name, mapping.keys())
-            ApiObjectMapper._classes_mapping[class_key] = ApiObject
-        return ApiObject(**mapping)
-
-    def cast_to_numeric_recursively(self, dct):
-        for k, v in dct.items():
-            if isinstance(v, dict):
-                self.cast_to_numeric_recursively(v)
-            elif isinstance(v, str) and re.match("^[\d]+$", v):
-                dct[k] = int(v)
-            elif isinstance(v, str) and re.match("^[\d]?\.[\d]+$", v):
-                dct[k] = float(v)
-        return dct
-
-    def comma_separated_to_list(self, dct):
-        for k, v in dct.items():
-            if isinstance(v, dict):
-                self.comma_separated_to_list(v)
-            elif isinstance(v, str) and "," in v:
-                dct[k] = [e.strip() for e in v.split(",")]
-        return dct
-
-    def object_hook(self, dct, extra, overwrite, expand, comma, numcast):
-        dct = self.cast_to_numeric_recursively(dct) if numcast else dct
-        if extra and numcast:
-            extra = self.cast_to_numeric_recursively(extra)
-        if comma:
-            dct = self.comma_separated_to_list(dct)
-        if expand:
-            new_dct = dict()
-            for key in dct.keys():
-                self.dict_merge(new_dct,
-                                functools.reduce(lambda x, y: {y: x}, reversed(key.split(".")), dct[key]),
-                                overwrite=overwrite)
-            if extra and all(k in new_dct.keys() for k in extra.keys()):
-                self.dict_merge(new_dct, extra, overwrite=overwrite)
-            return self.to_namedtuple(new_dct)
-        else:
-            if extra and all(k in dct.keys() for k in extra.keys()):
-                self.dict_merge(dct, extra, overwrite=overwrite)
-            return self.namedtuple_from_mapping(dct)
-
     def as_object(self, extra_attrs=None, overwrite=False,
                   expand_dot_separated=False, comma_separated_to_list=False, force_numeric=False):
-        obj = json.loads(
+        return json.loads(
                 self._json_string,
-                object_hook=lambda d: self.object_hook(d, extra_attrs, overwrite,
-                                                       expand_dot_separated, comma_separated_to_list, force_numeric)
+                object_hook=lambda d: taskexecutor.utils.object_hook(d, extra_attrs, overwrite, expand_dot_separated,
+                                                                     comma_separated_to_list, force_numeric)
         )
-        obj.__reduce__ = lambda: (self.as_object, (self, extra_attrs, overwrite))
 
     def as_dict(self):
-        return self.cast_to_numeric_recursively(json.loads(self._json_string))
+        return taskexecutor.utils.cast_to_numeric_recursively(json.loads(self._json_string))
