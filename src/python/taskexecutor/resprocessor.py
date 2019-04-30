@@ -408,6 +408,7 @@ class DatabaseUserProcessor(ResProcessor):
                                                                           self.resource.name,
                                                                           addrs_set))
             self.service.create_user(self.resource.name, self.resource.passwordHash, list(addrs_set))
+            self.service.set_initial_permissions(self.resource.name, list(addrs_set))
             self._apply_restrictions()
             self._apply_customizations()
         else:
@@ -429,6 +430,7 @@ class DatabaseUserProcessor(ResProcessor):
                                      list(staging_addrs_set.difference(current_addrs_set)))
             self.service.set_password(self.resource.name, self.resource.passwordHash,
                                       list(current_addrs_set.intersection(staging_addrs_set)))
+            self.service.set_initial_permissions(self.resource.name, list(staging_addrs_set))
             self._apply_restrictions()
             self._apply_customizations()
         else:

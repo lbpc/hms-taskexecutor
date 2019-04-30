@@ -326,3 +326,7 @@ class DatabaseServer(ConfigurableService, NetworkingService, ArchivableService, 
     @abc.abstractmethod
     def preset_user_session_vars(self, user_name, addrs_list, vars_map):
         pass
+
+    @abc.abstractmethod
+    def set_initial_permissions(self, user_name, addrs_list):
+        pass

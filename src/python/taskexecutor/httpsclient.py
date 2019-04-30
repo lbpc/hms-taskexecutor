@@ -353,11 +353,12 @@ class ApiObjectMapper:
 
     def as_object(self, extra_attrs=None, overwrite=False,
                   expand_dot_separated=False, comma_separated_to_list=False, force_numeric=False):
-        return json.loads(
+        obj = json.loads(
                 self._json_string,
                 object_hook=lambda d: self.object_hook(d, extra_attrs, overwrite,
                                                        expand_dot_separated, comma_separated_to_list, force_numeric)
         )
+        obj.__reduce__ = lambda: (self.as_object, (self, extra_attrs, overwrite))
 
     def as_dict(self):
         return self.cast_to_numeric_recursively(json.loads(self._json_string))

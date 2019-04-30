@@ -367,7 +367,6 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     def create_user(self, name, password_hash, addrs_list):
         for address in addrs_list:
             self.dbclient.execute_query("CREATE USER %s@%s IDENTIFIED BY PASSWORD %s", (name, address, password_hash))
-            self.dbclient.execute_query("GRANT SELECT ON mysql_custom.session_vars TO %s@%s", (name, address))
 
     def set_password(self, name, password_hash, addrs_list):
         for address in addrs_list:
@@ -376,7 +375,8 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     def drop_user(self, name, addrs_list):
         for address in addrs_list:
             self.dbclient.execute_query("DROP USER %s@%s", (name, address))
-            self.dbclient.execute_query("DELETE FROM mysql_custom.session_vars WHERE user='%s@%s'", (name, address))
+            self.dbclient.execute_query("DELETE FROM mysql_custom.session_vars WHERE user=%s",
+                                        ("{}@{}".format(name, address),))
 
     def create_database(self, name):
         self.dbclient.execute_query("CREATE DATABASE IF NOT EXISTS `{}`".format(name), ())
@@ -456,6 +456,10 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                                          vars_map.get("character_set_connection"),
                                          vars_map.get("character_set_results"),
                                          vars_map.get("collation_connection")))
+
+    def set_initial_permissions(self, user_name, addrs_list):
+        for address in addrs_list:
+            self.dbclient.execute_query("GRANT SELECT ON mysql_custom.session_vars TO %s@%s", (user_name, address))
 
 
 class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
@@ -648,6 +652,9 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         return
 
     def preset_user_session_vars(self, user_name, addrs_list, vars_map):
+        return
+
+    def set_initial_permissions(self, user_name, addrs_list):
         return
 
 
