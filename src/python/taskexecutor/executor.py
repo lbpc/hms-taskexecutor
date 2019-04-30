@@ -297,10 +297,13 @@ class Executor:
             filename = self.pool_dump_template.format(pool.name)
             if os.path.exists(filename):
                 LOGGER.info("Restoring {} tasks from disk".format(pool.name))
-                with open(filename, "wb") as f:
-                    for task in pickle.load(f):
-                        in_queue.put(task)
-                        LOGGER.info("Task restored: {}".format(task))
+                try:
+                    with open(filename, "rb") as f:
+                        for task in pickle.load(f):
+                            in_queue.put(task)
+                            LOGGER.info("Task restored: {}".format(task))
+                except Exception as e:
+                    LOGGER.error("Failed to restore tasks from {}: {}".format(filename, e))
                 os.unlink(filename)
 
         while not self._stopping:
