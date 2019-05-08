@@ -1,4 +1,5 @@
 import abc
+import hashlib
 import os
 import re
 import requests
@@ -75,6 +76,7 @@ class ResticBackup(Backuper):
         repo = os.path.basename(dir)
         if hasattr(self._resource, "mailSpool") and hasattr(self._resource, "domain"):
             repo = "{}@{}".format(self._resource.name, self._resource.domain.name)
+        repo = os.path.join(hashlib.sha1(repo.encode()).hexdigest()[:2], repo)
         exclude = exclude or self.default_excludes
         base_cmd = ("RESTIC_PASSWORD={0.password} "
                "{0.binary.path} -r rest:http://restic:{0.password}@{0.host}:{0.port}/{1} ".format(CONFIG.restic, repo))
