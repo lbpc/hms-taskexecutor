@@ -157,7 +157,10 @@ class AlertaReporter(Reporter):
         return self._report
 
     def send_report(self):
-        self._alerta.send_alert(**self._report)
+        try:
+            self._alerta.send_alert(**self._report)
+        except Exception as e:
+            LOGGER.error("Failed to send report to Alerta: {}".format(e))
 
 
 class NullReporter(Reporter):
