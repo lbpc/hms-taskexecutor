@@ -106,8 +106,8 @@ class ResticBackup(Backuper):
 
 class Builder:
     def __new__(cls, res_type):
-        ListenerClass = {"unix-account": ResticBackup,
+        BackuperClass = {"unix-account": ResticBackup,
                          "website": ResticBackup}.get(res_type)
-        if not ListenerClass:
+        if not BackuperClass:
             raise BuilderTypeError("Unknown resource type: {}".format(res_type))
-        return ListenerClass
+        return BackuperClass
