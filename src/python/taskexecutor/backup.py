@@ -5,7 +5,7 @@ import re
 import requests
 import shlex
 import time
-from psutil import pid_exists
+from psutil import pid_exists, Process
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
@@ -53,7 +53,8 @@ class ResticBackup(Backuper):
                 break
             elif code > 0:
                 pid, host = matched.groups()
-                if host == CONFIG.hostname and not pid_exists(int(pid)):
+                pid = int(pid)
+                if host == CONFIG.hostname and (not pid_exists(pid) or Process(pid) != "restic"):
                     # Considering that repository was locked from here and PID is no longer exist,
                     # it's safe to unlock now
                     LOGGER.warn("repo is locked by PID {} from {} which is no longer running, "
