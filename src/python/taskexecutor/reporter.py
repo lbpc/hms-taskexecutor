@@ -1,6 +1,7 @@
 import abc
 import json
 import pika
+import alertaclient.api as alerta
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
@@ -124,6 +125,44 @@ class HttpsReporter(Reporter):
             Resource(endpoint).post(json.dumps(self._report))
 
 
+class AlertaReporter(Reporter):
+    def __init__(self):
+        super().__init__()
+        self._alerta = alerta.Client(**CONFIG.alerta._asdict())
+
+    def create_report(self, task):
+        success = bool(task.state ^ taskexecutor.task.FAILED)
+        attributes = dict(publicParams=[],
+                          tag=task.tag,
+                          origin=str(task.origin),
+                          opid=task.opid,
+                          actid=task.actid,
+                          res_type=task.res_type,
+                          action=task.action)
+        try:
+            resource = task.params.pop("resource")
+            task.params["hmsResource"] = resource._asdict()
+        except KeyError:
+            pass
+        attributes.update(task.params)
+        self._report = dict(environment="HMS",
+                            service=["taskexecutor"],
+                            resource=task.actid,
+                            event="task.finished",
+                            value={True: "Ok", False: "Failed"}[success],
+                            text="Done" if success else task.params.get("last_exception", "Failed"),
+                            severity={True: "Ok", False: "Minor"}[success],
+                            hostname=CONFIG.hostname,
+                            attributes=attributes)
+        return self._report
+
+    def send_report(self):
+        try:
+            self._alerta.send_alert(**self._report)
+        except Exception as e:
+            LOGGER.error("Failed to send report to Alerta: {}".format(e))
+
+
 class NullReporter(Reporter):
     def create_report(self, task):
         return
@@ -136,6 +175,7 @@ class Builder:
     def __new__(cls, reporter_type):
         ReporterClass = {"amqp": AMQPReporter,
                          "https": HttpsReporter,
+                         "alerta": AlertaReporter,
                          "null": NullReporter}.get(reporter_type)
         if not ReporterClass:
             raise BuilderTypeError("Unknown Reporter type: {}".format(reporter_type))

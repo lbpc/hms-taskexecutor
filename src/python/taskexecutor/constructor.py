@@ -15,6 +15,7 @@ import taskexecutor.resprocessor
 import taskexecutor.sysservice
 import taskexecutor.listener
 import taskexecutor.reporter
+import taskexecutor.backup
 import taskexecutor.httpsclient
 import taskexecutor.utils
 
@@ -131,3 +132,7 @@ def get_listener(listener_type):
 def get_reporter(reporter_type):
     Reporter = taskexecutor.reporter.Builder(reporter_type)
     return Reporter()
+
+def get_backuper(res_type, resource):
+    Backuper = taskexecutor.backup.Builder(res_type)
+    return Backuper(resource)

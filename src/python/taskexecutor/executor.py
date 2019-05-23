@@ -1,5 +1,8 @@
 import copy
 import collections
+import datetime
+import os
+import pickle
 import time
 import urllib.parse
 import queue
@@ -111,13 +114,21 @@ class ResourceBuilder:
 class Executor:
     __new_task_queue = queue.Queue()
     __failed_tasks = dict()
+    pool_dump_template = "/var/cache/te/{}.pkl"
 
     def __init__(self):
         self._stopping = False
         self._shutdown_wait = False
         self._command_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.command)
+        self._command_task_pool.name = "command_task_pool"
         self._long_command_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.command // 2)
+        self._long_command_task_pool.name = "long_command_task_pool"
         self._query_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.query)
+        self._query_task_pool.name = "query_task_pool"
+        self._backup_files_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.backup.files)
+        self._backup_files_task_pool.name = "backup_files_task_pool"
+        self._backup_dbs_task_pool = taskexecutor.utils.ThreadPoolExecutorStackTraced(CONFIG.max_workers.backup.dbs)
+        self._backup_dbs_task_pool.name = "backup_dbs_task_pool"
         self._future_to_task_map = dict()
 
     @classmethod
@@ -146,11 +157,15 @@ class Executor:
     def select_pool(self, task):
         return {True: self._query_task_pool,
                 task.action in ("create", "update", "delete"): self._command_task_pool,
-                "oldServerName" in task.params.keys(): self._long_command_task_pool}[True]
+                "oldServerName" in task.params.keys(): self._long_command_task_pool,
+                task.action == "backup": self._backup_files_task_pool,
+                task.action == "backup" and task.res_type == "database": self._backup_dbs_task_pool}[True]
 
     def select_reporter(self, task):
         if task.origin.__name__ == "AMQPListener" and task.action in ("create", "update", "delete"):
             return taskexecutor.constructor.get_reporter("amqp")
+        elif task.action == "backup":
+            return taskexecutor.constructor.get_reporter("alerta")
         elif task.action in ("quota_report", "malware_report"):
             return taskexecutor.constructor.get_reporter("https")
         else:
@@ -166,16 +181,16 @@ class Executor:
         for idx, resource in enumerate(resources):
             params = copy.copy(task.params)
             params.update({"resource": resource})
-            tag = task.tag if idx == last_idx else None
-            actid_suffix = resource.name
+            suffix = resource.name
+            tag = task.tag if idx == last_idx else "{0}.{1}".format(task.tag, suffix)
             if (hasattr(resource, "quota") and resource.quota == 0) or not resource.switchedOn:
                 continue
             if hasattr(resource, "domain"):
-                actid_suffix = "{0}@{1}".format(actid_suffix, resource.domain.name)
+                suffix = "{0}@{1}".format(suffix, resource.domain.name)
             subtasks.append(taskexecutor.task.Task(tag=tag,
                                                    origin=task.origin,
                                                    opid=task.opid,
-                                                   actid="{}.{}".format(task.actid, actid_suffix),
+                                                   actid="{}.{}".format(task.actid, suffix),
                                                    res_type=task.res_type,
                                                    action=task.action,
                                                    params=params))
@@ -212,8 +227,9 @@ class Executor:
         return sequence
 
     def process_task(self, task):
+        task.params["started"] = datetime.datetime.now().isoformat()
         taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0.opid} ACTION IDENTITY: {0.actid}".format(task))
-        if task.params.get("failcount") and task.origin is not taskexecutor.listener.TimeListener:
+        if task.params.get("failcount"):
             if task.params["failcount"] >= CONFIG.task.max_retries:
                 LOGGER.warning("Currently processed task had failed {0} times before, "
                                "giving up".format(task.params["failcount"]))
@@ -245,6 +261,9 @@ class Executor:
                 method()
                 if processor.extra_services and hasattr(processor.extra_services, "http_proxy"):
                     task.params["httpProxyIp"] = processor.extra_services.http_proxy.socket.http.address
+        elif task.action == "backup":
+            backuper = taskexecutor.constructor.get_backuper(task.res_type, task.params["resource"])
+            backuper.backup()
         else:
             collector = taskexecutor.constructor.get_rescollector(task.res_type, task.params["resource"])
             task.params["data"] = dict()
@@ -273,6 +292,20 @@ class Executor:
     def run(self):
         taskexecutor.utils.set_thread_name("Executor")
         in_queue = self.get_new_task_queue()
+        for pool in (self._command_task_pool, self._long_command_task_pool,
+                     self._query_task_pool, self._backup_files_task_pool, self._backup_dbs_task_pool):
+            filename = self.pool_dump_template.format(pool.name)
+            if os.path.exists(filename):
+                LOGGER.info("Restoring {} tasks from disk".format(pool.name))
+                try:
+                    with open(filename, "rb") as f:
+                        for task in pickle.load(f):
+                            in_queue.put(task)
+                            LOGGER.info("Task restored: {}".format(task))
+                except Exception as e:
+                    LOGGER.error("Failed to restore tasks from {}: {}".format(filename, e))
+                os.unlink(filename)
+
         while not self._stopping:
             try:
                 task = in_queue.get(timeout=.2)
@@ -287,8 +320,10 @@ class Executor:
                 future_to_task_map = copy.copy(self._future_to_task_map)
                 for future, task in future_to_task_map.items():
                     if future.done():
-                        if future.exception():
+                        exc  = future.exception()
+                        if exc:
                             task.state = taskexecutor.task.FAILED
+                            task.params['last_exception'] = str(exc)
                             self._remember_failed_task(task)
                         elif self._get_task_failcount(task) > 0:
                             self._forget_failed_task(task)
@@ -299,9 +334,17 @@ class Executor:
                 del future_to_task_map
         LOGGER.info("Shutting all pools down {}"
                     "waiting for workers".format({True: "", False: "not "}[self._shutdown_wait]))
-        self._command_task_pool.shutdown(wait=self._shutdown_wait)
-        self._long_command_task_pool.shutdown(wait=self._shutdown_wait)
-        self._query_task_pool.shutdown(wait=self._shutdown_wait)
+        for pool in (self._command_task_pool, self._long_command_task_pool,
+                     self._query_task_pool, self._backup_files_task_pool, self._backup_dbs_task_pool):
+            tasks = [pair[1] for pair in pool.dump_work_queue(
+                    lambda i: i[1].origin is not taskexecutor.listener.AMQPListener
+            )]
+            if tasks:
+                filename = self.pool_dump_template.format(pool.name)
+                LOGGER.info("Dumping {0} tasks from {1} to disk: {2}".format(len(tasks), pool.name, filename))
+                with open(filename, "wb") as f:
+                    pickle.dump(tasks, f)
+            pool.shutdown(wait=self._shutdown_wait)
 
     def stop(self, wait=False):
         self._shutdown_wait = wait

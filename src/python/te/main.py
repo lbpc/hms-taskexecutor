@@ -17,8 +17,8 @@ STOP = False
 
 """Taskexecutor MJ inc"""
 def receive_signal(signum, unused_stack):
-    if signum == signal.SIGINT:
-        logger.LOGGER.info("SIGINT recieved")
+    if signum in (signal.SIGINT, signal.SIGTERM):
+        logger.LOGGER.info("{} signal recieved".format(signum))
         global STOP
         STOP = True
     elif signum == signal.SIGUSR1:
@@ -54,6 +54,7 @@ def populate_restricted_uids_set(get_uids_queue):
 
 def main():
     signal.signal(signal.SIGINT, receive_signal)
+    signal.signal(signal.SIGTERM, receive_signal)
     signal.signal(signal.SIGUSR1, receive_signal)
     executor = Executor()
     executor_thread = threading.Thread(target=executor.run, daemon=True)

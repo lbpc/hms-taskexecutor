@@ -9,6 +9,7 @@ python_library(
     '3rdparty/python:pyaml',
     '3rdparty/python:docker',
     '3rdparty/python:pg8000',
-    '3rdparty/python:requests'
+    '3rdparty/python:requests',
+    '3rdparty/python:alerta'
   ],
 )

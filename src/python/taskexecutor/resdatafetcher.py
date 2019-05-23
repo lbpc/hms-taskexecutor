@@ -115,7 +115,9 @@ class RsyncDataFetcher(DataFetcher):
         self.restic_repo = None
         if self.src_host.split(":")[0] in CONFIG.backup.server.names and \
                 self.src_path.split('/')[1:2] == [CONFIG.backup.server.restic_location]:
-            self.restic_repo = self.src_path.split('/')[2:3][0]
+            self.restic_repo = self.src_path.split("/ids/")[0].replace(
+                    "/{}/".format(CONFIG.backup.server.restic_location), ""
+            )
 
     def _mount_restic_repo(self):
         url = "http://{}/_mount/{}".format(self.src_host, self.restic_repo)
