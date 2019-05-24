@@ -113,9 +113,9 @@ class HttpsReporter(Reporter):
 
     def create_report(self, task):
         self._task = task
-        self._resource = task.params["resource"]
-        del self._task.params["resource"]
-        self._report = task.params["data"]
+        self._resource = task.params.get("resource")
+        if self._resource:
+            self._report = task.params["data"]
         return self._report
 
     def send_report(self):
