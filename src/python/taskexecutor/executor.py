@@ -278,7 +278,7 @@ class Executor:
         task.state = report_state
         reporter = self.select_reporter(task)
         report = reporter.create_report(task)
-        if task.action == "malware_report":
+        if task.action == "malware_report" and resource:
             infected_sign = int(bool(report.get("infectedFiles") or resource.infected)) * 2 - 1
             taskexecutor.watchdog.ProcessWatchdog.get_uids_queue().put(resource.uid * infected_sign)
         if report and not any(report.values()):
