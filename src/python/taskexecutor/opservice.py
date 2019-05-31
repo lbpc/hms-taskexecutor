@@ -1,4 +1,5 @@
 import abc
+import docker
 import re
 import os
 import sys
@@ -185,6 +186,37 @@ class SysVService(OpService):
         except Exception as e:
             LOGGER.warn(e)
             return DOWN
+
+
+class DockerService(OpService):
+    def __init__(self, name):
+        super().__init__(name)
+        self._docker_client = docker.from_env()
+        self._docker_client.login(**CONFIG.docker_registry)
+        self._image = "{}/{}".format(CONFIG.docker_registry.registry, self.name)
+        self._container_name = self.name
+        self._run_args = {"name": self._container_name,
+                          "detach": True,
+                          "init": True,
+                          "tty": False,
+                          "restart_policy": {"Name": "always"},
+                          "network_mode": "host"}
+
+    def start(self):
+        self._docker_client.images.pull(self._image)
+        self._docker_client.containers.run(self._image, **self._run_args)
+
+    def stop(self):
+        container = self._docker_client.containers.get(self._container_name)
+        container.stop()
+        container.remove()
+
+    def restart(self):
+        self.stop()
+        self.start()
+
+    def reload(self):
+        pass
 
 
 class Nginx(taskexecutor.baseservice.WebServer, SysVService):

@@ -162,6 +162,9 @@ class Executor:
                 task.action == "backup" and task.res_type == "database": self._backup_dbs_task_pool}[True]
 
     def select_reporter(self, task):
+        null = taskexecutor.constructor.get_reporter("null")
+        if not task.params.get("resource"):
+            return null
         if task.origin.__name__ == "AMQPListener" and task.action in ("create", "update", "delete"):
             return taskexecutor.constructor.get_reporter("amqp")
         elif task.action == "backup":
@@ -169,7 +172,7 @@ class Executor:
         elif task.action in ("quota_report", "malware_report"):
             return taskexecutor.constructor.get_reporter("https")
         else:
-            return taskexecutor.constructor.get_reporter("null")
+            return null
 
     def select_reported_properties(self, task):
         return {"quota_report": ["quotaUsed"],
