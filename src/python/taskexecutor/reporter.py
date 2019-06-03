@@ -119,6 +119,9 @@ class HttpsReporter(Reporter):
         return self._report
 
     def send_report(self):
+        if not self._resource:
+            LOGGER.warning("Attepmted to send report without resource: {0._report}, task: {0._task}".format(self))
+            return
         with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
             Resource = getattr(api, taskexecutor.utils.to_camel_case(self._task.res_type))
             endpoint = "{0}/{1}".format(self._resource.id, taskexecutor.utils.to_lower_dashed(self._task.action))
