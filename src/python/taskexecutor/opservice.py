@@ -283,14 +283,18 @@ class DockerService(OpService):
 
 
 class NginxInDocker(taskexecutor.baseservice.WebServer, DockerService):
-    pass
+    def __init__(self, name):
+        taskexecutor.baseservice.WebServer.__init__(self)
+        DockerService.__init__(self, name)
 
 
 class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
     def __init__(self, name):
+        taskexecutor.baseservice.WebServer.__init__(self)
+        taskexecutor.baseservice.ApplicationServer.__init__(self)
         short_name = "apache2-{0.name}{0.version_major}{0.version_minor}".format(self.interpreter)
         self._image = "{}/webservices/{}:latest".format(CONFIG.docker_registry.registry, short_name)
-        super().__init__(name)
+        DockerService.__init__(self, name)
 
 
 class Nginx(taskexecutor.baseservice.WebServer, SysVService):
