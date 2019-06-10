@@ -209,7 +209,7 @@ class DockerService(OpService):
     def __init__(self, name):
         super().__init__(name)
         self._docker_client = docker.from_env()
-        self._docker_client.login(**CONFIG.docker_registry)
+        self._docker_client.login(**CONFIG.docker_registry._asdict())
         default_image = "{}/webservices/{}:latest".format(CONFIG.docker_registry.registry, self.name)
         self._image = getattr(self, "_image", default_image)
         self._container_name = getattr(self, "_container_name", self.name)
