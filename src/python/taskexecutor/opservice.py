@@ -263,7 +263,7 @@ class DockerService(OpService):
     def reload(self):
         container = self._docker_client.containers.get(self._container_name)
         if self._reload_cmd:
-            res = self._docker_client.exec_run(self._reload_cmd)
+            res = self.container.exec_run(self._reload_cmd)
             if res.exit_code > 0:
                 raise ServiceReloadError(res.output.decode())
         else:
@@ -292,7 +292,7 @@ class NginxInDocker(taskexecutor.baseservice.WebServer, DockerService):
         DockerService.__init__(self, name)
         self.config_base_path = "/opt/nginx/conf"
         self.site_template_name = "@NginxServerDocker"
-        self.ssl_certs_base_path = "/read/ssl"
+        self.ssl_certs_base_path = "/opt/nginx/ssl"
 
 
 class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
