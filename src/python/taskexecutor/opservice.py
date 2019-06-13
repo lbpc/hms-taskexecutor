@@ -263,7 +263,7 @@ class DockerService(OpService):
     def reload(self):
         container = self._docker_client.containers.get(self._container_name)
         if self._reload_cmd:
-            res = self.container.exec_run(self._reload_cmd)
+            res = container.exec_run(self._reload_cmd)
             if res.exit_code > 0:
                 raise ServiceReloadError(res.output.decode())
         else:
