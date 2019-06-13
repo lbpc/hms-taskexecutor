@@ -284,11 +284,11 @@ class DockerService(OpService):
 
 class NginxInDocker(taskexecutor.baseservice.WebServer, DockerService):
     def __init__(self, name):
-        self.config_base_path = "/opt/nginx/conf"
-        self.site_template_name = "@NginxServer"
-        self.ssl_certs_base_path = "/read/ssl"
         taskexecutor.baseservice.WebServer.__init__(self)
         DockerService.__init__(self, name)
+        self.config_base_path = "/opt/nginx/conf"
+        self.site_template_name = "@NginxServerDocker"
+        self.ssl_certs_base_path = "/read/ssl"
 
 
 class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
