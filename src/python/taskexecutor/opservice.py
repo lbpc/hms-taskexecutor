@@ -245,6 +245,10 @@ class DockerService(OpService):
         arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json"), "{}")
         run_args = self._default_run_args.copy()
         run_args.update(self._normalize_run_args(self._subst_env_vars(arg_hints)))
+        existing = next((c for c in self._docker_client.containers.list(all=True) if c.name == run_args["name"]), None)
+        if existing:
+            existing.stop()
+            existing.remove()
         self._docker_client.containers.run(self._image, **run_args)
 
     def stop(self):
