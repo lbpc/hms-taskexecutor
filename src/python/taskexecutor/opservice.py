@@ -292,7 +292,13 @@ class NginxInDocker(taskexecutor.baseservice.WebServer, DockerService):
         DockerService.__init__(self, name)
         self.config_base_path = "/opt/nginx/conf"
         self.site_template_name = "@NginxServerDocker"
-        self.ssl_certs_base_path = "/opt/nginx/ssl"
+        self.ssl_certs_base_path = CONFIG.nginx.ssl_certs_path
+
+    def get_website_config(self, site_id):
+        config = self.get_abstract_config(self.site_template_name,
+                                          os.path.join("/etc/nginx/sites-available", site_id + ".conf"),
+                                          config_type="website")
+        config.enabled_path = os.path.join("/etc/nginx/sites-enabled/{}.conf".format(site_id))
 
 
 class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
