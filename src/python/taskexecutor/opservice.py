@@ -299,6 +299,7 @@ class NginxInDocker(taskexecutor.baseservice.WebServer, DockerService):
                                           os.path.join("/etc/nginx/sites-available", site_id + ".conf"),
                                           config_type="website")
         config.enabled_path = os.path.join("/etc/nginx/sites-enabled/{}.conf".format(site_id))
+        return config
 
 
 class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
