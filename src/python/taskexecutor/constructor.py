@@ -41,10 +41,13 @@ def get_opservice(service_api_obj):
     global SERVICE_ID_TO_OPSERVICE_MAPPING
     service = SERVICE_ID_TO_OPSERVICE_MAPPING.get(service_api_obj.id)
     if not service:
+        LOGGER.debug("service template name is {}".format(service_api_obj.serviceTemplate.name))
         in_docker = service_api_obj.serviceTemplate.name.endswith("@docker")
         OpService = taskexecutor.opservice.Builder(service_api_obj.serviceTemplate.serviceType.name, docker=in_docker)
         service_name = "-".join(service_api_obj.serviceTemplate.serviceType.name.lower().split("_")[1:])
         service = OpService(service_name)
+        if isinstance(service, taskexecutor.opservice.DockerService):
+            LOGGER.debug("{} is dockerized service".format(service_name))
         if isinstance(service, taskexecutor.baseservice.NetworkingService):
             LOGGER.debug("{} is networking service".format(service_name))
             for socket in service_api_obj.serviceSockets:
