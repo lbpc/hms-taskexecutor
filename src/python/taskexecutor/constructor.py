@@ -41,7 +41,7 @@ def get_opservice(service_api_obj):
     global SERVICE_ID_TO_OPSERVICE_MAPPING
     service = SERVICE_ID_TO_OPSERVICE_MAPPING.get(service_api_obj.id)
     if not service:
-        in_docker = service_api_obj.name.startswith("docker-")
+        in_docker = service_api_obj.serviceTemplate.name.endswith("@docker")
         OpService = taskexecutor.opservice.Builder(service_api_obj.serviceTemplate.serviceType.name, docker=in_docker)
         service_name = "-".join(service_api_obj.serviceTemplate.serviceType.name.lower().split("_")[1:])
         service = OpService(service_name)
