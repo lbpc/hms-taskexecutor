@@ -241,6 +241,10 @@ class DockerService(OpService):
         self._docker_client.images.pull(self._image)
         image = self._docker_client.images.get(self._image)
         arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json"), "{}")
+        volumes = arg_hints.get("volumes", {})
+        for each in volumes.items():
+            dir = each.get("source")
+            if dir: os.makedirs(dir, exist_ok=True)
         run_args = self._default_run_args.copy()
         run_args.update(self._normalize_run_args(self._subst_env_vars(arg_hints)))
         existing = next((c for c in self._docker_client.containers.list(all=True) if c.name == run_args["name"]), None)
@@ -259,6 +263,7 @@ class DockerService(OpService):
         old_container.rename("{}_old".format(self._container_name))
         self.start()
         old_container.kill()
+        old_container.remove()
 
     def reload(self):
         self._docker_client.images.pull(self._image)
