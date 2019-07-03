@@ -220,8 +220,6 @@ class DockerService(OpService):
                                   "restart_policy": {"Name": "always"},
                                   "network": "host"}
         self._docker_client.images.pull(self._image)
-        image = self._docker_client.images.get(self._image)
-        self._reload_cmd = image.labels.get("ru.majordomo.docker.exec.reload-cmd", "")
 
     def _env_var_from_self(self, var):
         return reduce(lambda o, a: getattr(o, a, None),
@@ -261,9 +259,11 @@ class DockerService(OpService):
         self.start()
 
     def reload(self):
+        image = self._docker_client.images.get(self._image)
+        reload_cmd = image.labels.get("ru.majordomo.docker.exec.reload-cmd", "")
         container = self._docker_client.containers.get(self._container_name)
-        if self._reload_cmd:
-            res = container.exec_run(self._reload_cmd)
+        if reload_cmd:
+            res = container.exec_run(reload_cmd)
             if res.exit_code > 0:
                 raise ServiceReloadError(res.output.decode())
         else:

@@ -58,6 +58,7 @@ class ResourceBuilder:
                     for service in CONFIG.localserver.services:
                         if service.serviceTemplate.serviceType.name.startswith(service_type_resource):
                             self._resources.extend(api.resource(self._res_type).filter(serviceId=service.id).get())
+        self._resources = [r for r in self._resources if r.switchedOn]
         return self._resources
 
     def get_required_resources(self, resource=None):
@@ -83,7 +84,7 @@ class ResourceBuilder:
                     with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
                         required_resources.extend([(req_r_type, r) for r in
                                                    api.resource(req_r_type).filter(serviceId=resource.id).get() or []])
-        return required_resources
+        return [r for r in required_resources if r.switchedOn]
 
     def get_affected_resources(self, resource=None):
         resources = [resource] if resource else self._resources
@@ -108,7 +109,7 @@ class ResourceBuilder:
                                   if s.serviceTemplate.serviceType.name == "STAFF_NGINX"), None)
                     if nginx:
                         affected_resources.append(("service", nginx))
-        return affected_resources
+        return [r for r in affected_resources if r.switchedOn]
 
 
 class Executor:
