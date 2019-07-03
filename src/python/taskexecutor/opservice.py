@@ -255,13 +255,19 @@ class DockerService(OpService):
         container.remove()
 
     def restart(self):
-        self.stop()
+        old_container = self._docker_client.containers.get(self._container_name)
+        old_container.rename("{}_old".format(self._container_name))
         self.start()
+        old_container.kill()
 
     def reload(self):
+        self._docker_client.images.pull(self._image)
         image = self._docker_client.images.get(self._image)
         reload_cmd = image.labels.get("ru.majordomo.docker.exec.reload-cmd", "")
         container = self._docker_client.containers.get(self._container_name)
+        if container.image.id != image.id:
+            self.restart()
+            return
         if reload_cmd:
             res = container.exec_run(reload_cmd)
             if res.exit_code > 0:
