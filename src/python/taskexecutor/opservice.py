@@ -241,8 +241,8 @@ class DockerService(OpService):
         self._docker_client.images.pull(self._image)
         image = self._docker_client.images.get(self._image)
         arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json"), "{}")
-        volumes = arg_hints.get("volumes", {})
-        for each in volumes.items():
+        volumes = arg_hints.get("volumes", [])
+        for each in volumes:
             dir = each.get("source")
             if dir: os.makedirs(dir, exist_ok=True)
         run_args = self._default_run_args.copy()
