@@ -58,7 +58,6 @@ class ResourceBuilder:
                     for service in CONFIG.localserver.services:
                         if service.serviceTemplate.serviceType.name.startswith(service_type_resource):
                             self._resources.extend(api.resource(self._res_type).filter(serviceId=service.id).get())
-        self._resources = [r for r in self._resources if r.switchedOn]
         return self._resources
 
     def get_required_resources(self, resource=None):
