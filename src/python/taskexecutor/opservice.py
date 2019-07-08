@@ -210,7 +210,7 @@ class DockerService(OpService):
         super().__init__(name)
         self._docker_client = docker.from_env()
         self._docker_client.login(**CONFIG.docker_registry._asdict())
-        default_image = "{}/webservices/{}:latest".format(CONFIG.docker_registry.registry, self.name)
+        default_image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, self.name)
         self._image = getattr(self, "_image", default_image)
         self._container_name = getattr(self, "_container_name", self.name)
         self._default_run_args = {"name": self._container_name,
@@ -320,6 +320,7 @@ class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservic
         short_name = "apache2-{0.name}{0.version_major}{0.version_minor}".format(self.interpreter)
         self._image = "{}/webservices/{}:latest".format(CONFIG.docker_registry.registry, short_name)
         DockerService.__init__(self, name)
+        self.sites_conf_path = "/etc/{}/sites-available".format(self.name)
 
 
 class Nginx(taskexecutor.baseservice.WebServer, SysVService):
