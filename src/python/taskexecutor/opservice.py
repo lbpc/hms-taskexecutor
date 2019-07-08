@@ -1,9 +1,12 @@
 import abc
 import docker
+import json
 import re
 import os
+import psutil
 import sys
 import ipaddress
+from functools import reduce
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
@@ -20,6 +23,10 @@ DOWN = False
 
 
 class BuilderTypeError(Exception):
+    pass
+
+
+class ServiceReloadError(Exception):
     pass
 
 
@@ -189,22 +196,62 @@ class SysVService(OpService):
 
 
 class DockerService(OpService):
+    @staticmethod
+    def _normalize_run_args(args):
+        volumes = args.pop("volumes") if "volumes" in args else {}
+        def build_mount(v):
+            target = v.pop("target") if "target" in v else None
+            source = v.pop("source") if "source" in v else None
+            return docker.types.Mount(target, source, **v)
+        args["mounts"] = list(map(build_mount, volumes))
+        return args
+
     def __init__(self, name):
         super().__init__(name)
         self._docker_client = docker.from_env()
-        self._docker_client.login(**CONFIG.docker_registry)
-        self._image = "{}/{}".format(CONFIG.docker_registry.registry, self.name)
-        self._container_name = self.name
-        self._run_args = {"name": self._container_name,
-                          "detach": True,
-                          "init": True,
-                          "tty": False,
-                          "restart_policy": {"Name": "always"},
-                          "network_mode": "host"}
+        self._docker_client.login(**CONFIG.docker_registry._asdict())
+        default_image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, self.name)
+        self._image = getattr(self, "_image", default_image)
+        self._container_name = getattr(self, "_container_name", self.name)
+        self._default_run_args = {"name": self._container_name,
+                                  "detach": True,
+                                  "init": True,
+                                  "tty": False,
+                                  "restart_policy": {"Name": "always"},
+                                  "network": "host"}
+        self._docker_client.images.pull(self._image)
+
+    def _env_var_from_self(self, var):
+        return reduce(lambda o, a: getattr(o, a, None),
+                      var.lstrip("$").strip("{}").lower().replace("_", ".").replace("-", "_").split("."),
+                      self)
+
+    def _subst_env_vars(self, args):
+        res = {}
+        for k, v in args.items():
+            if isinstance(v, dict):
+                res[k] = self._subst_env_vars(v)
+            elif isinstance(v, str) and v.startswith("$"):
+                res[k] = self._env_var_from_self(v)
+            else:
+                res[k] = v
+        return res
 
     def start(self):
         self._docker_client.images.pull(self._image)
-        self._docker_client.containers.run(self._image, **self._run_args)
+        image = self._docker_client.images.get(self._image)
+        arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json"), "{}")
+        volumes = arg_hints.get("volumes", [])
+        for each in volumes:
+            dir = each.get("source")
+            if dir: os.makedirs(dir, exist_ok=True)
+        run_args = self._default_run_args.copy()
+        run_args.update(self._normalize_run_args(self._subst_env_vars(arg_hints)))
+        existing = next((c for c in self._docker_client.containers.list(all=True) if c.name == run_args["name"]), None)
+        if existing:
+            existing.stop()
+            existing.remove()
+        self._docker_client.containers.run(self._image, **run_args)
 
     def stop(self):
         container = self._docker_client.containers.get(self._container_name)
@@ -212,11 +259,68 @@ class DockerService(OpService):
         container.remove()
 
     def restart(self):
-        self.stop()
+        old_container = self._docker_client.containers.get(self._container_name)
+        old_container.rename("{}_old".format(self._container_name))
         self.start()
+        old_container.kill()
+        old_container.remove()
 
     def reload(self):
-        pass
+        self._docker_client.images.pull(self._image)
+        image = self._docker_client.images.get(self._image)
+        reload_cmd = image.labels.get("ru.majordomo.docker.exec.reload-cmd", "")
+        container = self._docker_client.containers.get(self._container_name)
+        if container.image.id != image.id:
+            self.restart()
+            return
+        if reload_cmd:
+            res = container.exec_run(reload_cmd)
+            if res.exit_code > 0:
+                raise ServiceReloadError(res.output.decode())
+        else:
+            container.reload()
+            pid = container.attrs["State"]["Pid"]
+            if psutil.pid_exists(pid):
+                psutil.Process(pid).send_signal(psutil.signal.SIGHUP)
+            else:
+                raise ServiceReloadError("No such PID: {}".format(pid))
+
+    def status(self):
+        try:
+            container = self._docker_client.containers.get(self._container_name)
+            container.reload()
+            if container.status == "running":
+                return UP
+            else:
+                return DOWN
+        except docker.errors.NotFound:
+            return DOWN
+
+
+class NginxInDocker(taskexecutor.baseservice.WebServer, DockerService):
+    def __init__(self, name):
+        taskexecutor.baseservice.WebServer.__init__(self)
+        DockerService.__init__(self, name)
+        self.config_base_path = "/opt/nginx/conf"
+        self.site_template_name = "@NginxServerDocker"
+        self.ssl_certs_base_path = CONFIG.nginx.ssl_certs_path
+
+    def get_website_config(self, site_id):
+        config = self.get_abstract_config(self.site_template_name,
+                                          os.path.join("/etc/nginx/sites-available", site_id + ".conf"),
+                                          config_type="website")
+        config.enabled_path = os.path.join("/etc/nginx/sites-enabled/{}.conf".format(site_id))
+        return config
+
+
+class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
+    def __init__(self, name):
+        taskexecutor.baseservice.WebServer.__init__(self)
+        taskexecutor.baseservice.ApplicationServer.__init__(self)
+        short_name = "apache2-{0.name}{0.version_major}{0.version_minor}".format(self.interpreter)
+        self._image = "{}/webservices/{}:latest".format(CONFIG.docker_registry.registry, short_name)
+        DockerService.__init__(self, name)
+        self.sites_conf_path = "/etc/{}/sites-available".format(self.name)
 
 
 class Nginx(taskexecutor.baseservice.WebServer, SysVService):
@@ -691,9 +795,9 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
 
 
 class Builder:
-    def __new__(cls, service_type):
-        OpServiceClass = {service_type == "STAFF_NGINX": Nginx if sys.platform == "linux" else UnmanagedNginx,
-                          service_type.startswith("WEBSITE_"): Apache if sys.platform == "linux" else UnmanagedApache,
+    def __new__(cls, service_type, docker=False):
+        OpServiceClass = {service_type == "STAFF_NGINX": Nginx if not docker else NginxInDocker,
+                          service_type.startswith("WEBSITE_"): Apache if not docker else ApacheInDocker,
                           service_type == "DATABASE_MYSQL": MySQL,
                           service_type == "DATABASE_POSTGRES": PostgreSQL}.get(True)
         if not OpServiceClass:
