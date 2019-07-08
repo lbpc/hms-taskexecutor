@@ -561,6 +561,8 @@ class ServiceProcessor(ResProcessor):
 
     def update(self):
         self.params.update(hostname=CONFIG.hostname)
+        if isinstance(self.service, taskexecutor.opservice.NginxInDocker):
+            self.params["app_servers"] = taskexecutor.constructor.get_all_opservices_by_res_type("website")
         if isinstance(self.service, taskexecutor.opservice.Nginx):
             self._create_error_pages()
             self.params.update(app_servers=taskexecutor.constructor.get_all_opservices_by_res_type("website"),
@@ -580,7 +582,8 @@ class ServiceProcessor(ResProcessor):
             if self.service.status() is taskexecutor.opservice.UP:
                 self.service.reload()
             else:
-                LOGGER.warning("{} is down".format(self.service.name))
+                LOGGER.warning("{} is down, starting it".format(self.service.name))
+                self.service.start()
         except:
             for config in configs:
                 config.revert()
