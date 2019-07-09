@@ -206,12 +206,19 @@ class DockerService(OpService):
         args["mounts"] = list(map(build_mount, volumes))
         return args
 
+    @property
+    def image(self):
+        return self._image
+
+    @image.setter
+    def image(self, value):
+        self._image = value
+
     def __init__(self, name):
         super().__init__(name)
         self._docker_client = docker.from_env()
         self._docker_client.login(**CONFIG.docker_registry._asdict())
-        default_image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, self.name)
-        self._image = getattr(self, "_image", default_image)
+        self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, self.name)
         self._container_name = getattr(self, "_container_name", self.name)
         self._default_run_args = {"name": self._container_name,
                                   "detach": True,
@@ -219,7 +226,6 @@ class DockerService(OpService):
                                   "tty": False,
                                   "restart_policy": {"Name": "always"},
                                   "network": "host"}
-        self._docker_client.images.pull(self._image)
 
     def _env_var_from_self(self, var):
         return reduce(lambda o, a: getattr(o, a, None),
@@ -238,8 +244,8 @@ class DockerService(OpService):
         return res
 
     def start(self):
-        self._docker_client.images.pull(self._image)
-        image = self._docker_client.images.get(self._image)
+        self._docker_client.images.pull(self.image)
+        image = self._docker_client.images.get(self.image)
         arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json"), "{}")
         volumes = arg_hints.get("volumes", [])
         for each in volumes:
@@ -251,7 +257,7 @@ class DockerService(OpService):
         if existing:
             existing.stop()
             existing.remove()
-        self._docker_client.containers.run(self._image, **run_args)
+        self._docker_client.containers.run(self.image, **run_args)
 
     def stop(self):
         container = self._docker_client.containers.get(self._container_name)
@@ -266,8 +272,8 @@ class DockerService(OpService):
         old_container.remove()
 
     def reload(self):
-        self._docker_client.images.pull(self._image)
-        image = self._docker_client.images.get(self._image)
+        self._docker_client.images.pull(self.image)
+        image = self._docker_client.images.get(self.image)
         reload_cmd = image.labels.get("ru.majordomo.docker.exec.reload-cmd", "")
         container = self._docker_client.containers.get(self._container_name)
         if container.image.id != image.id:
@@ -317,9 +323,9 @@ class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservic
     def __init__(self, name):
         taskexecutor.baseservice.WebServer.__init__(self)
         taskexecutor.baseservice.ApplicationServer.__init__(self)
-        short_name = "apache2-{0.name}{0.version_major}{0.version_minor}".format(self.interpreter)
-        self._image = "{}/webservices/{}:latest".format(CONFIG.docker_registry.registry, short_name)
         DockerService.__init__(self, name)
+        short_name = "apache2-{0.name}{0.version_major}{0.version_minor}".format(self.interpreter)
+        self.image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, short_name)
         self.sites_conf_path = "/etc/{}/sites-available".format(self.name)
         self.security_level = "-".join([e for e in self.name.split("-")
                                         if e != "apache2" and not e.startswith(self.interpreter.name)]) or None
