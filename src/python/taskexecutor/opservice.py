@@ -321,6 +321,8 @@ class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservic
         self._image = "{}/webservices/{}:latest".format(CONFIG.docker_registry.registry, short_name)
         DockerService.__init__(self, name)
         self.sites_conf_path = "/etc/{}/sites-available".format(self.name)
+        self.security_level = "-".join([e for e in self.name.split("-")
+                                        if e != "apache2" and not e.startswith(self.interpreter.name)]) or None
 
 
 class Nginx(taskexecutor.baseservice.WebServer, SysVService):
