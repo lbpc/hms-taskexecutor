@@ -244,42 +244,53 @@ class DockerService(OpService):
         return res
 
     def start(self):
+        LOGGER.info("Pulling {} docker image".format(self.image))
         self._docker_client.images.pull(self.image)
         image = self._docker_client.images.get(self.image)
         arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json"), "{}")
         volumes = arg_hints.get("volumes", [])
         for each in volumes:
             dir = each.get("source")
-            if dir: os.makedirs(dir, exist_ok=True)
+            if dir:
+                LOGGER.info("Creating {} directory".format(dir))
+                os.makedirs(dir, exist_ok=True)
         run_args = self._default_run_args.copy()
         run_args.update(self._normalize_run_args(self._subst_env_vars(arg_hints)))
         existing = next((c for c in self._docker_client.containers.list(all=True) if c.name == run_args["name"]), None)
         if existing:
+            LOGGER.info("Container {} already exists, stopping and removing it".format(self._container_name))
             existing.stop()
             existing.remove()
+        LOGGER.info("Running container {}".format(self._container_name))
         self._docker_client.containers.run(self.image, **run_args)
 
     def stop(self):
         container = self._docker_client.containers.get(self._container_name)
+        LOGGER.info("Stopping and removing container {}".format(self._container_name))
         container.stop()
         container.remove()
 
     def restart(self):
+        LOGGER.info("Renaming {0} container to {0}_old".format(self._container_name))
         old_container = self._docker_client.containers.get(self._container_name)
         old_container.rename("{}_old".format(self._container_name))
         self.start()
+        LOGGER.info("Killing and removing container {}_old".format(self._container_name))
         old_container.kill()
         old_container.remove()
 
     def reload(self):
+        LOGGER.info("Pulling {} docker image".format(self.image))
         self._docker_client.images.pull(self.image)
         image = self._docker_client.images.get(self.image)
         reload_cmd = image.labels.get("ru.majordomo.docker.exec.reload-cmd", "")
         container = self._docker_client.containers.get(self._container_name)
         if container.image.id != image.id:
+            LOGGER.info("Image ID differs from existing container's image, restarting")
             self.restart()
             return
         if reload_cmd:
+            LOGGER.info("Reloading service inside container {} by command: {}".format(self._container_name, reload_cmd))
             res = container.exec_run(reload_cmd)
             if res.exit_code > 0:
                 raise ServiceReloadError(res.output.decode())
@@ -287,6 +298,8 @@ class DockerService(OpService):
             container.reload()
             pid = container.attrs["State"]["Pid"]
             if psutil.pid_exists(pid):
+                LOGGER.info("Sending SIGHUP to first process in container {} "
+                            "(PID {})".format(self._container_name, pid))
                 psutil.Process(pid).send_signal(psutil.signal.SIGHUP)
             else:
                 raise ServiceReloadError("No such PID: {}".format(pid))
