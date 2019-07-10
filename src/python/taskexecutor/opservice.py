@@ -232,18 +232,15 @@ class DockerService(OpService):
                       var.lstrip("$").strip("{}").lower().replace("_", ".").replace("-", "_").split("."),
                       self)
 
-    def _subst_env_vars(self, args):
-        res = {}
-        for k, v in args.items():
-            if isinstance(v, dict):
-                res[k] = self._subst_env_vars(v)
-            elif isinstance(v, list):
-                res[k] = [self._subst_env_vars(e) for e in v]
-            elif isinstance(v, str) and v.startswith("$"):
-                res[k] = self._env_var_from_self(v)
-            else:
-                res[k] = v
-        return res
+    def _subst_env_vars(self, to_subst):
+        if isinstance(to_subst, str) and to_subst.startswith("$"):
+            return self._env_var_from_self(to_subst)
+        elif isinstance(to_subst, list):
+            return [self._subst_env_vars(e) for e in to_subst]
+        elif isinstance(to_subst, dict):
+            return {k: self._subst_env_vars(v) for k, v in to_subst.items()}
+        else:
+            return to_subst
 
     def start(self):
         LOGGER.info("Pulling {} docker image".format(self.image))
