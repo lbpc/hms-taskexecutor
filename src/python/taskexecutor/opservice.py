@@ -248,6 +248,8 @@ class DockerService(OpService):
         self._docker_client.images.pull(self.image)
         image = self._docker_client.images.get(self.image)
         arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json"), "{}")
+        if arg_hints:
+            LOGGER.info("Docker image {} has run arguments hints: {}".format(self.image, arg_hints))
         run_args = self._default_run_args.copy()
         run_args.update(self._normalize_run_args(self._subst_env_vars(arg_hints)))
         volumes = run_args.get("volumes", [])
@@ -261,7 +263,7 @@ class DockerService(OpService):
             LOGGER.info("Container {} already exists, stopping and removing it".format(self._container_name))
             existing.stop()
             existing.remove()
-        LOGGER.info("Running container {}".format(self._container_name))
+        LOGGER.info("Running container {} with arguments: {}".format(self._container_name, run_args))
         self._docker_client.containers.run(self.image, **run_args)
 
     def stop(self):
