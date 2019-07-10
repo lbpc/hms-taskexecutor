@@ -237,6 +237,8 @@ class DockerService(OpService):
         for k, v in args.items():
             if isinstance(v, dict):
                 res[k] = self._subst_env_vars(v)
+            elif isinstance(v, list):
+                res[k] = [self._subst_env_vars(e) for e in v]
             elif isinstance(v, str) and v.startswith("$"):
                 res[k] = self._env_var_from_self(v)
             else:
