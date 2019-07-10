@@ -6,7 +6,6 @@ import os
 import psutil
 import sys
 import ipaddress
-from functools import reduce
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
@@ -227,14 +226,12 @@ class DockerService(OpService):
                                   "restart_policy": {"Name": "always"},
                                   "network": "host"}
 
-    def _env_var_from_self(self, var):
-        return reduce(lambda o, a: getattr(o, a, None),
-                      var.lstrip("$").strip("{}").lower().replace("_", ".").replace("-", "_").split("."),
-                      self)
-
     def _subst_env_vars(self, to_subst):
-        if isinstance(to_subst, str) and to_subst.startswith("$"):
-            return self._env_var_from_self(to_subst)
+        if isinstance(to_subst, str):
+            vars = taskexecutor.utils.attrs_to_env(self)
+            for each in vars:
+                to_subst = to_subst.replace(each, vars[each])
+            return to_subst
         elif isinstance(to_subst, list):
             return [self._subst_env_vars(e) for e in to_subst]
         elif isinstance(to_subst, dict):
@@ -274,7 +271,12 @@ class DockerService(OpService):
         LOGGER.info("Renaming {0} container to {0}_old".format(self._container_name))
         old_container = self._docker_client.containers.get(self._container_name)
         old_container.rename("{}_old".format(self._container_name))
-        self.start()
+        try:
+            self.start()
+        except Exception:
+            LOGGER.warn("Failed to start new container {0}, renaming {0}_old back".format(self._container_name))
+            old_container.rename(self._container_name)
+            raise
         LOGGER.info("Killing and removing container {}_old".format(self._container_name))
         old_container.kill()
         old_container.remove()
