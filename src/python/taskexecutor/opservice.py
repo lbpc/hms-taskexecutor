@@ -251,10 +251,9 @@ class DockerService(OpService):
             LOGGER.info("Docker image {} has run arguments hints: {}".format(self.image, arg_hints))
         run_args = self._default_run_args.copy()
         run_args.update(self._normalize_run_args(self._subst_env_vars(arg_hints)))
-        volumes = run_args.get("volumes", [])
-        for each in volumes:
-            dir = each.get("source")
-            if dir:
+        for each in run_args.get("mounts", ()):
+            dir = each.get("Source")
+            if dir and not os.path.exists(dir):
                 LOGGER.info("Creating {} directory".format(dir))
                 os.makedirs(dir, exist_ok=True)
         existing = next((c for c in self._docker_client.containers.list(all=True) if c.name == run_args["name"]), None)
