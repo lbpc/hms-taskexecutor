@@ -355,6 +355,7 @@ class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservic
         self.sites_conf_path = "/etc/{}/sites-available".format(self.name)
         self.security_level = "-".join([e for e in self.name.split("-")
                                         if e != "apache2" and not e.startswith(self.interpreter.name)]) or None
+        self.config_base_path = os.path.join("/etc", self.name)
 
 
 class Nginx(taskexecutor.baseservice.WebServer, SysVService):
