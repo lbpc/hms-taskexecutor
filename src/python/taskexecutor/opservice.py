@@ -213,6 +213,10 @@ class DockerService(OpService):
     def image(self, value):
         self._image = value
 
+    @property
+    def env(self):
+        return self._env
+
     def __init__(self, name):
         super().__init__(name)
         self._docker_client = docker.from_env()
@@ -226,11 +230,17 @@ class DockerService(OpService):
                                   "restart_policy": {"Name": "always"},
                                   "network": "host"}
 
+    def _setup_env(self):
+        self._env = {"${}".format(k): v for k, v in os.environ.items()}
+        self._env.update({"${{{}}}".format(k): v for k, v in os.environ.items()})
+        self._env.update(taskexecutor.utils.attrs_to_env(self))
+
     def _subst_env_vars(self, to_subst):
         if isinstance(to_subst, str):
-            vars = taskexecutor.utils.attrs_to_env(self)
-            for each in vars:
-                to_subst = to_subst.replace(each, vars[each])
+            for each in sorted(self.env, key=len, reverse=True):
+                each = str(each)
+                if each in to_subst:
+                    return to_subst.replace(each, self.env[each])
             return to_subst
         elif isinstance(to_subst, list):
             return [self._subst_env_vars(e) for e in to_subst]
@@ -247,6 +257,7 @@ class DockerService(OpService):
         if arg_hints:
             LOGGER.info("Docker image {} has run arguments hints: {}".format(self.image, arg_hints))
         run_args = self._default_run_args.copy()
+        self._setup_env()
         run_args.update(self._normalize_run_args(self._subst_env_vars(arg_hints)))
         for each in run_args.get("mounts", ()):
             dir = each.get("Source")

@@ -268,18 +268,21 @@ def object_hook(dct, extra, overwrite, expand, comma, numcast):
 def attrs_to_env(obj):
     res = {}
     for name in dir(obj):
-        possible_names = (name, name.upper(), to_snake_case(name), to_snake_case(name).upper())
+        possible_names = (name,
+                          name.upper(),
+                          to_snake_case(name),
+                          to_snake_case(name).upper(),
+                          to_lower_dashed(name),
+                          to_lower_dashed(name).upper())
         attr = getattr(obj, name)
-        if not name.startswith("_") and not callable(attr):
+        if not name.startswith("_") and not callable(attr) and name != "env":
             for n in possible_names:
                 res["${}".format(n)] = str(attr)
                 res["${{{}}}".format(n)] = str(attr)
-            if not isinstance(attr, Number):
-                for k, v in attrs_to_env(attr).items():
-                    k = k.lstrip("$").strip("{}")
-                    for n in possible_names:
-                        res["${}_{}".format(n, k)] = str(v)
-                        res["${}-{}".format(n, k)] = str(v)
-                        res["${{{}_{}}}".format(n, k)] = str(v)
-                        res["${{{}-{}}}".format(n, k)] = str(v)
+                if not isinstance(attr, Number):
+                    for k, v in attrs_to_env(attr).items():
+                        k = k.lstrip("$").strip("{}")
+                        for n in possible_names:
+                            res["${}_{}".format(n, k)] = str(v)
+                            res["${{{}_{}}}".format(n, k)] = str(v)
     return res
