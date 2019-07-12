@@ -278,7 +278,9 @@ class WebSiteProcessor(ResProcessor):
             else:
                 LOGGER.warning("{} does not exist".format(directory))
         os.chown(opcache_root, self.resource.unixAccount.uid, self.resource.unixAccount.uid)
-        for service in (self.service, self.extra_services.http_proxy):
+        services = [self.service] if self.params.get("oldHttpProxyIp") != self.service.socket.http.address else []
+        services.append(self.extra_services.http_proxy)
+        for service in services:
             config = service.get_website_config(self.resource.id)
             config.render_template(service=service, vhosts=vhosts_list, params=self.params)
             config.write()
@@ -318,7 +320,8 @@ class WebSiteProcessor(ResProcessor):
                         service.reload()
         else:
             self.create()
-            if self.extra_services.old_app_server and self.extra_services.old_app_server.name != self.service.name:
+            if self.extra_services.old_app_server and (self.extra_services.old_app_server.name != self.service.name or
+                                                   type(self.extra_services.old_app_server) != type(self.service.name)):
                 config = self.extra_services.old_app_server.get_website_config(self.resource.id)
                 config.disable()
                 config.delete()
