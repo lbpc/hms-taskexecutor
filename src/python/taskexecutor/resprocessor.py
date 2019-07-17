@@ -324,6 +324,8 @@ class WebSiteProcessor(ResProcessor):
             self.create()
             if self.extra_services.old_app_server and (self.extra_services.old_app_server.name != self.service.name or
                                                    type(self.extra_services.old_app_server) != type(self.service.name)):
+                LOGGER.info("Removing config from old application server "
+                            "{}".format(self.extra_services.old_app_server.name))
                 config = self.extra_services.old_app_server.get_website_config(self.resource.id)
                 config.disable()
                 config.delete()
