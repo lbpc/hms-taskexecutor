@@ -6,6 +6,7 @@ import os
 import psutil
 import sys
 import ipaddress
+from functools import reduce
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
