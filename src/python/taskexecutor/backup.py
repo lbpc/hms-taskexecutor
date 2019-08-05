@@ -98,10 +98,11 @@ class ResticBackup(Backuper):
         if code > 0:
             LOGGER.warn("Failed to forget old snapshots for repo {}, "
                         "STDOUT: {} STDERR: {}".format(repo, stdout, stderr))
-        try:
-            requests.get("http://{}/_snapshot/{}".format(CONFIG.backup.server.names[0], os.path.basename(repo)))
-        except Exception as e:
-            LOGGER.warn("Failed to list snapshots on backup server: {}".format(e))
+        # XXX:
+        # try:
+        #     requests.get("http://{}/_snapshot/{}".format(CONFIG.backup.server.names[0], os.path.basename(repo)))
+        # except Exception as e:
+        #     LOGGER.warn("Failed to list snapshots on backup server: {}".format(e))
 
 
 class Builder:
