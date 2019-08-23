@@ -215,6 +215,8 @@ class UnixAccountProcessor(ResProcessor):
                 taskexecutor.watchdog.ProcessWatchdog.get_uids_queue().put(-self.resource.uid)
             LOGGER.info("Creating 'logs' directory")
             os.makedirs(os.path.join(self.resource.homeDir, "logs"), mode=0o755, exist_ok=True)
+            if not switched_on:
+                self.service.kill_user_processes(self.resource.name)
         else:
             LOGGER.warning("UnixAccount {0} not found, creating".format(self.resource.name))
             self.create()
