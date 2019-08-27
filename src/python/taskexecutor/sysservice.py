@@ -1,4 +1,5 @@
 import abc
+import functools
 import os
 import shutil
 
@@ -94,6 +95,19 @@ class UnixAccountManager(metaclass=abc.ABCMeta):
     def change_uid(self, user_name, uid):
         pass
 
+
+def with_sync_passwd(f):
+    @functools.wraps(f)
+    def wrapper(self, *args, **kwargs):
+        f(self, *args, **kwargs)
+        os.makedirs("/opt/etc", exist_ok=True)
+        LOGGER.info("Copying /etc/{passwd,group,shadow,gshadow} to /opt/etc")
+        for each in ("passwd", "group", "shadow", "gshadow"):
+            shutil.copy2("/etc/{}".format(each), "/opt/etc")
+
+    return wrapper
+
+
 class LinuxUserManager(UnixAccountManager):
     @property
     def default_shell(self):
@@ -103,12 +117,14 @@ class LinuxUserManager(UnixAccountManager):
     def disabled_shell(self):
         return "/usr/sbin/nologin"
 
+    @with_sync_passwd
     def create_group(self, name, gid=None, delete_first=False):
         if delete_first:
             taskexecutor.utils.exec_command("groupdel {} || true".format(name))
         setgid = "--gid {}".format(gid) if gid else ""
         taskexecutor.utils.exec_command("groupadd --force {0} {1}".format(setgid, name))
 
+    @with_sync_passwd
     def create_user(self, name, uid, home_dir, pass_hash, shell, gecos="", extra_groups=[]):
         if os.path.exists(home_dir):
             os.chown(home_dir, uid, uid)
@@ -129,6 +145,7 @@ class LinuxUserManager(UnixAccountManager):
                                         "{6}".format(gecos, uid, home_dir, pass_hash, shell, groups, name))
         os.chmod(home_dir, 0o0700)
 
+    @with_sync_passwd
     def delete_user(self, name):
         taskexecutor.utils.exec_command("userdel --force --remove {}".format(name))
 
@@ -187,13 +204,16 @@ class LinuxUserManager(UnixAccountManager):
         taskexecutor.utils.exec_command("/usr/bin/postfix_dbs_ctrl --db map --uid {0} --get || "
                                         "/usr/bin/postfix_dbs_ctrl --db map --uid {0} --add".format(uid))
 
+    @with_sync_passwd
     def set_shell(self, user_name, path):
         path = path or "/usr/sbin/nologin"
         taskexecutor.utils.exec_command("usermod --shell {0} {1}".format(path, user_name))
 
+    @with_sync_passwd
     def set_comment(self, user_name, comment):
         taskexecutor.utils.exec_command("usermod --comment '{0}' {1}".format(comment, user_name))
 
+    @with_sync_passwd
     def change_uid(self, user_name, uid):
         taskexecutor.utils.exec_command("groupmod --gid {0} {1}".format(uid, user_name))
         taskexecutor.utils.exec_command("usermod --uid {0} --gid {0} {1}".format(uid, user_name))

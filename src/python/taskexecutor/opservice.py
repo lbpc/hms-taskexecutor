@@ -206,12 +206,23 @@ class DockerService(OpService):
         args["mounts"] = list(map(build_mount, volumes))
         return args
 
+    @property
+    def image(self):
+        return self._image
+
+    @image.setter
+    def image(self, value):
+        self._image = value
+
+    @property
+    def env(self):
+        return self._env
+
     def __init__(self, name):
         super().__init__(name)
         self._docker_client = docker.from_env()
         self._docker_client.login(**CONFIG.docker_registry._asdict())
-        default_image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, self.name)
-        self._image = getattr(self, "_image", default_image)
+        self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, self.name)
         self._container_name = getattr(self, "_container_name", self.name)
         self._default_run_args = {"name": self._container_name,
                                   "detach": True,
@@ -219,61 +230,81 @@ class DockerService(OpService):
                                   "tty": False,
                                   "restart_policy": {"Name": "always"},
                                   "network": "host"}
-        self._docker_client.images.pull(self._image)
 
-    def _env_var_from_self(self, var):
-        return reduce(lambda o, a: getattr(o, a, None),
-                      var.lstrip("$").strip("{}").lower().replace("_", ".").replace("-", "_").split("."),
-                      self)
+    def _setup_env(self):
+        self._env = {"${}".format(k): v for k, v in os.environ.items()}
+        self._env.update({"${{{}}}".format(k): v for k, v in os.environ.items()})
+        self._env.update(taskexecutor.utils.attrs_to_env(self))
 
-    def _subst_env_vars(self, args):
-        res = {}
-        for k, v in args.items():
-            if isinstance(v, dict):
-                res[k] = self._subst_env_vars(v)
-            elif isinstance(v, str) and v.startswith("$"):
-                res[k] = self._env_var_from_self(v)
-            else:
-                res[k] = v
-        return res
+    def _subst_env_vars(self, to_subst):
+        if isinstance(to_subst, str):
+            for each in sorted(self.env, key=len, reverse=True):
+                each = str(each)
+                if each in to_subst:
+                    return to_subst.replace(each, self.env[each])
+            return to_subst
+        elif isinstance(to_subst, list):
+            return [self._subst_env_vars(e) for e in to_subst]
+        elif isinstance(to_subst, dict):
+            return {k: self._subst_env_vars(v) for k, v in to_subst.items()}
+        else:
+            return to_subst
 
     def start(self):
-        self._docker_client.images.pull(self._image)
-        image = self._docker_client.images.get(self._image)
+        LOGGER.info("Pulling {} docker image".format(self.image))
+        self._docker_client.images.pull(self.image)
+        image = self._docker_client.images.get(self.image)
         arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json"), "{}")
-        volumes = arg_hints.get("volumes", [])
-        for each in volumes:
-            dir = each.get("source")
-            if dir: os.makedirs(dir, exist_ok=True)
+        if arg_hints:
+            LOGGER.info("Docker image {} has run arguments hints: {}".format(self.image, arg_hints))
         run_args = self._default_run_args.copy()
+        self._setup_env()
         run_args.update(self._normalize_run_args(self._subst_env_vars(arg_hints)))
+        for each in run_args.get("mounts", ()):
+            dir = each.get("Source")
+            if dir and not os.path.isfile(dir):
+                LOGGER.info("Creating {} directory".format(dir))
+                os.makedirs(dir, exist_ok=True)
         existing = next((c for c in self._docker_client.containers.list(all=True) if c.name == run_args["name"]), None)
         if existing:
+            LOGGER.info("Container {} already exists, stopping and removing it".format(self._container_name))
             existing.stop()
             existing.remove()
-        self._docker_client.containers.run(self._image, **run_args)
+        LOGGER.info("Running container {} with arguments: {}".format(self._container_name, run_args))
+        self._docker_client.containers.run(self.image, **run_args)
 
     def stop(self):
         container = self._docker_client.containers.get(self._container_name)
+        LOGGER.info("Stopping and removing container {}".format(self._container_name))
         container.stop()
         container.remove()
 
     def restart(self):
+        LOGGER.info("Renaming {0} container to {0}_old".format(self._container_name))
         old_container = self._docker_client.containers.get(self._container_name)
         old_container.rename("{}_old".format(self._container_name))
-        self.start()
+        try:
+            self.start()
+        except Exception:
+            LOGGER.warn("Failed to start new container {0}, renaming {0}_old back".format(self._container_name))
+            old_container.rename(self._container_name)
+            raise
+        LOGGER.info("Killing and removing container {}_old".format(self._container_name))
         old_container.kill()
         old_container.remove()
 
     def reload(self):
-        self._docker_client.images.pull(self._image)
-        image = self._docker_client.images.get(self._image)
+        LOGGER.info("Pulling {} docker image".format(self.image))
+        self._docker_client.images.pull(self.image)
+        image = self._docker_client.images.get(self.image)
         reload_cmd = image.labels.get("ru.majordomo.docker.exec.reload-cmd", "")
         container = self._docker_client.containers.get(self._container_name)
         if container.image.id != image.id:
+            LOGGER.info("Image ID differs from existing container's image, restarting")
             self.restart()
             return
         if reload_cmd:
+            LOGGER.info("Reloading service inside container {} by command: {}".format(self._container_name, reload_cmd))
             res = container.exec_run(reload_cmd)
             if res.exit_code > 0:
                 raise ServiceReloadError(res.output.decode())
@@ -281,6 +312,8 @@ class DockerService(OpService):
             container.reload()
             pid = container.attrs["State"]["Pid"]
             if psutil.pid_exists(pid):
+                LOGGER.info("Sending SIGHUP to first process in container {} "
+                            "(PID {})".format(self._container_name, pid))
                 psutil.Process(pid).send_signal(psutil.signal.SIGHUP)
             else:
                 raise ServiceReloadError("No such PID: {}".format(pid))
@@ -317,10 +350,14 @@ class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservic
     def __init__(self, name):
         taskexecutor.baseservice.WebServer.__init__(self)
         taskexecutor.baseservice.ApplicationServer.__init__(self)
-        short_name = "apache2-{0.name}{0.version_major}{0.version_minor}".format(self.interpreter)
-        self._image = "{}/webservices/{}:latest".format(CONFIG.docker_registry.registry, short_name)
         DockerService.__init__(self, name)
+        short_name = "apache2-{0.name}{0.version_major}{0.version_minor}".format(self.interpreter)
+        self.image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, short_name)
         self.sites_conf_path = "/etc/{}/sites-available".format(self.name)
+        self.security_level = "-".join([e for e in self.name.split("-")
+                                        if e != "apache2" and not e.startswith(self.interpreter.name)]) or None
+        self.site_template_name = "@ApacheVHost"
+        self.config_base_path = os.path.join("/etc", self.name)
 
 
 class Nginx(taskexecutor.baseservice.WebServer, SysVService):

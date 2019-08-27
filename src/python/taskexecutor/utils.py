@@ -9,6 +9,7 @@ import subprocess
 import functools
 import threading
 import queue
+from numbers import Number
 
 from taskexecutor.logger import LOGGER
 
@@ -262,3 +263,26 @@ def object_hook(dct, extra, overwrite, expand, comma, numcast):
         if extra and all(k in dct.keys() for k in extra.keys()):
             dict_merge(dct, extra, overwrite=overwrite)
         return namedtuple_from_mapping(dct)
+
+
+def attrs_to_env(obj):
+    res = {}
+    for name in dir(obj):
+        possible_names = (name,
+                          name.upper(),
+                          to_snake_case(name),
+                          to_snake_case(name).upper(),
+                          to_lower_dashed(name),
+                          to_lower_dashed(name).upper())
+        attr = getattr(obj, name)
+        if not name.startswith("_") and not callable(attr) and name != "env":
+            for n in possible_names:
+                res["${}".format(n)] = str(attr)
+                res["${{{}}}".format(n)] = str(attr)
+                if not isinstance(attr, Number):
+                    for k, v in attrs_to_env(attr).items():
+                        k = k.lstrip("$").strip("{}")
+                        for n in possible_names:
+                            res["${}_{}".format(n, k)] = str(v)
+                            res["${{{}_{}}}".format(n, k)] = str(v)
+    return res

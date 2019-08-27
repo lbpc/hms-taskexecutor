@@ -215,6 +215,8 @@ class UnixAccountProcessor(ResProcessor):
                 taskexecutor.watchdog.ProcessWatchdog.get_uids_queue().put(-self.resource.uid)
             LOGGER.info("Creating 'logs' directory")
             os.makedirs(os.path.join(self.resource.homeDir, "logs"), mode=0o755, exist_ok=True)
+            if not switched_on:
+                self.service.kill_user_processes(self.resource.name)
         else:
             LOGGER.warning("UnixAccount {0} not found, creating".format(self.resource.name))
             self.create()
@@ -278,7 +280,11 @@ class WebSiteProcessor(ResProcessor):
             else:
                 LOGGER.warning("{} does not exist".format(directory))
         os.chown(opcache_root, self.resource.unixAccount.uid, self.resource.unixAccount.uid)
-        for service in (self.service, self.extra_services.http_proxy):
+        services = []
+        if self.params.get("oldHttpProxyIp") != self.extra_services.http_proxy.socket.http.address:
+            services.append(self.service)
+        services.append(self.extra_services.http_proxy)
+        for service in services:
             config = service.get_website_config(self.resource.id)
             config.render_template(service=service, vhosts=vhosts_list, params=self.params)
             config.write()
@@ -318,7 +324,10 @@ class WebSiteProcessor(ResProcessor):
                         service.reload()
         else:
             self.create()
-            if self.extra_services.old_app_server and self.extra_services.old_app_server.name != self.service.name:
+            if self.extra_services.old_app_server and (self.extra_services.old_app_server.name != self.service.name or
+                                                       type(self.extra_services.old_app_server) != type(self.service)):
+                LOGGER.info("Removing config from old application server "
+                            "{}".format(self.extra_services.old_app_server.name))
                 config = self.extra_services.old_app_server.get_website_config(self.resource.id)
                 config.disable()
                 config.delete()
