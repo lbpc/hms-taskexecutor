@@ -335,6 +335,7 @@ class SomethingInDocker(taskexecutor.baseservice.ConfigurableService,
                         taskexecutor.baseservice.NetworkingService, DockerService):
     def __init__(self, name):
         taskexecutor.baseservice.ConfigurableService.__init__(self)
+        taskexecutor.baseservice.NetworkingService.__init__(self)
         DockerService.__init__(self, name)
         self.config_base_path = os.path.join("/opt", self.name)
 
