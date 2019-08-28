@@ -331,7 +331,8 @@ class DockerService(OpService):
             return DOWN
 
 
-class SomethingInDocker(taskexecutor.baseservice.ConfigurableService, DockerService):
+class SomethingInDocker(taskexecutor.baseservice.ConfigurableService,
+                        taskexecutor.baseservice.NetworkingService, DockerService):
     def __init__(self, name):
         taskexecutor.baseservice.ConfigurableService.__init__(self)
         DockerService.__init__(self, name)
