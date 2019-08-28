@@ -259,6 +259,7 @@ class DockerService(OpService):
             LOGGER.info("Docker image {} has run arguments hints: {}".format(self.image, arg_hints))
         run_args = self._default_run_args.copy()
         self._setup_env()
+        LOGGER.debug("`environment`: {}".format(self._env))
         run_args.update(self._normalize_run_args(self._subst_env_vars(arg_hints)))
         for each in run_args.get("mounts", ()):
             dir = each.get("Source")
