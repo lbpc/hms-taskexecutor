@@ -230,6 +230,7 @@ class DockerService(OpService):
                                   "tty": False,
                                   "restart_policy": {"Name": "always"},
                                   "network": "host"}
+        self.config_base_path = os.path.join("/opt", self.name)
 
     def _setup_env(self):
         self._env = {"${}".format(k): v for k, v in os.environ.items()}
@@ -833,7 +834,8 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
 
 class Builder:
     def __new__(cls, service_type, docker=False):
-        OpServiceClass = {service_type == "STAFF_NGINX": Nginx if not docker else NginxInDocker,
+        OpServiceClass = {docker: DockerService,
+                          service_type == "STAFF_NGINX": Nginx if not docker else NginxInDocker,
                           service_type.startswith("WEBSITE_"): Apache if not docker else ApacheInDocker,
                           service_type == "DATABASE_MYSQL": MySQL,
                           service_type == "DATABASE_POSTGRES": PostgreSQL}.get(True)
