@@ -29,7 +29,8 @@ def receive_signal(signum, unused_stack):
 
 def update_all_services(new_task_queue, isolated=False):
     logger.LOGGER.info("Perfoming Service updates")
-    type_name_conditions = [(str.startswith, "STAFF_"), (str.startswith, "DATABASE_")]
+    type_name_conditions = [(str.startswith, "STAFF_"), (str.startswith, "DATABASE_"),
+                            (str.startswith, "ACCESS_")]
     if isolated:
         type_name_conditions.append((str.startswith, "WEBSITE_"))
     for service in (s for s in CONFIG.localserver.services
