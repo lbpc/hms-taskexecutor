@@ -259,6 +259,7 @@ class DockerService(OpService):
             LOGGER.info("Docker image {} has run arguments hints: {}".format(self.image, arg_hints))
         run_args = self._default_run_args.copy()
         self._setup_env()
+        LOGGER.debug("`environment`: {}".format(self._env))
         run_args.update(self._normalize_run_args(self._subst_env_vars(arg_hints)))
         for each in run_args.get("mounts", ()):
             dir = each.get("Source")
@@ -328,6 +329,15 @@ class DockerService(OpService):
                 return DOWN
         except docker.errors.NotFound:
             return DOWN
+
+
+class SomethingInDocker(taskexecutor.baseservice.ConfigurableService,
+                        taskexecutor.baseservice.NetworkingService, DockerService):
+    def __init__(self, name):
+        taskexecutor.baseservice.ConfigurableService.__init__(self)
+        taskexecutor.baseservice.NetworkingService.__init__(self)
+        DockerService.__init__(self, name)
+        self.config_base_path = os.path.join("/opt", self.name)
 
 
 class NginxInDocker(taskexecutor.baseservice.WebServer, DockerService):
@@ -833,7 +843,8 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
 
 class Builder:
     def __new__(cls, service_type, docker=False):
-        OpServiceClass = {service_type == "STAFF_NGINX": Nginx if not docker else NginxInDocker,
+        OpServiceClass = {docker: SomethingInDocker,
+                          service_type == "STAFF_NGINX": Nginx if not docker else NginxInDocker,
                           service_type.startswith("WEBSITE_"): Apache if not docker else ApacheInDocker,
                           service_type == "DATABASE_MYSQL": MySQL,
                           service_type == "DATABASE_POSTGRES": PostgreSQL}.get(True)
