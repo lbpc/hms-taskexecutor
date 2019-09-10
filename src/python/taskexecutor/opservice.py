@@ -220,7 +220,7 @@ class DockerService(OpService):
 
         volumes = args.pop("volumes") if "volumes" in args else {}
         args["mounts"] = list(map(build_mount, volumes))
-        ports = args.pop("ports") if "ports" in args else {}
+        ports = args.pop("ports") if "ports" in args else ()
         args["ports"] = {e.split(":")[-1]: build_publish(e.split(":")[0:-1]) for e in ports}
         return args
 
