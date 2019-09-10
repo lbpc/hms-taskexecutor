@@ -198,12 +198,30 @@ class SysVService(OpService):
 class DockerService(OpService):
     @staticmethod
     def _normalize_run_args(args):
-        volumes = args.pop("volumes") if "volumes" in args else {}
         def build_mount(v):
             target = v.pop("target") if "target" in v else None
             source = v.pop("source") if "source" in v else None
             return docker.types.Mount(target, source, **v)
+
+        def build_publish(spec_chunks):
+            res = []
+            spec_chunks = iter(spec_chunks)
+            while True:
+                try:
+                    chunk = next(spec_chunks)
+                    try:
+                        ipaddress.IPv4Address(chunk)
+                        res.append((chunk, int(next(spec_chunks))))
+                    except ipaddress.AddressValueError:
+                        res.append(int(chunk))
+                except StopIteration:
+                    break
+            return res if 0 > len(res) > 1 else res[0]
+
+        volumes = args.pop("volumes") if "volumes" in args else {}
         args["mounts"] = list(map(build_mount, volumes))
+        ports = args.pop("ports") if "ports" in args else {}
+        args["ports"] = {e.split(":")[-1]: build_publish(e.split(":")[0:-1]) for e in ports}
         return args
 
     @property
