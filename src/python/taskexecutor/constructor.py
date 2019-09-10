@@ -62,7 +62,7 @@ def get_opservice(service_api_obj):
 
 def get_opservice_by_resource(resource, resource_type):
     global SERVICE_ID_TO_OPSERVICE_MAPPING
-    if hasattr(resource, "serverId"):
+    if hasattr(resource, "serverId") and resource_type != "service":
         resource_to_service_type_mapping = {"unix-account": "USER_MANAGER",
                                             "mailbox": "MAILDIR_MANAGER"}
         service_type = "{0}_{1}".format(sys.platform.upper(), resource_to_service_type_mapping[resource_type])
