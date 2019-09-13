@@ -222,6 +222,9 @@ class DockerService(OpService):
         args["mounts"] = list(map(build_mount, volumes))
         ports = args.pop("ports") if "ports" in args else ()
         args["ports"] = {e.split(":")[-1]: build_publish(e.split(":")[0:-1]) for e in ports}
+        if "pid" in args:
+            args["pid_mode"] = args["pid"]
+            del args["pid"]
         return args
 
     @property
