@@ -34,7 +34,13 @@ def update_all_services(new_task_queue, isolated=False):
     if isolated:
         type_name_conditions.append((str.startswith, "WEBSITE_"))
     for service in (s for s in CONFIG.localserver.services
-                    if any((c[0](s.serviceTemplate.serviceType.name, c[1]) for c in type_name_conditions))):
+                    if (hasattr(s, "serviceTemplate") and
+                        s.serviceTemplate and
+                        any((c[0](s.serviceTemplate.serviceType.name, c[1]) for c in type_name_conditions))) or
+                       (hasattr(s, "template") and
+                       s.template and
+                       not isolated and
+                       s.template.resourceType == "WEBSITE")):
         task = Task(None,
                     type(None),
                     "LOCAL",
