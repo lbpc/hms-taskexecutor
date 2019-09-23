@@ -391,6 +391,28 @@ class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservic
         self.config_base_path = os.path.join("/etc", self.name)
 
 
+class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
+    def __init__(self, name):
+        taskexecutor.baseservice.WebServer.__init__(self)
+        taskexecutor.baseservice.PersonalApplicationServer.__init__(self)
+        DockerService.__init__(self, name)
+        self.config_base_path = os.path.join(self.unix_account.homeDir, "/etc", self.name)
+
+    def get_website_config(self, site_id):
+        config = self.get_abstract_config(self.site_template_name,
+                                          os.path.join(self.config_base_path, "sites", site_id + ".conf"),
+                                          config_type="website")
+        config.enabled_path = os.path.join("/tmp", site_id + ".conf")
+
+    @property
+    def unix_account(self):
+        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+            try:
+                return api.unixAccount().filter(accountId=self.accountId).get()[0]
+            except IndexError:
+                return
+
+
 class Nginx(taskexecutor.baseservice.WebServer, SysVService):
     def __init__(self, name):
         taskexecutor.baseservice.WebServer.__init__(self)
@@ -863,12 +885,13 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
 
 
 class Builder:
-    def __new__(cls, service_type, docker=False):
-        OpServiceClass = {docker: SomethingInDocker,
-                          service_type == "STAFF_NGINX": Nginx if not docker else NginxInDocker,
-                          service_type.startswith("WEBSITE_"): Apache if not docker else ApacheInDocker,
-                          service_type == "DATABASE_MYSQL": MySQL,
-                          service_type == "DATABASE_POSTGRES": PostgreSQL}.get(True)
+    def __new__(cls, service_type, docker=False, personal=False):
+        OpServiceClass = {docker:                                           SomethingInDocker,
+                          service_type == "STAFF_NGINX":                    Nginx if not docker else NginxInDocker,
+                          service_type.startswith("WEBSITE_"):              Apache if not docker else ApacheInDocker,
+                          service_type.startswith("WEBSITE_") and personal: PersonalAppServer,
+                          service_type == "DATABASE_MYSQL":                 MySQL,
+                          service_type == "DATABASE_POSTGRES":              PostgreSQL}.get(True)
         if not OpServiceClass:
             raise BuilderTypeError("Unknown OpService type: {}".format(service_type))
         return OpServiceClass
