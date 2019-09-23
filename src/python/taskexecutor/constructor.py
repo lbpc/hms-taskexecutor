@@ -72,7 +72,7 @@ def get_opservice(service_api_obj):
                     service.set_socket(socket.name.split("@")[0].split("-")[-1], socket)
             if hasattr(service_api_obj, "sockets"):
                 for socket in service_api_obj.sockets:
-                    service.get_socket(socket.protocol, socket)
+                    service.set_socket(socket.protocol, socket)
         if isinstance(service, taskexecutor.baseservice.ConfigurableService) and service.config_base_path:
             LOGGER.debug("{} is configurable service".format(service_name))
             templates = service_api_obj.serviceTemplate.configTemplates if oldschool_service \
