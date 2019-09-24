@@ -61,7 +61,9 @@ def get_opservice(service_api_obj):
         OpService = taskexecutor.opservice.Builder(type_name, docker=in_docker,
                                                    personal=hasattr(service_api_obj, "accountId"))
         service_name = service_api_obj.name.lower().replace("_", "-").split("@")[0]
-        if hasattr(service_api_obj, "accountId") and service_api_obj.accountId:
+        if isinstance(service, taskexecutor.opservice.PersonalAppServer):
+            LOGGER.debug("{} is personal application server")
+            service.accountId = service_api_obj.accountId
             service_name += "-" + service_api_obj.id
         service = OpService(service_name)
         if isinstance(service, taskexecutor.opservice.DockerService):

@@ -397,6 +397,8 @@ class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseser
         taskexecutor.baseservice.ApplicationServer.__init__(self)
         DockerService.__init__(self, name)
         self.config_base_path = os.path.join(self.unix_account.homeDir, "/etc", self.name)
+        self._account_id = None
+        self._unix_account = None
 
     def get_website_config(self, site_id):
         config = self.get_abstract_config(self.site_template_name,
@@ -405,12 +407,22 @@ class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseser
         config.enabled_path = os.path.join("/tmp", site_id + ".conf")
 
     @property
+    def accountId(self):
+        return self._account_id
+
+    @accountId.setter
+    def accountId(self, value):
+        self._account_id = value
+
+    @property
     def unix_account(self):
-        with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-            try:
-                return api.unixAccount().filter(accountId=self.accountId).get()[0]
-            except IndexError:
-                return
+        if not self._unix_account:
+            with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+                try:
+                    self._unix_account = api.unixAccount().filter(accountId=self._account_id).get()[0]
+                except IndexError:
+                    pass
+        return self._unix_account
 
 
 class Nginx(taskexecutor.baseservice.WebServer, SysVService):
