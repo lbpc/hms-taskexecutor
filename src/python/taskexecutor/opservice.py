@@ -243,8 +243,8 @@ class DockerService(OpService):
         super().__init__(name, declaration)
         self._docker_client = docker.from_env()
         self._docker_client.login(**CONFIG.docker_registry._asdict())
-        if hasattr(declaration, "template") and declaration.template.sourceUri:
-            self._image = declaration.template.sourceUri
+        if hasattr(declaration, "template") and declaration.template and declaration.template.sourceUri:
+            self._image = declaration.template.sourceUri.replace("docker://", "")
         elif hasattr(declaration, "template"):
             self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, declaration.template.name)
         else:
