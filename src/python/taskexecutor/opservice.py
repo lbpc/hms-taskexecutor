@@ -403,11 +403,12 @@ class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseser
         taskexecutor.baseservice.WebServer.__init__(self)
         taskexecutor.baseservice.ApplicationServer.__init__(self)
         DockerService.__init__(self, name, declaration)
-        self.config_base_path = os.path.join(self.unix_account.homeDir, "/etc", self.name)
+        self.config_base_path = os.path.join("/opt", self.name, "conf")
+        self.sites_conf_path = os.path.join("/opt", self.name, "conf", "sites")
 
     def get_website_config(self, site_id):
         config = self.get_abstract_config(self.site_template_name,
-                                          os.path.join(self.config_base_path, "sites", site_id + ".conf"),
+                                          os.path.join(self.sites_conf_path, site_id + ".conf"),
                                           config_type="website")
         config.enabled_path = os.path.join("/tmp", site_id + ".conf")
 
