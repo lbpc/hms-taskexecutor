@@ -35,7 +35,7 @@ class ConfigValidationError(Exception):
 
 
 class OpService(metaclass=abc.ABCMeta):
-    def __init__(self, name):
+    def __init__(self, name, declaration):
         self.name = name
         self._log_base_path = "/var/log"
         self._run_base_path = "/var/run"
@@ -136,8 +136,8 @@ class OpService(metaclass=abc.ABCMeta):
 
 
 class UpstartService(OpService):
-    def __init__(self, name):
-        super().__init__(name)
+    def __init__(self, name, declaration):
+        super().__init__(name, declaration)
         self.init_base_path = "/etc/init"
 
     def start(self):
@@ -166,8 +166,8 @@ class UpstartService(OpService):
 
 
 class SysVService(OpService):
-    def __init__(self, name):
-        super().__init__(name)
+    def __init__(self, name, declaration):
+        super().__init__(name, declaration)
         self.init_base_path = "/etc/init.d"
 
     def start(self):
@@ -239,8 +239,8 @@ class DockerService(OpService):
     def env(self):
         return self._env
 
-    def __init__(self, name):
-        super().__init__(name)
+    def __init__(self, name, declaration):
+        super().__init__(name, declaration)
         self._docker_client = docker.from_env()
         self._docker_client.login(**CONFIG.docker_registry._asdict())
         self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, self.name)
@@ -354,17 +354,17 @@ class DockerService(OpService):
 
 class SomethingInDocker(taskexecutor.baseservice.ConfigurableService,
                         taskexecutor.baseservice.NetworkingService, DockerService):
-    def __init__(self, name):
+    def __init__(self, name, declaration):
         taskexecutor.baseservice.ConfigurableService.__init__(self)
         taskexecutor.baseservice.NetworkingService.__init__(self)
-        DockerService.__init__(self, name)
+        DockerService.__init__(self, name, declaration)
         self.config_base_path = os.path.join("/opt", self.name)
 
 
 class NginxInDocker(taskexecutor.baseservice.WebServer, DockerService):
-    def __init__(self, name):
+    def __init__(self, name, declaration):
         taskexecutor.baseservice.WebServer.__init__(self)
-        DockerService.__init__(self, name)
+        DockerService.__init__(self, name, declaration)
         self.config_base_path = "/opt/nginx/conf"
         self.site_template_name = "@NginxServerDocker"
         self.ssl_certs_base_path = CONFIG.nginx.ssl_certs_path
@@ -378,10 +378,10 @@ class NginxInDocker(taskexecutor.baseservice.WebServer, DockerService):
 
 
 class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
-    def __init__(self, name):
+    def __init__(self, name, declaration):
         taskexecutor.baseservice.WebServer.__init__(self)
         taskexecutor.baseservice.ApplicationServer.__init__(self)
-        DockerService.__init__(self, name)
+        DockerService.__init__(self, name, declaration)
         short_name = "apache2-{0.name}{0.version_major}{0.version_minor}".format(self.interpreter)
         self.image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, short_name)
         self.sites_conf_path = "/etc/{}/sites-available".format(self.name)
@@ -392,12 +392,12 @@ class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservic
 
 
 class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
-    def __init__(self, name):
-        self._account_id = None
+    def __init__(self, name, declaration):
+        self._account_id = declaration.accountId
         self._unix_account = None
         taskexecutor.baseservice.WebServer.__init__(self)
         taskexecutor.baseservice.ApplicationServer.__init__(self)
-        DockerService.__init__(self, name)
+        DockerService.__init__(self, name, declaration)
         self.config_base_path = os.path.join(self.unix_account.homeDir, "/etc", self.name)
 
     def get_website_config(self, site_id):
@@ -405,14 +405,6 @@ class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseser
                                           os.path.join(self.config_base_path, "sites", site_id + ".conf"),
                                           config_type="website")
         config.enabled_path = os.path.join("/tmp", site_id + ".conf")
-
-    @property
-    def accountId(self):
-        return self._account_id
-
-    @accountId.setter
-    def accountId(self, value):
-        self._account_id = value
 
     @property
     def unix_account(self):
@@ -426,9 +418,9 @@ class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseser
 
 
 class Nginx(taskexecutor.baseservice.WebServer, SysVService):
-    def __init__(self, name):
+    def __init__(self, name, declaration):
         taskexecutor.baseservice.WebServer.__init__(self)
-        SysVService.__init__(self, name)
+        SysVService.__init__(self, name, declaration)
         self.site_template_name = "@NginxServer"
         self.config_base_path = "/etc/nginx"
         self.static_base_path = CONFIG.nginx.static_base_path
@@ -443,10 +435,10 @@ class Nginx(taskexecutor.baseservice.WebServer, SysVService):
 
 
 class Apache(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, UpstartService):
-    def __init__(self, name):
+    def __init__(self, name, declaration):
         taskexecutor.baseservice.WebServer.__init__(self)
         taskexecutor.baseservice.ApplicationServer.__init__(self)
-        UpstartService.__init__(self, name)
+        UpstartService.__init__(self, name, declaration)
         self.site_template_name = "@ApacheVHost"
         self.config_base_path = os.path.join("/etc", self.name)
         self.static_base_path = CONFIG.nginx.static_base_path
@@ -462,9 +454,9 @@ class Apache(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.Applic
 # HACK: the two 'Unmanaged' classes below are responsible for reloading services at baton.intr only
 # would be removed when this server is gone
 class UnmanagedNginx(taskexecutor.baseservice.WebServer, OpService):
-    def __init__(self, name):
+    def __init__(self, name, declaration):
         taskexecutor.baseservice.WebServer.__init__(self)
-        OpService.__init__(self, name)
+        OpService.__init__(self, name, declaration)
         self.site_template_name = "@BatonNginxServer"
         self.config_base_path = "/usr/local/nginx/conf"
 
@@ -485,12 +477,12 @@ class UnmanagedNginx(taskexecutor.baseservice.WebServer, OpService):
 
 
 class UnmanagedApache(taskexecutor.baseservice.WebServer, OpService):
-    def __init__(self, name):
+    def __init__(self, name, declaration):
         apache_name_mangle = {"apache2-php4": "apache",
                               "apache2-php52": "apache5",
                               "apache2-php53": "apache53"}
         taskexecutor.baseservice.WebServer.__init__(self)
-        OpService.__init__(self, apache_name_mangle[name])
+        OpService.__init__(self, apache_name_mangle[name], declaration)
         self.site_template_name = "@BatonApacheVHost"
         LOGGER.info("Apache name rewrited to '{}'".format(self.name))
         self.config_base_path = os.path.join("/usr/local", self.name, "conf")
@@ -516,9 +508,9 @@ class UnmanagedApache(taskexecutor.baseservice.WebServer, OpService):
 
 
 class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
-    def __init__(self, name):
+    def __init__(self, name, declaration):
         taskexecutor.baseservice.DatabaseServer.__init__(self)
-        SysVService.__init__(self, name)
+        SysVService.__init__(self, name, declaration)
         self.config_base_path = "/etc/mysql"
         self._dbclient = None
         self._full_privileges = CONFIG.mysql.common_privileges + CONFIG.mysql.write_privileges
@@ -701,9 +693,9 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
 
 
 class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
-    def __init__(self, name):
+    def __init__(self, name, declaration):
         taskexecutor.baseservice.DatabaseServer.__init__(self)
-        SysVService.__init__(self, name)
+        SysVService.__init__(self, name, declaration)
         self.config_base_path = "/etc/postgresql/9.3/main"
         self._dbclient = None
         self._hba_conf = taskexecutor.constructor.get_conffile("lines",

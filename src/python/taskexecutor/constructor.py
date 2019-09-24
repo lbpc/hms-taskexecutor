@@ -61,13 +61,13 @@ def get_opservice(service_api_obj):
         OpService = taskexecutor.opservice.Builder(type_name, docker=in_docker,
                                                    personal=hasattr(service_api_obj, "accountId"))
         service_name = service_api_obj.name.lower().replace("_", "-").split("@")[0]
-        if isinstance(service, taskexecutor.opservice.PersonalAppServer):
-            LOGGER.debug("{} is personal application server")
-            service.accountId = service_api_obj.accountId
+        if hasattr(service_api_obj, "accountId") and service_api_obj.accountId:
             service_name += "-" + service_api_obj.id
-        service = OpService(service_name)
+        service = OpService(service_name, service_api_obj)
         if isinstance(service, taskexecutor.opservice.DockerService):
             LOGGER.debug("{} is dockerized service".format(service_name))
+        if isinstance(service, taskexecutor.opservice.PersonalAppServer):
+            LOGGER.debug("{} is personal application server")
         if isinstance(service, taskexecutor.baseservice.NetworkingService):
             LOGGER.debug("{} is networking service".format(service_name))
             if hasattr(service_api_obj, "serviceSockets"):
