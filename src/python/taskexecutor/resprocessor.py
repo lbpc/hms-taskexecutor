@@ -571,7 +571,8 @@ class ServiceProcessor(ResProcessor):
     def update(self):
         self.params.update(hostname=CONFIG.hostname)
         if isinstance(self.service, taskexecutor.opservice.NginxInDocker):
-            self.params["app_servers"] = taskexecutor.constructor.get_all_opservices_by_res_type("website")
+            self.params["app_servers"] = [s for s in taskexecutor.constructor.get_all_opservices_by_res_type("website")
+                                          if not isinstance(s, taskexecutor.opservice.NginxInDocker)]
         if isinstance(self.service, taskexecutor.opservice.Nginx):
             self._create_error_pages()
             self.params.update(app_servers=taskexecutor.constructor.get_all_opservices_by_res_type("website"),
