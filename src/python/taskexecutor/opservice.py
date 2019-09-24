@@ -243,7 +243,12 @@ class DockerService(OpService):
         super().__init__(name, declaration)
         self._docker_client = docker.from_env()
         self._docker_client.login(**CONFIG.docker_registry._asdict())
-        self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, self.name)
+        if hasattr(declaration, "template") and declaration.template.sourceUri:
+            self._image = declaration.template.sourceUri
+        elif hasattr(declaration, "template"):
+            self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, declaration.template.name)
+        else:
+            self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, self.name)
         self._container_name = getattr(self, "_container_name", self.name)
         self._default_run_args = {"name": self._container_name,
                                   "detach": True,

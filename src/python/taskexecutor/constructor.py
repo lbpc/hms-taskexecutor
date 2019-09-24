@@ -67,7 +67,7 @@ def get_opservice(service_api_obj):
         if isinstance(service, taskexecutor.opservice.DockerService):
             LOGGER.debug("{} is dockerized service".format(service_name))
         if isinstance(service, taskexecutor.opservice.PersonalAppServer):
-            LOGGER.debug("{} is personal application server")
+            LOGGER.debug("{} is personal application server".format(service_name))
         if isinstance(service, taskexecutor.baseservice.NetworkingService):
             LOGGER.debug("{} is networking service".format(service_name))
             if hasattr(service_api_obj, "serviceSockets"):
