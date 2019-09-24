@@ -394,7 +394,7 @@ class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservic
 class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
     def __init__(self, name):
         taskexecutor.baseservice.WebServer.__init__(self)
-        taskexecutor.baseservice.PersonalApplicationServer.__init__(self)
+        taskexecutor.baseservice.ApplicationServer.__init__(self)
         DockerService.__init__(self, name)
         self.config_base_path = os.path.join(self.unix_account.homeDir, "/etc", self.name)
 
