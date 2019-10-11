@@ -88,17 +88,14 @@ class ResourceBuilder:
                     for each in CONFIG.localserver.services:
                         if hasattr(each, "serviceTemplate") and each.serviceTemplate and \
                                 each.serviceTemplate.serviceType.name.startswith("WEBSITE_"):
-                            required_resources.append(each)
+                            required_resources.append("service", each)
                         elif hasattr(each, "template") and each.template.__class__.__name__ == "ApplicationServer":
-                            required_resources.append(each)
+                            required_resources.append("service", each)
                 else:
                     LOGGER.debug("{0} service depends on {1}".format(resource.name, req_r_type))
                     with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
                         required_resources.extend([(req_r_type, r) for r in
                                                    api.resource(req_r_type).filter(serviceId=resource.id).get() or []])
-        for each in required_resources:
-            if not hasattr(each[1], 'switchedOn'):
-                LOGGER.warn(each)
         return [r for r in required_resources if r[1].switchedOn]
 
     def get_affected_resources(self, resource=None):
