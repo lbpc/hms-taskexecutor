@@ -274,7 +274,10 @@ class WebsiteCollector(ResCollector):
                 if (hasattr(service, "serviceTemplate") and
                         service.serviceTemplate and
                         service.serviceTemplate.serviceType.name.startswith("WEBSITE_")) or \
-                    (hasattr(service, "template") and service.template and service.template.resourceType == "WEBSITE"):
+                    (hasattr(service, "template") and
+                     service.template and
+                     service.template.resourceType == "WEBSITE" and
+                     service.template.__class__.__name__ == "ApplicationServer"):
                     app_server = taskexecutor.constructor.get_opservice(service)
                     config = app_server.get_website_config(self.resource.id)
                     if config.exists:
