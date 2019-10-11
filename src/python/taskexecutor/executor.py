@@ -88,9 +88,9 @@ class ResourceBuilder:
                     for each in CONFIG.localserver.services:
                         if hasattr(each, "serviceTemplate") and each.serviceTemplate and \
                                 each.serviceTemplate.serviceType.name.startswith("WEBSITE_"):
-                            required_resources.append("service", each)
+                            required_resources.append(("service", each))
                         elif hasattr(each, "template") and each.template.__class__.__name__ == "ApplicationServer":
-                            required_resources.append("service", each)
+                            required_resources.append(("service", each))
                 else:
                     LOGGER.debug("{0} service depends on {1}".format(resource.name, req_r_type))
                     with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
