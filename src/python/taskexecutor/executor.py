@@ -56,7 +56,11 @@ class ResourceBuilder:
                 else:
                     service_type_resource = taskexecutor.utils.to_camel_case(self._res_type).upper()
                     for service in CONFIG.localserver.services:
-                        if service.serviceTemplate.serviceType.name.startswith(service_type_resource):
+                        if hasattr(service, "serviceTemplate") and service.serviceTemplate:
+                            provided_resource = service.serviceTemplate.serviceType.name.split("_")[0]
+                        else:
+                            provided_resource = service.template.resourceType
+                        if provided_resource == service_type_resource:
                             self._resources.extend(api.resource(self._res_type).filter(serviceId=service.id).get())
         return self._resources
 
@@ -73,11 +77,20 @@ class ResourceBuilder:
                 LOGGER.debug("redirect depends on ssl-certificate")
                 required_resources.append(("ssl-certificate", resource.domain.sslCertificate))
             elif self._res_type == "service":
-                req_r_type, service_name = [w.lower() for w in resource.serviceTemplate.serviceType.name.split("_")][:2]
+                if hasattr(resource, "serviceTemplate") and resource.serviceTemplate:
+                    req_r_type, service_name = [w.lower()
+                                                for w in resource.serviceTemplate.serviceType.name.split("_")][:2]
+                else:
+                    req_r_type = resource.template.resourceType.lower()
+                    service_name = resource.template.name
                 if service_name == "nginx":
                     LOGGER.debug("{0} service depends on application servers".format(resource.name))
-                    required_resources.extend([("service", s) for s in CONFIG.localserver.services
-                                               if s.serviceTemplate.serviceType.name.startswith("WEBSITE_")])
+                    for each in CONFIG.localserver.services:
+                        if hasattr(each, "serviceTemplate") and each.serviceTemplate and \
+                                each.serviceTemplate.serviceType.name.startswith("WEBSITE_"):
+                            required_resources.append(("service", each))
+                        elif hasattr(each, "template") and each.template.__class__.__name__ == "ApplicationServer":
+                            required_resources.append(("service", each))
                 else:
                     LOGGER.debug("{0} service depends on {1}".format(resource.name, req_r_type))
                     with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
@@ -103,9 +116,17 @@ class ResourceBuilder:
                         affected_resources.append(("website", website))
                     if redirect:
                         affected_resources.append(("redirect", redirect))
-                elif self._res_type == "service" and resource.serviceTemplate.serviceType.name.startswith("WEBSITE_"):
+                elif self._res_type == "service" and \
+                        (hasattr(resource, "serviceTemplate") and
+                         resource.serviceTemplate and
+                         resource.serviceTemplate.serviceType.name.startswith("WEBSITE_")) or \
+                        (hasattr(resource, "template") and
+                         resource.template and resource.template.resourceType == "WEBSITE"):
                     nginx = next((s for s in CONFIG.localserver.services
-                                  if s.serviceTemplate.serviceType.name == "STAFF_NGINX"), None)
+                                  if (hasattr(s, "serviceTemplate") and s.serviceTemplate and
+                                      s.serviceTemplate.serviceType.name == "STAFF_NGINX") or
+                                  (hasattr(s, "template") and s.template and
+                                   s.template.__class__.__name__ == "HttpServer")), None)
                     if nginx:
                         affected_resources.append(("service", nginx))
         return [r for r in affected_resources if r[1].switchedOn]
