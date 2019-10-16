@@ -684,14 +684,16 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                                         "character_set_client, "
                                         "character_set_connection, "
                                         "character_set_results, "
-                                        "collation_connection"
-                                        ") VALUES(%s, %s, %s, %s, %s, %s)",
+                                        "collation_connection,"
+                                        "innodb_strict_mode"
+                                        ") VALUES(%s, %s, %s, %s, %s, %s, %s)",
                                         ("{}@{}".format(user_name, address),
                                          vars_map.get("query_cache_type"),
                                          vars_map.get("character_set_client"),
                                          vars_map.get("character_set_connection"),
                                          vars_map.get("character_set_results"),
-                                         vars_map.get("collation_connection")))
+                                         vars_map.get("collation_connection"),
+                                         vars_map.get("innodb_strict_mode")))
 
     def set_initial_permissions(self, user_name, addrs_list):
         for address in addrs_list:
