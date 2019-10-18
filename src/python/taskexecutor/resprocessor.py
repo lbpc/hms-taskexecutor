@@ -185,6 +185,9 @@ class UnixAccountProcessor(ResProcessor):
                 self.service.enable_sendmail(self.resource.uid)
             else:
                 self.service.disable_sendmail(self.resource.uid)
+            if self.extra_services.mta:
+                cmd = "{}able-uid-cmd".format("en" if self.resource.sendmailAllowed else "dis")
+                self.extra_services.mta.exec_defined_cmd(cmd, uid=self.resource.uid)
             if not self.resource.writable:
                 LOGGER.info("Disabling writes by setting quota=quotaUsed for user {0.name} "
                             "(quotaUsed={0.quotaUsed})".format(self.resource))
@@ -400,7 +403,7 @@ class DatabaseUserProcessor(ResProcessor):
         if not isinstance(vars, dict):
             vars = vars._asdict()
         if len(set(vars.keys()).intersection({"queryCacheType", "characterSetClient", "characterSetConnection",
-                                              "characterSetResults", "collationConnection"})) > 0:
+                                              "characterSetResults", "collationConnection", "innodbStrictMode"})) > 0:
             vars = {taskexecutor.utils.to_snake_case(k): v for k, v in vars.items()}
             addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
             LOGGER.info("Presetting session variables for user {0} with addresses {1}: {2}".format(
