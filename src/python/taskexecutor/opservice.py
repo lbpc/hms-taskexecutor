@@ -4,7 +4,9 @@ import json
 import re
 import os
 import psutil
+import string
 import sys
+import time
 import ipaddress
 from functools import reduce
 
@@ -236,8 +238,27 @@ class DockerService(OpService):
         self._image = value
 
     @property
+    def container(self):
+        return next(iter(
+            self._docker_client.containers.list(filters={"name": "^/" + self._container_name + "$"})
+        ), None)
+
+    @property
     def env(self):
         return self._env
+
+    @property
+    def defined_commands(self):
+        if self.container:
+            self.container.reload()
+            image = self.container.image
+        else:
+            LOGGER.info("Pulling {} docker image".format(self.image))
+            self._docker_client.images.pull(self.image)
+            image = self._docker_client.images.get(self.image)
+        return {k.split(".")[-1]: string.Template(v)
+                for k, v in image.labels.items()
+                if k.startswith("ru.majordomo.docker.exec.")}
 
     def __init__(self, name, declaration):
         super().__init__(name, declaration)
@@ -276,6 +297,20 @@ class DockerService(OpService):
         else:
             return to_subst
 
+    def exec_defined_cmd(self, cmd_name, **kwargs):
+        cmd = self.defined_commands.get(cmd_name)
+        if not cmd:
+            raise ValueError("{} is not defined for {}, see Docker image labels".format(cmd_name, self.name))
+        if self.status() != UP:
+            raise RuntimeError("{} is not running".format(self._container_name))
+        cmd = cmd.safe_substitute(**kwargs)
+        self.container.reload()
+        LOGGER.info("Running command inside {} container: {}".format(self._container_name, cmd))
+        res = self.container.exec_run(cmd)
+        if res.exit_code > 0:
+            raise RuntimeError(res.output.decode())
+        return res.output.decode()
+
     def start(self):
         LOGGER.info("Pulling {} docker image".format(self.image))
         self._docker_client.images.pull(self.image)
@@ -292,52 +327,54 @@ class DockerService(OpService):
             if dir and not os.path.isfile(dir):
                 LOGGER.info("Creating {} directory".format(dir))
                 os.makedirs(dir, exist_ok=True)
-        existing = next((c for c in self._docker_client.containers.list(all=True) if c.name == run_args["name"]), None)
-        if existing:
-            LOGGER.info("Container {} already exists, stopping and removing it".format(self._container_name))
-            existing.stop()
-            existing.remove()
+        if self.container:
+            LOGGER.warn("Container {} already exists".format(self._container_name))
+            self.stop()
         LOGGER.info("Running container {} with arguments: {}".format(self._container_name, run_args))
         self._docker_client.containers.run(self.image, **run_args)
 
     def stop(self):
-        container = self._docker_client.containers.get(self._container_name)
         LOGGER.info("Stopping and removing container {}".format(self._container_name))
-        container.stop()
-        container.remove()
+        self.container.stop()
+        self.container.remove()
 
     def restart(self):
-        LOGGER.info("Renaming {0} container to {0}_old".format(self._container_name))
-        old_container = self._docker_client.containers.get(self._container_name)
-        old_container.rename("{}_old".format(self._container_name))
+        timestamp = str(int(time.time()))
+        old_container = None
+        if self.container:
+            LOGGER.info("Renaming {0} container to {0}_{1}".format(self._container_name, timestamp))
+            old_container = self.container
+            old_container.rename("{}_{}".format(self._container_name, timestamp))
         try:
             self.start()
         except Exception:
-            LOGGER.warn("Failed to start new container {0}, renaming {0}_old back".format(self._container_name))
-            old_container.rename(self._container_name)
+            if old_container:
+                LOGGER.warn("Failed to start new container {0}, renaming {0}_{1} back".format(self._container_name, timestamp))
+                old_container.rename(self._container_name)
             raise
-        LOGGER.info("Killing and removing container {}_old".format(self._container_name))
-        old_container.kill()
-        old_container.remove()
+        if old_container:
+            LOGGER.info("Killing and removing container {}_{}".format(self._container_name, timestamp))
+            old_container.kill()
+            old_container.remove()
 
     def reload(self):
+        if self.status() == DOWN:
+            LOGGER.warn("{} is down, starting it".format(self._container_name))
+            self.start()
+            return
         LOGGER.info("Pulling {} docker image".format(self.image))
         self._docker_client.images.pull(self.image)
         image = self._docker_client.images.get(self.image)
-        reload_cmd = image.labels.get("ru.majordomo.docker.exec.reload-cmd", "")
-        container = self._docker_client.containers.get(self._container_name)
-        if container.image.id != image.id:
+        if self.container.image.id != image.id:
             LOGGER.info("Image ID differs from existing container's image, restarting")
             self.restart()
             return
-        if reload_cmd:
-            LOGGER.info("Reloading service inside container {} by command: {}".format(self._container_name, reload_cmd))
-            res = container.exec_run(reload_cmd)
-            if res.exit_code > 0:
-                raise ServiceReloadError(res.output.decode())
+        self.container.reload()
+        LOGGER.info("Reloading service inside container {}".format(self._container_name))
+        if "reload-cmd" in self.defined_commands:
+            self.exec_defined_cmd("reload-cmd")
         else:
-            container.reload()
-            pid = container.attrs["State"]["Pid"]
+            pid = self.container.attrs["State"]["Pid"]
             if psutil.pid_exists(pid):
                 LOGGER.info("Sending SIGHUP to first process in container {} "
                             "(PID {})".format(self._container_name, pid))
@@ -346,15 +383,11 @@ class DockerService(OpService):
                 raise ServiceReloadError("No such PID: {}".format(pid))
 
     def status(self):
-        try:
-            container = self._docker_client.containers.get(self._container_name)
-            container.reload()
-            if container.status == "running":
+        if self.container:
+            self.container.reload()
+            if self.container.status == "running":
                 return UP
-            else:
-                return DOWN
-        except docker.errors.NotFound:
-            return DOWN
+        return DOWN
 
 
 class SomethingInDocker(taskexecutor.baseservice.ConfigurableService,

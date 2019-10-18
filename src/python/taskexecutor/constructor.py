@@ -40,6 +40,16 @@ def get_http_proxy_service():
                  (hasattr(s, "template") and s.template and s.template.__class__.__name__ == "HttpServer")), None)
 
 
+def get_mta_service():
+    return next((get_opservice(s) for s in CONFIG.localserver.services
+                 if hasattr(s, "template") and s.template and s.template.__class__.__name__ == "Postfix"), None)
+
+
+def get_cron_service():
+    return next((get_opservice(s) for s in CONFIG.localserver.services
+                 if hasattr(s, "template") and s.template and s.template.__class__.__name__ == "CronD"), None)
+
+
 def get_opservice(service_api_obj):
     global SERVICE_ID_TO_OPSERVICE_MAPPING
     service = SERVICE_ID_TO_OPSERVICE_MAPPING.get(service_api_obj.id)
@@ -124,6 +134,9 @@ def get_extra_services(res_processor):
         return ServiceContainer(http_proxy=get_http_proxy_service(),
                                 old_app_server=get_opservice_by_resource(res_processor.op_resource, "website")
                                 if res_processor.op_resource else None)
+    if isinstance(res_processor, taskexecutor.resprocessor.UnixAccountProcessor):
+        ServiceContainer = collections.namedtuple("ServiceContainer", "mta cron")
+        return ServiceContainer(mta=get_mta_service(), cron=get_cron_service())
     return list()
 
 
