@@ -214,7 +214,8 @@ class LineBasedConfigFile(ConfigFile):
 
     def remove_line(self, line):
         LOGGER.debug("Removing '{0}' from {1}".format(line, self.file_path))
-        list = self._body_as_list().remove(line)
+        list = self._body_as_list()
+        list.remove(line)
         self.body = "\n".join(list)
 
     def replace_line(self, regex, new_line, count=1):
