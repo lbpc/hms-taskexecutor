@@ -449,6 +449,8 @@ class CronInDocker(DockerService):
 
     def create_crontab(self, user_name, cron_tasks_list):
         crontab = self._get_crontab_file(user_name)
+        if crontab.body:
+            crontab.body = ""
         for each in cron_tasks_list:
             crontab.add_line("#{}".format(each.execTimeDescription))
             crontab.add_line("{0.execTime} {0.command}".format(each))
