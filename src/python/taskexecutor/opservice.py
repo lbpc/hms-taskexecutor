@@ -429,6 +429,47 @@ class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservic
         self.config_base_path = os.path.join("/etc", self.name)
 
 
+class CronInDocker(DockerService):
+    def __init__(self, name, declaration):
+        super().__init__(name, declaration)
+        self.passwd_root = "/opt"
+        self.spool = "/opt/cron/tabs"
+
+    def _get_uid(self, user_name):
+        passwd = taskexecutor.constructor.get_conffile('lines', os.path.join(self.passwd_root, "etc/passwd"))
+        matched = passwd.get_lines("^{}:".format(user_name))
+        if len(matched) != 0:
+            raise ValueError("Cannot determine user {0},"
+                             "lines found in {2}: {1}".format(user_name, matched, passwd.file_path))
+        return matched[0].split(":")[2]
+
+    def _get_crontab_file(self, user_name):
+        return taskexecutor.constructor.get_conffile("lines", os.path.join(self.spool, user_name),
+                                                     owner_uid=self._get_uid(user_name), mode=0o600)
+
+    def create_crontab(self, user_name, cron_tasks_list):
+        crontab = self._get_crontab_file(user_name)
+        for each in cron_tasks_list:
+            crontab.add_line("#{}".format(each.execTimeDescription))
+            crontab.add_line("{0.execTime} {0.command}".format(each))
+        crontab.body += "\n"
+        crontab.save()
+
+    def get_crontab(self, user_name):
+        return self._get_crontab_file(user_name).body
+
+    def delete_crontab(self, user_name):
+        self._get_crontab_file(user_name).delete()
+
+
+class PostfixInDocker(DockerService):
+    def enable_sendmail(self, uid):
+        self.exec_defined_cmd("enable-uid-cmd", uid=uid)
+
+    def disable_sendmail(self, uid):
+        self.exec_defined_cmd("disable-uid-cmd", uid=uid)
+
+
 class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
     def __init__(self, name, declaration):
         self._account_id = declaration.accountId
@@ -932,6 +973,8 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
 class Builder:
     def __new__(cls, service_type, docker=False, personal=False):
         OpServiceClass = {docker:                                           SomethingInDocker,
+                          service_type.endswith("CRON"):                    CronInDocker,
+                          service_type.endswith("POSTFIX"):                 PostfixInDocker,
                           service_type == "STAFF_NGINX":                    Nginx if not docker else NginxInDocker,
                           service_type.startswith("WEBSITE_"):              Apache if not docker else ApacheInDocker,
                           service_type.startswith("WEBSITE_") and personal: PersonalAppServer,

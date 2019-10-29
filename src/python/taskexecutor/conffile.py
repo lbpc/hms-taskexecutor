@@ -37,7 +37,7 @@ class ConfigFile:
 
     @property
     def body(self):
-        if not self._body:
+        if not self._body and self.exists:
             self._read_file()
         return self._body
 
@@ -192,7 +192,7 @@ class LineBasedConfigFile(ConfigFile):
         super().__init__(abs_path, owner_uid, mode)
 
     def _body_as_list(self):
-        return self.body.split("\n")
+        return str(self.body).split("\n") if self.body else []
 
     def has_line(self, line):
         return line in self._body_as_list()
@@ -208,7 +208,8 @@ class LineBasedConfigFile(ConfigFile):
 
     def add_line(self, line):
         LOGGER.debug("Adding '{0}' to {1}".format(line, self.file_path))
-        list = self._body_as_list().append(line)
+        list = self._body_as_list()
+        list.append(line)
         self.body = "\n".join(list)
 
     def remove_line(self, line):
