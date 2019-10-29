@@ -438,7 +438,7 @@ class CronInDocker(DockerService):
     def _get_uid(self, user_name):
         passwd = taskexecutor.constructor.get_conffile('lines', os.path.join(self.passwd_root, "etc/passwd"))
         matched = passwd.get_lines("^{}:".format(user_name))
-        if len(matched) != 0:
+        if len(matched) != 1:
             raise ValueError("Cannot determine user {0},"
                              "lines found in {2}: {1}".format(user_name, matched, passwd.file_path))
         return matched[0].split(":")[2]
