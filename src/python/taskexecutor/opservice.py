@@ -441,7 +441,7 @@ class CronInDocker(DockerService):
         if len(matched) != 1:
             raise ValueError("Cannot determine user {0},"
                              "lines found in {2}: {1}".format(user_name, matched, passwd.file_path))
-        return matched[0].split(":")[2]
+        return int(matched[0].split(":")[2])
 
     def _get_crontab_file(self, user_name):
         return taskexecutor.constructor.get_conffile("lines", os.path.join(self.spool, user_name),
