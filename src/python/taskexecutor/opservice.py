@@ -461,8 +461,10 @@ class CronInDocker(DockerService):
         return self._get_crontab_file(user_name).body
 
     def delete_crontab(self, user_name):
-        self._get_crontab_file(user_name).delete()
-        self.reload()
+        crontab = self._get_crontab_file(user_name)
+        if crontab.exists:
+            self._get_crontab_file(user_name).delete()
+            self.reload()
 
 
 class PostfixInDocker(DockerService):
