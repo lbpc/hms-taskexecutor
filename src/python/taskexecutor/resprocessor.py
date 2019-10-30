@@ -204,6 +204,7 @@ class UnixAccountProcessor(ResProcessor):
                 LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
                 self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                     self.resource.uid, self.resource.homeDir)
+            self.service.delete_crontab(self.resource.name)
             cron_service = self.extra_services.cron or self.service
             if len(self.resource.crontab) > 0 and switched_on:
                 cron_service.create_crontab(self.resource.name,
