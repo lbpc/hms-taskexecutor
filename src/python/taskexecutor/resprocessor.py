@@ -11,6 +11,7 @@ import taskexecutor.constructor
 import taskexecutor.conffile
 import taskexecutor.ftpclient
 import taskexecutor.httpsclient
+import taskexecutor.baseservice
 import taskexecutor.opservice
 import taskexecutor.watchdog
 import taskexecutor.utils
@@ -152,15 +153,15 @@ class UnixAccountProcessor(ResProcessor):
             LOGGER.info("Setting quota for user {0.name}: {0.quota} bytes".format(self.resource))
             self.service.set_quota(self.resource.uid, self.resource.quota)
         except Exception:
-            LOGGER.error("Setting quota failed "
-                         "for user {0.name}".format(self.resource))
+            LOGGER.error("Setting quota failed for user {0.name}".format(self.resource))
             self.service.delete_user(self.resource.name)
             raise
+        cron_service = self.extra_services.cron or self.service
         if len(self.resource.crontab) > 0:
-            self.service.create_crontab(self.resource.name, [task for task in self.resource.crontab if task.switchedOn])
+            cron_service.create_crontab(self.resource.name, [task for task in self.resource.crontab if task.switchedOn])
         if hasattr(self.resource, "keyPair") and self.resource.keyPair:
             LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
-            self.service.create_authorized_keys(self.resource.keyPair.publicKey,
+            cron_service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                 self.resource.uid, self.resource.homeDir)
         if not "dataSourceParams" in self.params.keys():
             self.params["dataSourceParams"] = {}
@@ -181,13 +182,11 @@ class UnixAccountProcessor(ResProcessor):
                 taskexecutor.utils.exec_command("chown -R {0}:{0} {1}".format(self.resource.uid, self.resource.homeDir))
             self.service.set_shell(self.resource.name,
                                    {True: self.service.default_shell, False: None}[switched_on])
+            mta_service = self.extra_services.mta or self.service
             if self.resource.sendmailAllowed:
-                self.service.enable_sendmail(self.resource.uid)
+                mta_service.enable_sendmail(self.resource.uid)
             else:
-                self.service.disable_sendmail(self.resource.uid)
-            if self.extra_services.mta:
-                cmd = "{}able-uid-cmd".format("en" if self.resource.sendmailAllowed else "dis")
-                self.extra_services.mta.exec_defined_cmd(cmd, uid=self.resource.uid)
+                mta_service.disable_sendmail(self.resource.uid)
             if not self.resource.writable:
                 LOGGER.info("Disabling writes by setting quota=quotaUsed for user {0.name} "
                             "(quotaUsed={0.quotaUsed})".format(self.resource))
@@ -205,11 +204,13 @@ class UnixAccountProcessor(ResProcessor):
                 LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
                 self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                     self.resource.uid, self.resource.homeDir)
+            self.service.delete_crontab(self.resource.name)
+            cron_service = self.extra_services.cron or self.service
             if len(self.resource.crontab) > 0 and switched_on:
-                self.service.create_crontab(self.resource.name,
+                cron_service.create_crontab(self.resource.name,
                                             [task for task in self.resource.crontab if task.switchedOn])
             else:
-                self.service.delete_crontab(self.resource.name)
+                cron_service.delete_crontab(self.resource.name)
             self.service.set_comment(self.resource.name, "Hosting account,,,,"
                                                          "UnixAccount(id={0.id}, "
                                                          "accountId={0.accountId}, "
@@ -582,7 +583,10 @@ class ServiceProcessor(ResProcessor):
                                anti_ddos_location=CONFIG.nginx.anti_ddos_location)
         elif isinstance(self.service, taskexecutor.opservice.Apache):
             self.params.update(admin_networks=CONFIG.apache.admin_networks)
-        configs = self.service.get_concrete_configs_set()
+        if isinstance(self.service, taskexecutor.baseservice.ConfigurableService):
+            configs = self.service.get_concrete_configs_set()
+        else:
+            configs = []
         if isinstance(self.service, taskexecutor.opservice.Apache) and self.service.interpreter.name != "php":
             configs = [c for c in configs if os.path.basename(c.file_path) != "php.ini"]
         for config in configs:
