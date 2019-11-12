@@ -253,9 +253,7 @@ class DockerService(OpService):
             self.container.reload()
             image = self.container.image
         else:
-            LOGGER.info("Pulling {} docker image".format(self.image))
-            self._docker_client.images.pull(self.image)
-            image = self._docker_client.images.get(self.image)
+            image = self._pull_image()
         return {k.split(".")[-1]: string.Template(v)
                 for k, v in image.labels.items()
                 if k.startswith("ru.majordomo.docker.exec.")}
@@ -277,6 +275,12 @@ class DockerService(OpService):
                                   "tty": False,
                                   "restart_policy": {"Name": "always"},
                                   "network": "host"}
+
+    @taskexecutor.utils.synchronized
+    def _pull_image(self):
+        LOGGER.info("Pulling {} docker image".format(self.image))
+        self._docker_client.images.pull(self.image)
+        return self._docker_client.images.get(self.image)
 
     def _setup_env(self):
         self._env = {"${}".format(k): v for k, v in os.environ.items()}
@@ -312,9 +316,7 @@ class DockerService(OpService):
         return res.output.decode()
 
     def start(self):
-        LOGGER.info("Pulling {} docker image".format(self.image))
-        self._docker_client.images.pull(self.image)
-        image = self._docker_client.images.get(self.image)
+        image = self._pull_image()
         arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json"), "{}")
         if arg_hints:
             LOGGER.info("Docker image {} has run arguments hints: {}".format(self.image, arg_hints))
@@ -362,9 +364,7 @@ class DockerService(OpService):
             LOGGER.warn("{} is down, starting it".format(self._container_name))
             self.start()
             return
-        LOGGER.info("Pulling {} docker image".format(self.image))
-        self._docker_client.images.pull(self.image)
-        image = self._docker_client.images.get(self.image)
+        image = self._pull_image()
         if self.container.image.id != image.id:
             LOGGER.info("Image ID differs from existing container's image, restarting")
             self.restart()
