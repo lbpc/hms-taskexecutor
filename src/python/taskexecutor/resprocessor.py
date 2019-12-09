@@ -161,7 +161,7 @@ class UnixAccountProcessor(ResProcessor):
             cron_service.create_crontab(self.resource.name, [task for task in self.resource.crontab if task.switchedOn])
         if hasattr(self.resource, "keyPair") and self.resource.keyPair:
             LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
-            cron_service.create_authorized_keys(self.resource.keyPair.publicKey,
+            self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                 self.resource.uid, self.resource.homeDir)
         if not "dataSourceParams" in self.params.keys():
             self.params["dataSourceParams"] = {}
