@@ -10,7 +10,7 @@ RUN  set -xe && \
                                                 python-dev  build-essential libssl-dev libffi-dev \
                                                 libxml2-dev libxslt1-dev zlib1g-dev \
                                                 python-software-properties software-properties-common apt-transport-https && \
-     add-apt-repository ppa:jonathonf/python-3.6 && \
+     add-apt-repository ppa:deadsnakes/ppa && \
      apt-get update && apt-get install -y --no-install-recommends python3-dev python3.6 python3.6-dev && \
      curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
      /usr/bin/python3.6 get-pip.py && \
@@ -27,7 +27,3 @@ RUN  pip3 install --upgrade pip && \
      pip3 install setuptools -U && \
      pip3 install pylint && \
      pip3 install datetime
-     
-   
-
-
