@@ -341,23 +341,28 @@ class DockerService(OpService):
         self.container.remove()
 
     def restart(self):
-        timestamp = str(int(time.time()))
-        old_container = None
-        if self.container:
-            LOGGER.info("Renaming {0} container to {0}_{1}".format(self._container_name, timestamp))
-            old_container = self.container
-            old_container.rename("{}_{}".format(self._container_name, timestamp))
-        try:
-            self.start()
-        except Exception:
+       if self.container.attrs["NetworkSettings"]["Ports"]:
+           self._pull_image()
+           self.stop()
+           self.start()
+       else:
+            timestamp = str(int(time.time()))
+            old_container = None
+            if self.container:
+                LOGGER.info("Renaming {0} container to {0}_{1}".format(self._container_name, timestamp))
+                old_container = self.container
+                old_container.rename("{}_{}".format(self._container_name, timestamp))
+            try:
+                self.start()
+            except Exception:
+                if old_container:
+                    LOGGER.warn("Failed to start new container {0}, renaming {0}_{1} back".format(self._container_name, timestamp))
+                    old_container.rename(self._container_name)
+                raise
             if old_container:
-                LOGGER.warn("Failed to start new container {0}, renaming {0}_{1} back".format(self._container_name, timestamp))
-                old_container.rename(self._container_name)
-            raise
-        if old_container:
-            LOGGER.info("Killing and removing container {}_{}".format(self._container_name, timestamp))
-            old_container.kill()
-            old_container.remove()
+                LOGGER.info("Killing and removing container {}_{}".format(self._container_name, timestamp))
+                old_container.kill()
+                old_container.remove()
 
     def reload(self):
         if self.status() == DOWN:
