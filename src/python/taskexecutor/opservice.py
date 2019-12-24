@@ -240,7 +240,7 @@ class DockerService(OpService):
     @property
     def container(self):
         return next(iter(
-            self._docker_client.containers.list(filters={"name": "^/" + self._container_name + "$"})
+            self._docker_client.containers.list(filters={"name": "^/" + self._container_name + "$"}, all=True)
         ), None)
 
     @property
