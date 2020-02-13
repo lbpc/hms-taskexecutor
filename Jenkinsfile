@@ -1,11 +1,9 @@
 @Library('mj-shared-library') _
-
-def jenkinsHomeOnHost = new JenkinsContainer().getHostPath(env.JENKINS_HOME)
-
+def jenkinsHomeOnHost = env.JENKINS_HOME
 pipeline {
     agent { label 'master' }
     options {
-        gitLabConnection(Constants.gitLabConnection)
+        gitLabConnection(library('mj-shared-library').Constants.gitLabConnection)
         gitlabBuilds(builds: ['Code analysis', 'Build Python binary'])
     }
     stages {
@@ -26,7 +24,7 @@ pipeline {
             agent {
                 dockerfile {
                     filename 'Dockerfile.build'
-                    args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache -u root:root"
+                    args  "-v ${jenkinsHomeOnHost}/.cache:/home/jenkins/.cache"
                 }
             }
             steps {
@@ -34,12 +32,12 @@ pipeline {
                     sh 'cp -pr /bin/pants . '
                     sh './pants -v'
                     sh './pants binary src/python/te'
-                    sh 'chown -R 1000:1000 .'
-                    sh 'chown -R 1000:1000 /home/jenkins/.cache'                    
+                    sh 'chown -R 109:109 .'
+                    sh 'chown -R 109:109 /home/jenkins/.cache'
                 }
             }
         }
-        stage('Publish') {
+        stage('Upload') {
             agent {
                 dockerfile {
                     filename 'Dockerfile.build'
