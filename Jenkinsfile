@@ -46,6 +46,7 @@ pipeline {
             }
             steps {
                gitlabCommitStatus(STAGE_NAME) {
+                    archiveArtifacts artifacts: "dist/te.pex"
                     nexusRawUpload file: 'dist/te.pex', group: 'pex', version: GIT_COMMIT[0..7]
                }
             }
