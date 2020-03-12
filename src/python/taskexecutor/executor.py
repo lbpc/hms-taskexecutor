@@ -344,7 +344,7 @@ class Executor:
                         exc  = future.exception()
                         if exc:
                             task.state = taskexecutor.task.FAILED
-                            task.params['last_exception'] = str(exc)
+                            task.params['last_exception'] = {"message": str(exc), "class": exc.__class__.__name__}
                             self._remember_failed_task(task)
                         elif self._get_task_failcount(task) > 0:
                             self._forget_failed_task(task)
