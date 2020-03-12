@@ -79,6 +79,9 @@ class AMQPReporter(Reporter):
         self._report["objRef"] = params["objRef"]
         self.next_te = params.pop("oldServerName", None)
         self._report["params"] = {"success": bool(task.state ^ taskexecutor.task.FAILED)}
+        if "last_exception" in params:
+            self._report["params"]["errorMessage"] = params["last_exception"].get("message")
+            self._report["params"]["exceptionClass"] = params["last_exception"].get("class")
         LOGGER.debug("Report to next TE: {}".format(self._report_to_next_te))
         if self._report_to_next_te:
             for k in ("resource", "dataPostprocessorType", "dataPostprocessorArgs"):

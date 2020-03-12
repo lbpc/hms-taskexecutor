@@ -234,6 +234,44 @@ class HttpDataFetcher(DataFetcher):
         getattr(self, "_curl_to_{}".format(self._dst_uri_parsed.scheme))()
 
 
+class GitDataFetcher(DataFetcher):
+    def __init__(self, src_uri, dst_uri, params):
+        super().__init__(src_uri, dst_uri, params)
+        self.src_uri = self.src_uri.lstrip('git+')
+        src_uri_parsed = urllib.parse.urlparse(src_uri)
+        self.src_uri_scheme = src_uri_parsed.scheme
+        self.dst_path = urllib.parse.urlparse(dst_uri).path
+
+    @staticmethod
+    def is_git_repo(path):
+        r, _, __ = taskexecutor.utils.exec_command("git -C {} rev-parse --git-dir".format(path), raise_exc=False)
+        return r == 0
+
+    @staticmethod
+    def get_git_url(repo_path):
+        url = taskexecutor.utils.exec_command("git -C {} ls-remote --get-url".format(repo_path))
+        if not urllib.parse.urlparse(url).scheme:
+            url = "ssh://" + url
+        return url
+
+    @property
+    def supported_dst_uri_schemes(self):
+        return ["file"]
+
+
+    def fetch(self):
+        branch = self._params.get("branch", "master")
+        if self.is_git_repo(self.dst_path):
+            url = self.get_git_url(self.dst_path)
+            if url != self.src_uri:
+                raise DataFetchingError("Git repository URL mismatch."
+                                        "Requested: {} Actual: {}".format(self.src_uri, url))
+            taskexecutor.utils.exec_command("git -C {} checkout {}".format(self.dst_path, branch))
+            taskexecutor.utils.exec_command("git -C {} pull".format(self.dst_path))
+        else:
+            taskexecutor.utils.exec_command("git -b {} clone {}".format(branch, self.dst_path))
+
+
 class Builder:
     def __new__(cls, proto):
         DataFetcherClass = {"file": FileDataFetcher,
