@@ -69,8 +69,8 @@ def get_opservice(service_api_obj):
                     service_api_obj.instanceProps.security_level:
                 type_name += "_{}".format(service_api_obj.instanceProps.security_level.upper())
         OpService = taskexecutor.opservice.Builder(type_name, docker=in_docker,
-                                                   personal=hasattr(service_api_obj, "accountId") and
-                                                            service_api_obj.accountId)
+                                                   personal=bool(hasattr(service_api_obj, "accountId") and
+                                                            service_api_obj.accountId))
         service_name = service_api_obj.name.lower().replace("_", "-").split("@")[0]
         if hasattr(service_api_obj, "accountId") and service_api_obj.accountId:
             service_name += "-" + service_api_obj.id
