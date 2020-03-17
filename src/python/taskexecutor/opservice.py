@@ -1,11 +1,12 @@
 import abc
+import collections
 import docker
 import json
 import re
 import os
+import pickle
 import psutil
 import string
-import sys
 import time
 import ipaddress
 from functools import reduce
@@ -13,7 +14,6 @@ from functools import reduce
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.constructor
-import taskexecutor.baseservice
 import taskexecutor.dbclient
 import taskexecutor.httpsclient
 import taskexecutor.utils
@@ -36,74 +36,265 @@ class ConfigValidationError(Exception):
     pass
 
 
-class OpService(metaclass=abc.ABCMeta):
-    def __init__(self, name, declaration):
+class ConfigConstructionError(Exception):
+    pass
+
+
+class BaseService:
+    def __init__(self, name, spec):
         self.name = name
-        self._log_base_path = "/var/log"
-        self._run_base_path = "/var/run"
-        self._lock_base_path = "/var/lock"
-        self._init_base_path = str()
+        self.spec = spec
+
+    def __str__(self):
+        return "{0}(name={1}, spec={2})".format(self.__class__.__name__, self.name, self.spec)
+
+
+class NetworkingService(BaseService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._sockets_map = dict()
 
     @property
-    def name(self):
-        return self._name
+    def socket(self):
+        return collections.namedtuple("Socket", self._sockets_map.keys())(**self._sockets_map)
 
-    @name.setter
-    def name(self, value):
-        self._name = value
+    def get_socket(self, protocol):
+        return self._sockets_map[protocol]
 
-    @name.deleter
-    def name(self):
-        del self._name
+    def set_socket(self, protocol, socket_obj):
+        self._sockets_map[protocol] = socket_obj
+
+
+class ConfigurableService(BaseService):
+    _cache = dict()
+    _cache_path = "/var/cache/te/config_templates.pkl"
+
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._template_sources_map = collections.defaultdict(dict)
+
+    @classmethod
+    def _dump_cache(cls):
+        dirpath = os.path.dirname(cls._cache_path)
+        if not os.path.exists(dirpath):
+            os.makedirs(dirpath)
+        with open(cls._cache_path, "wb") as f:
+            pickle.dump(cls._cache, f)
+        LOGGER.debug("Config templates cache dumped to {}".format(cls._cache_path))
+
+    @classmethod
+    def _load_cache(cls):
+        try:
+            with open(cls._cache_path, "rb") as f:
+                cls._cache.update(pickle.load(f))
+                LOGGER.debug("Config templates cache updated from {}".format(cls._cache_path))
+        except Exception as e:
+            LOGGER.warning("Failed to load config templates cache, ERROR: {}".format(e))
+            if cls._cache:
+                LOGGER.info("In-memory config templates cache is not empty, dumping to disk")
+                cls._dump_cache()
+
+    @staticmethod
+    def resolve_path_template(path_pattern, context_obj):
+        subst_vars = [var.strip("{}") for var in re.findall(r"{[^{}]+}", path_pattern)]
+        for subst_var in subst_vars:
+            path_pattern = re.sub(r"{{{}}}".format(subst_var), "{}", path_pattern)
+        subst_attrs = [reduce(getattr, subst_var.split("."), context_obj) for subst_var in subst_vars]
+        return path_pattern.format(*subst_attrs)
 
     @property
-    def log_base_path(self):
-        return self._log_base_path
+    def config_base_path(self):
+        return getattr(self, "_config_base_path", None) or os.path.join("/opt", self.name, "conf")
 
-    @log_base_path.setter
-    def log_base_path(self, value):
-        self._log_base_path = value
+    def _context_name_of(self, context_obj):
+        if context_obj is self:
+            return "SERVICE"
+        else:
+            return context_obj.__class__.__name__.upper()
 
-    @log_base_path.deleter
-    def log_base_path(self):
-        del self._log_base_path
+    def get_config_template(self, template_source):
+        if ConfigurableService._cache.get(template_source) \
+                and ConfigurableService._cache[template_source]["timestamp"] + 10 > time.time():
+            return ConfigurableService._cache[template_source]["value"]
+        try:
+            with taskexecutor.httpsclient.GitLabClient(**CONFIG.gitlab._asdict()) as gitlab:
+                template = gitlab.get(template_source)
+                ConfigurableService._cache[template_source] = {"timestamp": time.time(), "value": template}
+                ConfigurableService._dump_cache()
+                return template
+        except Exception as e:
+            LOGGER.warning("Failed to fetch config template from GitLab, ERROR: {}".format(e))
+            LOGGER.warning("Probing local cache")
+            ConfigurableService._load_cache()
+            template = None
+            if ConfigurableService._cache.get(template_source):
+                template = ConfigurableService._cache[template_source].get("value")
+            if not template:
+                raise e
+            return template
+
+    def set_config(self, path_template, file_link, context_type="SERVICE"):
+        self._template_sources_map[context_type][path_template] = file_link
+
+    def get_config(self, path_template, context=None, config_type="templated"):
+        if not context:
+            context = self
+        context_type = self._context_name_of(context)
+        if context_type == "SERVICE":
+            if hasattr(self, "spec") and self.spec:
+                for k, v in vars(self.spec).items():
+                    setattr(context, k, v)
+                if hasattr(self.spec, "instanceProps") and self.spec.instanceProps:
+                    for k, v in vars(self.spec.instanceProps).items():
+                        setattr(context, k, v)
+        path = self.resolve_path_template(path_template, context)
+        file_link = self._template_sources_map[context_type].get(path_template)
+        if file_link:
+            config = taskexecutor.constructor.get_conffile(config_type, path)
+            config.template = self.get_config_template(file_link)
+            return config
+        raise ConfigConstructionError("No '{0}' config defined "
+                                      "for service {1} in {2} context".format(path, self, context_type))
+
+    def get_configs_in_context(self, context):
+        return (self.get_config(t, context) for t in self._template_sources_map[self._context_name_of(context)].keys())
+
+
+class WebServer(ConfigurableService, NetworkingService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self.ssl_certs_base_path = "/opt/ssl"
 
     @property
-    def run_base_path(self):
-        return self._run_base_path
+    def sites_conf_path(self):
+        return getattr(self, "_sites_conf_path", None) or os.path.join(self.config_base_path, "sites")
 
-    @run_base_path.setter
-    def run_base_path(self, value):
-        self._run_base_path = value
+    def get_website_configs(self, website):
+        configs = []
+        for each in self.get_configs_in_context(website):
+            if not os.path.isabs(each.file_path):
+                each.file_path = os.path.join(self.config_base_path, each.file_path)
+            configs.append(each)
+        return configs
 
-    @run_base_path.deleter
-    def run_base_path(self):
-        del self._run_base_path
+    def get_ssl_key_pair_files(self, basename):
+        cert_file_path = os.path.join(self.ssl_certs_base_path, "{}.pem".format(basename))
+        key_file_path = os.path.join(self.ssl_certs_base_path, "{}.key".format(basename))
+        cert_file = taskexecutor.constructor.get_conffile("basic", cert_file_path)
+        key_file = taskexecutor.constructor.get_conffile("basic", key_file_path)
+        return cert_file, key_file
 
+
+class ArchivableService(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def get_archive_stream(self, source, params={}):
+        pass
+
+
+class ApplicationServer(BaseService, ArchivableService):
     @property
-    def lock_base_path(self):
-        return self._lock_base_path
+    def interpreter(self):
+        if not hasattr(self, "name") or not self.name or "-" not in self.name:
+            return
+        match = re.compile(r".+-(?P<name>[a-z]+)(?P<version>\d+)(-(?P<suffix>.+))*").match(self.name)
+        name = match.group("name")
+        version_major = match.group("version")[0]
+        version_minor = match.group("version")[1:]
+        suffix = match.group("suffix")
+        Interpreter = collections.namedtuple("Interpreter", "name version_major version_minor suffix")
+        return Interpreter(name, version_major, version_minor, suffix)
 
-    @lock_base_path.setter
-    def lock_base_path(self, value):
-        self._lock_base_path = value
+    def get_archive_stream(self, source, params={}):
+        stdout, stderr = taskexecutor.utils.exec_command("nice -n 19 "
+                                                         "tar --ignore-command-error --ignore-failed-read --warning=no-file-changed -czf - -C {0} {1}".format(params.get("basedir"), source),
+                                                         return_raw_streams=True)
+        return stdout, stderr
 
-    @lock_base_path.deleter
-    def lock_base_path(self):
-        del self._lock_base_path
 
-    @property
-    def init_base_path(self):
-        return self._init_base_path
+class DatabaseServer(ConfigurableService, NetworkingService, ArchivableService, metaclass=abc.ABCMeta):
+    @staticmethod
+    @abc.abstractmethod
+    def normalize_addrs(addrs_list):
+        pass
 
-    @init_base_path.setter
-    def init_base_path(self, value):
-        self._init_base_path = value
+    @abc.abstractmethod
+    def get_user(self, name):
+        pass
 
-    @init_base_path.deleter
-    def init_base_path(self):
-        del self._init_base_path
+    @abc.abstractmethod
+    def get_all_database_names(self):
+        pass
 
+    @abc.abstractmethod
+    def get_database(self, name):
+        pass
+
+    @abc.abstractmethod
+    def create_user(self, name, password_hash, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def set_password(self, user_name, password_hash, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def drop_user(self, name, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def create_database(self, name):
+        pass
+
+    @abc.abstractmethod
+    def drop_database(self, name):
+        pass
+
+    @abc.abstractmethod
+    def allow_database_access(self, database_name, user_name, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def deny_database_access(self, database_name, user_name, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def allow_database_writes(self, database_name, user_name, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def deny_database_writes(self, database_name, user_name, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def allow_database_reads(self, database_name, user_name, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def get_database_size(self, database_name):
+        pass
+
+    @abc.abstractmethod
+    def get_all_databases_size(self):
+        pass
+
+    @abc.abstractmethod
+    def restrict_user_cpu(self, name, time):
+        pass
+
+    @abc.abstractmethod
+    def unrestrict_user_cpu(self, name):
+        pass
+
+    @abc.abstractmethod
+    def preset_user_session_vars(self, user_name, addrs_list, vars_map):
+        pass
+
+    @abc.abstractmethod
+    def set_initial_permissions(self, user_name, addrs_list):
+        pass
+
+
+class OpService(BaseService, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def start(self):
         pass
@@ -124,24 +315,8 @@ class OpService(metaclass=abc.ABCMeta):
     def status(self):
         pass
 
-    def __repr__(self):
-        return "{0}(name={1}, " \
-               "log_base_path={2}, " \
-               "run_base_path={3}, " \
-               "lock_base_path={4}, " \
-               "init_base_path={5}))".format(self.__class__.__name__,
-                                             self.name,
-                                             self.log_base_path,
-                                             self.run_base_path,
-                                             self.lock_base_path,
-                                             self.init_base_path)
-
 
 class UpstartService(OpService):
-    def __init__(self, name, declaration):
-        super().__init__(name, declaration)
-        self.init_base_path = "/etc/init"
-
     def start(self):
         LOGGER.info("starting {} service via Upstart".format(self.name))
         taskexecutor.utils.exec_command("start {}".format(self.name))
@@ -168,10 +343,6 @@ class UpstartService(OpService):
 
 
 class SysVService(OpService):
-    def __init__(self, name, declaration):
-        super().__init__(name, declaration)
-        self.init_base_path = "/etc/init.d"
-
     def start(self):
         LOGGER.info("starting {} service via init script".format(self.name))
         taskexecutor.utils.exec_command("invoke-rc.d {} start".format(self.name))
@@ -258,14 +429,14 @@ class DockerService(OpService):
                 for k, v in image.labels.items()
                 if k.startswith("ru.majordomo.docker.exec.")}
 
-    def __init__(self, name, declaration):
-        super().__init__(name, declaration)
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
         self._docker_client = docker.from_env()
         self._docker_client.login(**CONFIG.docker_registry._asdict())
-        if hasattr(declaration, "template") and declaration.template and declaration.template.sourceUri:
-            self._image = declaration.template.sourceUri.replace("docker://", "")
-        elif hasattr(declaration, "template"):
-            self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, declaration.template.name)
+        if hasattr(spec, "template") and spec.template and spec.template.sourceUri:
+            self._image = spec.template.sourceUri.replace("docker://", "")
+        elif hasattr(spec, "template"):
+            self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, spec.template.name)
         else:
             self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, self.name)
         self._container_name = getattr(self, "_container_name", self.name)
@@ -395,48 +566,29 @@ class DockerService(OpService):
         return DOWN
 
 
-class SomethingInDocker(taskexecutor.baseservice.ConfigurableService,
-                        taskexecutor.baseservice.NetworkingService, DockerService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.ConfigurableService.__init__(self)
-        taskexecutor.baseservice.NetworkingService.__init__(self)
-        DockerService.__init__(self, name, declaration)
-        self.config_base_path = os.path.join("/opt", self.name)
+class SomethingInDocker(ConfigurableService, NetworkingService, DockerService):
+    pass
 
 
-class NginxInDocker(taskexecutor.baseservice.WebServer, DockerService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.WebServer.__init__(self)
-        DockerService.__init__(self, name, declaration)
-        self.config_base_path = "/opt/nginx/conf"
-        self.site_template_name = "@NginxServerDocker"
+class HttpServer(WebServer, DockerService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
         self.ssl_certs_base_path = CONFIG.nginx.ssl_certs_path
 
-    def get_website_config(self, site_id):
-        config = self.get_abstract_config(self.site_template_name,
-                                          os.path.join("/etc/nginx/sites-available", site_id + ".conf"),
-                                          config_type="website")
-        config.enabled_path = os.path.join("/etc/nginx/sites-enabled/{}.conf".format(site_id))
-        return config
 
-
-class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.WebServer.__init__(self)
-        taskexecutor.baseservice.ApplicationServer.__init__(self)
-        DockerService.__init__(self, name, declaration)
+class ApacheInDocker(WebServer, ApplicationServer, DockerService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
         short_name = "apache2-{0.name}{0.version_major}{0.version_minor}".format(self.interpreter)
         self.image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, short_name)
-        self.sites_conf_path = "/etc/{}/sites-available".format(self.name)
-        self.security_level = "-".join([e for e in self.name.split("-")
-                                        if e != "apache2" and not e.startswith(self.interpreter.name)]) or None
-        self.site_template_name = "@ApacheVHost"
-        self.config_base_path = os.path.join("/etc", self.name)
+        self._config_base_path = os.path.join("/etc", self.name)
+        self._sites_conf_path = os.path.join(self._config_base_path, "sites-available")
+        self.security_level = getattr(getattr(self.spec, "instanceProps", None), "security_level", "default")
 
 
-class CronInDocker(DockerService):
-    def __init__(self, name, declaration):
-        super().__init__(name, declaration)
+class Cron(DockerService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
         self.passwd_root = "/opt"
         self.spool = "/opt/cron/tabs"
 
@@ -470,7 +622,7 @@ class CronInDocker(DockerService):
             self._get_crontab_file(user_name).delete()
 
 
-class PostfixInDocker(DockerService):
+class Postfix(DockerService):
     def enable_sendmail(self, uid):
         self.exec_defined_cmd("enable-uid-cmd", uid=uid)
 
@@ -478,21 +630,11 @@ class PostfixInDocker(DockerService):
         self.exec_defined_cmd("disable-uid-cmd", uid=uid)
 
 
-class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
-    def __init__(self, name, declaration):
-        self._account_id = declaration.accountId
+class PersonalAppServer(WebServer, ApplicationServer, DockerService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._account_id = spec.accountId
         self._unix_account = None
-        taskexecutor.baseservice.WebServer.__init__(self)
-        taskexecutor.baseservice.ApplicationServer.__init__(self)
-        DockerService.__init__(self, name, declaration)
-        self.config_base_path = os.path.join("/opt", self.name, "conf")
-        self.sites_conf_path = os.path.join("/opt", self.name, "conf", "sites")
-
-    def get_website_config(self, site_id):
-        config = self.get_abstract_config(self.site_template_name,
-                                          os.path.join(self.sites_conf_path, site_id + ".conf"),
-                                          config_type="website")
-        config.enabled_path = os.path.join("/tmp", site_id + ".conf")
 
     @property
     def unix_account(self):
@@ -505,31 +647,15 @@ class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseser
         return self._unix_account
 
 
-class Nginx(taskexecutor.baseservice.WebServer, SysVService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.WebServer.__init__(self)
-        SysVService.__init__(self, name, declaration)
-        self.site_template_name = "@NginxServer"
-        self.config_base_path = "/etc/nginx"
+class Apache(WebServer, ApplicationServer, UpstartService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._config_base_path = os.path.join("/etc", self.name)
         self.static_base_path = CONFIG.nginx.static_base_path
-        self.ssl_certs_base_path = CONFIG.nginx.ssl_certs_path
-
-    def reload(self):
-        taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/nginx")
-        LOGGER.info("Testing nginx config")
-        taskexecutor.utils.exec_command("nginx -t",)
-        super().reload()
-        taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/nginx")
-
-
-class Apache(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, UpstartService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.WebServer.__init__(self)
-        taskexecutor.baseservice.ApplicationServer.__init__(self)
-        UpstartService.__init__(self, name, declaration)
-        self.site_template_name = "@ApacheVHost"
-        self.config_base_path = os.path.join("/etc", self.name)
-        self.static_base_path = CONFIG.nginx.static_base_path
+        self.log_base_path = os.path.join("/var/log", self.name)
+        self.run_base_path = os.path.join("/var/run", self.name)
+        self.lock_base_path = os.path.join("/var/lock", self.name)
+        self.init_base_path = os.path.join("/etc/init", self.name)
 
     def reload(self):
         taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/apache2")
@@ -539,67 +665,10 @@ class Apache(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.Applic
         taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/apache2")
 
 
-# HACK: the two 'Unmanaged' classes below are responsible for reloading services at baton.intr only
-# would be removed when this server is gone
-class UnmanagedNginx(taskexecutor.baseservice.WebServer, OpService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.WebServer.__init__(self)
-        OpService.__init__(self, name, declaration)
-        self.site_template_name = "@BatonNginxServer"
-        self.config_base_path = "/usr/local/nginx/conf"
-
-    def start(self):
-        raise NotImplementedError
-
-    def stop(self):
-        raise NotImplementedError
-
-    def restart(self):
-        raise NotImplementedError
-
-    def reload(self):
-        LOGGER.info("Testing nginx config")
-        taskexecutor.utils.exec_command("/usr/local/nginx/sbin/nginx -t", shell="/usr/local/bin/bash")
-        LOGGER.info("Reloading nginx")
-        taskexecutor.utils.exec_command("/usr/local/nginx/sbin/nginx -s reload", shell="/usr/local/bin/bash")
-
-
-class UnmanagedApache(taskexecutor.baseservice.WebServer, OpService):
-    def __init__(self, name, declaration):
-        apache_name_mangle = {"apache2-php4": "apache",
-                              "apache2-php52": "apache5",
-                              "apache2-php53": "apache53"}
-        taskexecutor.baseservice.WebServer.__init__(self)
-        OpService.__init__(self, apache_name_mangle[name], declaration)
-        self.site_template_name = "@BatonApacheVHost"
-        LOGGER.info("Apache name rewrited to '{}'".format(self.name))
-        self.config_base_path = os.path.join("/usr/local", self.name, "conf")
-
-    def start(self):
-        raise NotImplementedError
-
-    def stop(self):
-        raise NotImplementedError
-
-    def restart(self):
-        raise NotImplementedError
-
-    def reload(self):
-        LOGGER.info("Testing apache config: {}/conf/httpd.conf".format(self.config_base_path))
-        taskexecutor.utils.exec_command("/usr/sbin/jail "
-                                        "/usr/jail t 127.0.0.1 "
-                                        "{0}/bin/httpd -T -f {0}/conf/httpd.conf".format(self.config_base_path),
-                                        shell="/usr/local/bin/bash")
-        LOGGER.info("Reloading apache")
-        taskexecutor.utils.exec_command("{}/bin/apachectl2 graceful".format(self.config_base_path),
-                                        shell="/usr/local/bin/bash")
-
-
-class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.DatabaseServer.__init__(self)
-        SysVService.__init__(self, name, declaration)
-        self.config_base_path = "/etc/mysql"
+class MySQL(DatabaseServer, SysVService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._config_base_path = "/etc/mysql"
         self._dbclient = None
         self._full_privileges = CONFIG.mysql.common_privileges + CONFIG.mysql.write_privileges
         self._ignored_config_variables = CONFIG.mysql.ignored_config_variables
@@ -623,7 +692,7 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
 
     def reload(self):
         LOGGER.info("Applying variables from config")
-        config = self.get_concrete_config(os.path.join(self.config_base_path, "my.cnf"))
+        config = self.get_config(os.path.join(self.config_base_path, "my.cnf"))
         config_vars = dict()
         mysqld_section_started = False
         for line in config.body.split("\n"):
@@ -782,11 +851,11 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
             self.dbclient.execute_query("GRANT SELECT ON mysql_custom.session_vars TO %s@%s", (user_name, address))
 
 
-class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.DatabaseServer.__init__(self)
-        SysVService.__init__(self, name, declaration)
-        self.config_base_path = "/etc/postgresql/9.3/main"
+class PostgreSQL(DatabaseServer, SysVService):
+    def __init__(self, name, spec):
+        DatabaseServer.__init__(self)
+        SysVService.__init__(self, name, spec)
+        self._config_base_path = "/etc/postgresql/9.3/main"
         self._dbclient = None
         self._hba_conf = taskexecutor.constructor.get_conffile("lines",
                                                                os.path.join(self.config_base_path, "pg_hba.conf"))
@@ -857,7 +926,7 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                                             "line {1}: {2}".format(conn_type, lineno, line))
 
     def _update_hba_conf(self, database_name, users_list):
-        hba_conf = self.get_concrete_config("pg_hba.conf")
+        hba_conf = self.get_config("pg_hba.conf")
         for user in users_list:
             networks_list = ipaddress.collapse_addresses([ipaddress.IPv4Network(addr)
                                                           for addr in user.allowedIPAddresses])
@@ -979,15 +1048,20 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
 
 
 class Builder:
-    def __new__(cls, service_type, docker=False, personal=False):
-        OpServiceClass = {docker:                                           SomethingInDocker,
-                          service_type.endswith("CRON"):                    CronInDocker,
-                          service_type.endswith("POSTFIX"):                 PostfixInDocker,
-                          service_type == "STAFF_NGINX":                    Nginx if not docker else NginxInDocker,
-                          service_type.startswith("WEBSITE_"):              Apache if not docker else ApacheInDocker,
-                          service_type.startswith("WEBSITE_") and personal: PersonalAppServer,
-                          service_type == "DATABASE_MYSQL":                 MySQL,
-                          service_type == "DATABASE_POSTGRES":              PostgreSQL}.get(True)
+    def __new__(cls, type_name, supervisor, personal=False, type_modifier=None):
+        OpServiceClass = {
+            supervisor == "docker":                                                    SomethingInDocker,
+            type_name == "CronD":                                                      Cron,
+            type_name == "Postfix":                                                    Postfix,
+            type_name == "HttpServer":                                                 HttpServer,
+            type_name == "ApplicationServer":                                          Apache,
+            type_name == "ApplicationServer" and supervisor == "docker":               ApacheInDocker,
+            type_name == "ApplicationServer" and supervisor == "docker" and personal:  PersonalAppServer,
+            type_name == "DatabaseServer" and type_modifier == "MYSQL":                MySQL,
+            type_name == "DatabaseServer" and type_modifier == "POSTGRESQL":           PostgreSQL
+        }.get(True)
         if not OpServiceClass:
-            raise BuilderTypeError("Unknown OpService type: {}".format(service_type))
+            raise BuilderTypeError("Unknown OpService type: {} "
+                                   "and catch-all 'SomethingInDocker' did not match "
+                                   "due to '{}' supervision".format(type_name, supervisor))
         return OpServiceClass

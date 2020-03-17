@@ -11,7 +11,6 @@ import taskexecutor.constructor
 import taskexecutor.conffile
 import taskexecutor.ftpclient
 import taskexecutor.httpsclient
-import taskexecutor.baseservice
 import taskexecutor.opservice
 import taskexecutor.watchdog
 import taskexecutor.utils
@@ -259,10 +258,6 @@ class WebSiteProcessor(ResProcessor):
     @taskexecutor.utils.synchronized
     def create(self):
         self.params.update(app_server_name=self.service.name,
-                           error_pages=[(code, "http_{}.html".format(code)) for code in (403, 404, 502, 503, 504)],
-                           anti_ddos_location=CONFIG.nginx.anti_ddos_location,
-                           anti_ddos_set_cookie_file=CONFIG.nginx.anti_ddos_set_cookie_file,
-                           anti_ddos_check_cookie_file=CONFIG.nginx.anti_ddos_check_cookie_file,
                            subdomains_document_root="/".join(str(self.resource.documentRoot).split("/")[:-1]))
         vhosts_list = self._build_vhost_obj_list()
         home_dir = os.path.normpath(str(self.resource.unixAccount.homeDir))
@@ -289,18 +284,17 @@ class WebSiteProcessor(ResProcessor):
             services.append(self.service)
         services.append(self.extra_services.http_proxy)
         for service in services:
-            config = service.get_website_config(self.resource.id)
-            config.render_template(service=service, vhosts=vhosts_list, params=self.params)
-            config.write()
-            if self.resource.switchedOn and not config.is_enabled:
-                config.enable()
+            configs = service.get_website_configs(self.resource.id)
+            for each in configs:
+                each.render_template(service=service, vhosts=vhosts_list, params=self.params)
+                each.write()
             if not self._without_reload:
                 try:
                     service.reload()
                 except:
-                    config.revert()
+                    for each in configs: each.revert()
                     raise
-            config.confirm()
+            for each in configs: each.confirm()
         data_dest_uri = self.params.get("datadestinationUri", "file://{}".format(document_root_abs))
         data_source_uri = self.params.get("datasourceUri") or data_dest_uri
         given_postproc_args = self.params.get("dataPostprocessorArgs") or {}
@@ -320,21 +314,16 @@ class WebSiteProcessor(ResProcessor):
     def update(self):
         if not self.resource.switchedOn:
             for service in (self.service, self.extra_services.http_proxy):
-                config = service.get_website_config(self.resource.id)
-                if config.is_enabled:
-                    config.disable()
-                    config.save()
-                    if not self._without_reload:
-                        service.reload()
+                for each in service.get_website_configs(self.resource.id): each.delete()
+                if not self._without_reload:
+                    service.reload()
         else:
             self.create()
             if self.extra_services.old_app_server and (self.extra_services.old_app_server.name != self.service.name or
                                                        type(self.extra_services.old_app_server) != type(self.service)):
                 LOGGER.info("Removing config from old application server "
                             "{}".format(self.extra_services.old_app_server.name))
-                config = self.extra_services.old_app_server.get_website_config(self.resource.id)
-                config.disable()
-                config.delete()
+                for each in self.extra_services.old_app_server.get_website_configs(self.resource.id): each.delete()
                 if not self._without_reload:
                     self.extra_services.old_app_server.reload()
 
@@ -342,24 +331,8 @@ class WebSiteProcessor(ResProcessor):
     def delete(self):
         shutil.rmtree(os.path.join("/opcache", self.resource.id), ignore_errors=True)
         for service in (self.extra_services.http_proxy, self.service):
-            config = service.get_website_config(self.resource.id)
-            if not os.path.exists(config.file_path):
-                LOGGER.warning("{} does not exist".format(config.file_path))
-                continue
-            if config.is_enabled:
-                config.disable()
-            config.delete()
+            for each in service.get_website_configs(self.resource.id): each.delete()
             service.reload()
-
-
-# HACK: the only purpose of this class is to process
-# WebSite resources at baton.intr
-# should be removed when this server is gone
-class WebSiteProcessorFreeBsd(WebSiteProcessor):
-    def __init__(self, resource, service, params):
-        super().__init__(resource, service, params)
-        res_dict = self.resource._asdict()
-        self.resource = collections.namedtuple("ApiObject", res_dict.keys())(*res_dict.values())
 
 
 class SslCertificateProcessor(ResProcessor):
@@ -560,41 +533,25 @@ class DatabaseProcessor(ResProcessor):
 
 
 class ServiceProcessor(ResProcessor):
-    def _create_error_pages(self):
-        self.params.update(error_pages=list())
-        for code in (403, 404, 502, 503, 504):
-            self.params["error_pages"].append((code, "http_{}.html".format(code)))
-            error_page_path = os.path.join(self.service.static_base_path, "http_{}.html".format(code))
-            error_page = self.service.get_abstract_config("@HTTPErrorPage", error_page_path)
-            error_page.render_template(code=code)
-            error_page.save()
-
     def create(self):
         self.update()
 
     def update(self):
         self.params.update(hostname=CONFIG.hostname)
-        if isinstance(self.service, taskexecutor.opservice.NginxInDocker):
-            self.params["app_servers"] = [s for s in taskexecutor.constructor.get_all_opservices_by_res_type("website")
-                                          if not isinstance(s, taskexecutor.opservice.NginxInDocker)]
         if isinstance(self.service, taskexecutor.opservice.Nginx):
-            self._create_error_pages()
-            self.params.update(app_servers=taskexecutor.constructor.get_all_opservices_by_res_type("website"),
-                               anti_ddos_location=CONFIG.nginx.anti_ddos_location)
+            self.params["app_servers"] = [s for s in taskexecutor.constructor.get_all_opservices_by_res_type("website")
+                                          if not isinstance(s, taskexecutor.opservice.Nginx)]
         elif isinstance(self.service, taskexecutor.opservice.Apache):
             self.params.update(admin_networks=CONFIG.apache.admin_networks)
-        if isinstance(self.service, taskexecutor.baseservice.ConfigurableService):
-            configs = self.service.get_concrete_configs_set()
+        if isinstance(self.service, taskexecutor.opservice.ConfigurableService):
+            configs = self.service.configs_in_context(self.service)
         else:
             configs = []
         if isinstance(self.service, taskexecutor.opservice.Apache) and self.service.interpreter.name != "php":
             configs = [c for c in configs if os.path.basename(c.file_path) != "php.ini"]
-        for config in configs:
-            if isinstance(config, taskexecutor.conffile.SwitchableConfigFile):
-                for s in ["available", "enabled"]:
-                    os.makedirs(os.path.join(self.service.config_base_path, "sites-{}".format(s)), exist_ok=True)
-            config.render_template(service=self.service, params=self.params)
-            config.write()
+        for each in configs:
+            each.render_template(service=self.service, params=self.params)
+            each.write()
         try:
             if self.service.status() is taskexecutor.opservice.UP:
                 self.service.reload()
@@ -602,11 +559,9 @@ class ServiceProcessor(ResProcessor):
                 LOGGER.warning("{} is down, starting it".format(self.service.name))
                 self.service.start()
         except:
-            for config in configs:
-                config.revert()
+            for each in configs: each.revert()
             raise
-        for config in configs:
-            config.confirm()
+        for each in configs: each.confirm()
 
     def delete(self):
         pass
@@ -656,18 +611,17 @@ class RedirectProcessor(ResProcessor):
         res_dict['domains'] = [res_dict.get('domain')]
         del res_dict['domain']
         vhost = collections.namedtuple("VHost", res_dict.keys())(*res_dict.values())
-        config = self.service.get_website_config(self.resource.id)
-        config.render_template(service=self.service, vhosts=[vhost], params=self.params)
-        config.write()
-        if self.resource.switchedOn and not config.is_enabled:
-            config.enable()
+        configs = self.service.get_website_configs(self.resource.id)
+        for each in configs:
+            each.render_template(service=self.service, vhosts=[vhost], params=self.params)
+            each.write()
         if not self._without_reload:
             try:
                 self.service.reload()
             except:
-                config.revert()
+                for each in configs: each.revert()
                 raise
-        config.confirm()
+        for each in configs: each.confirm()
 
     def update(self):
         if self.resource.switchedOn:
@@ -677,13 +631,7 @@ class RedirectProcessor(ResProcessor):
 
     @taskexecutor.utils.synchronized
     def delete(self):
-        config = self.service.get_website_config(self.resource.id)
-        if not os.path.exists(config.file_path):
-            LOGGER.warning("{} does not exist".format(config.file_path))
-            return
-        if config.is_enabled:
-            config.disable()
-        config.delete()
+        for each in self.service.get_website_configs(self.resource.id): each.delete()
         self.service.reload()
 
 
@@ -693,7 +641,7 @@ class Builder:
                              "unix-account": UnixAccountProcessor,
                              "database-user": DatabaseUserProcessor,
                              "database": DatabaseProcessor,
-                             "website": WebSiteProcessor if sys.platform != "freebsd9" else WebSiteProcessorFreeBsd,
+                             "website": WebSiteProcessor,
                              "ssl-certificate": SslCertificateProcessor,
                              "mailbox": MailboxProcessor,
                              "resource-archive": ResourceArchiveProcessor,

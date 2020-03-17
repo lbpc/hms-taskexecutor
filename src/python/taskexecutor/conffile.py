@@ -31,10 +31,6 @@ class ConfigFile:
     def file_path(self, value):
         self._file_path = value
 
-    @file_path.deleter
-    def file_path(self):
-        del self._file_path
-
     @property
     def body(self):
         if not self._body and self.exists:
@@ -105,53 +101,11 @@ class ConfigFile:
 
     def delete(self):
         LOGGER.debug("Deleting {} file".format(self.file_path))
-        os.unlink(self.file_path)
-        del self.body
-
-
-class SwitchableConfigFile(ConfigFile):
-    def __init__(self, abs_path, owner_uid, mode):
-        super().__init__(abs_path, owner_uid, mode)
-        self._enabled_path = None
-
-    @property
-    def enabled_path(self):
-        if not self._enabled_path and "sites-available" in self.file_path:
-            return self.file_path.replace("available", "enabled")
+        if os.path.exists(self.file_path):
+            os.unlink(self.file_path)
         else:
-            return self._enabled_path
-
-    @enabled_path.setter
-    def enabled_path(self, value):
-        self._enabled_path = value
-
-    @enabled_path.deleter
-    def enabled_path(self):
-        del self._enabled_path
-
-    @property
-    def is_enabled(self):
-        if not self.enabled_path:
-            raise PropertyValidationError("enabled_path property is not set ")
-        return os.path.exists(self.enabled_path) and os.path.islink(
-                self.enabled_path) and os.readlink(
-                self.enabled_path) == self.file_path
-
-    def enable(self):
-        if not self.enabled_path:
-            raise PropertyValidationError("enabled_path property is not set ")
-        LOGGER.debug("Linking {0} to {1}".format(self.file_path,
-                                                 self.enabled_path))
-        if not os.path.exists(os.path.dirname(self.enabled_path)):
-            os.makedirs(os.path.dirname(self.enabled_path), exist_ok=True)
-        os.symlink(self.file_path, self.enabled_path)
-
-    def disable(self):
-        if not self.enabled_path:
-            raise PropertyValidationError("enabled_path property is not set ")
-        if os.path.exists(self.enabled_path):
-            LOGGER.debug("Unlinking {}".format(self.enabled_path))
-            os.unlink(self.enabled_path)
+            LOGGER.warn("{} doesn't exists")
+        del self.body
 
 
 class TemplatedConfigFile(ConfigFile):
@@ -229,14 +183,9 @@ class LineBasedConfigFile(ConfigFile):
         self.body = "\n".join(list)
 
 
-class WebSiteConfigFile(TemplatedConfigFile, SwitchableConfigFile):
-    pass
-
-
 class Builder:
     def __new__(cls, config_type):
-        ConfigFileClass = {"website": WebSiteConfigFile,
-                           "templated": TemplatedConfigFile,
+        ConfigFileClass = {"templated": TemplatedConfigFile,
                            "lines": LineBasedConfigFile,
                            "basic": ConfigFile}.get(config_type)
         if not ConfigFileClass:

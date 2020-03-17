@@ -58,15 +58,15 @@ class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
 
 def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_streams=False, raise_exc=True):
     LOGGER.debug("Running shell command: {}".format(command))
-    proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    stdin = subprocess.PIPE
+    if hasattr(pass_to_stdin, "read"):
+        stdin = pass_to_stdin
+    proc = subprocess.Popen(command, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             shell=True, executable=shell)
     if return_raw_streams:
         return proc.stdout, proc.stderr
-    if pass_to_stdin:
-        stdin = pass_to_stdin
-        for method in ("read", "encode"):
-            if hasattr(stdin, method):
-                stdin = getattr(stdin, method)()
+    if hasattr(pass_to_stdin, "encode"):
+        stdin = pass_to_stdin.encode()
         stdout, stderr = proc.communicate(input=stdin)
     else:
         stdout, stderr = proc.communicate()

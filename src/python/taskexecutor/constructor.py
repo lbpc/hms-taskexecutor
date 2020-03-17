@@ -5,7 +5,6 @@ import urllib.parse
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.conffile
-import taskexecutor.baseservice
 import taskexecutor.executor
 import taskexecutor.opservice
 import taskexecutor.resdatafetcher
@@ -33,68 +32,57 @@ def get_conffile(config_type, abs_path, owner_uid=None, mode=None):
 
 
 def get_http_proxy_service():
-    return next((get_opservice(s) for s in CONFIG.localserver.services
-                 if (hasattr(s, "serviceTemplate") and
-                     s.serviceTemplate and
-                     s.serviceTemplate.serviceType.name == "STAFF_NGINX") or
-                 (hasattr(s, "template") and s.template and s.template.__class__.__name__ == "HttpServer")), None)
+    with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+        return next((get_opservice(s) for s in api.server(CONFIG.localserver.id).get().services
+              if s.template.__class__.__name__ == "HttpServer"), None)
+
+
+def get_application_servers():
+    with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+        return (get_opservice(s) for s in api.server(CONFIG.localserver.id).get().services
+              if s.template.__class__.__name__ == "ApplicationServer")
 
 
 def get_mta_service():
-    return next((get_opservice(s) for s in CONFIG.localserver.services
-                 if hasattr(s, "template") and s.template and s.template.__class__.__name__ == "Postfix"), None)
+    with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+        return next((get_opservice(s) for s in api.server(CONFIG.localserver.id).get().services
+              if s.template.__class__.__name__ == "Postfix"), None)
 
 
 def get_cron_service():
-    return next((get_opservice(s) for s in CONFIG.localserver.services
-                 if hasattr(s, "template") and s.template and s.template.__class__.__name__ == "CronD"), None)
+    with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+        return next((get_opservice(s) for s in api.server(CONFIG.localserver.id).get().services
+              if s.template.__class__.__name__ == "CronD"), None)
 
 
-def get_opservice(service_api_obj):
+def get_opservice(service):
     global SERVICE_ID_TO_OPSERVICE_MAPPING
-    service = SERVICE_ID_TO_OPSERVICE_MAPPING.get(service_api_obj.id)
-    oldschool_service = hasattr(service_api_obj, "serviceTemplate") and service_api_obj.serviceTemplate
-    if not service:
-        if oldschool_service:
-            LOGGER.debug("service template name is {}".format(service_api_obj.serviceTemplate.name))
-            in_docker = service_api_obj.serviceTemplate.name.endswith("@docker")
-            type_name = service_api_obj.serviceTemplate.serviceType.name
-        else:
-            LOGGER.debug("service template name is {}".format(service_api_obj.template.name))
-            in_docker = service_api_obj.template.supervisionType == "docker"
-            type_name = "{}_{}".format(service_api_obj.template.resourceType,
-                                     service_api_obj.template.name.replace("-", "_").replace(".", "").upper())
-            if hasattr(service_api_obj, "instanceProps") and \
-                    hasattr(service_api_obj.instanceProps, "security_level") and \
-                    service_api_obj.instanceProps.security_level:
-                type_name += "_{}".format(service_api_obj.instanceProps.security_level.upper())
-        OpService = taskexecutor.opservice.Builder(type_name, docker=in_docker,
-                                                   personal=bool(hasattr(service_api_obj, "accountId") and
-                                                            service_api_obj.accountId))
-        service_name = service_api_obj.name.lower().replace("_", "-").split("@")[0]
-        if hasattr(service_api_obj, "accountId") and service_api_obj.accountId:
-            service_name += "-" + service_api_obj.id
-        service = OpService(service_name, service_api_obj)
-        if isinstance(service, taskexecutor.opservice.DockerService):
+    opservice = SERVICE_ID_TO_OPSERVICE_MAPPING.get(service.id)
+    if not opservice:
+        LOGGER.debug("service template name is {}".format(service.template.name))
+        OpService = taskexecutor.opservice.Builder(service.template.__class__.__name__,
+                                                   service.template.supervisionType,
+                                                   service.template.availableToAccounts,
+                                                   getattr(service.template, "type", None))
+
+        service_name = service.name.lower().split("@")[0]
+        if hasattr(service, "accountId") and service.accountId:
+            service_name += "-" + service.id
+        opservice = OpService(service_name, service)
+        if isinstance(opservice, taskexecutor.opservice.DockerService):
             LOGGER.debug("{} is dockerized service".format(service_name))
-        if isinstance(service, taskexecutor.opservice.PersonalAppServer):
+        if isinstance(opservice, taskexecutor.opservice.PersonalAppServer):
             LOGGER.debug("{} is personal application server".format(service_name))
-        if isinstance(service, taskexecutor.baseservice.NetworkingService):
+        if isinstance(opservice, taskexecutor.opservice.NetworkingService):
             LOGGER.debug("{} is networking service".format(service_name))
-            if hasattr(service_api_obj, "serviceSockets"):
-                for socket in service_api_obj.serviceSockets:
-                    service.set_socket(socket.name.split("@")[0].split("-")[-1], socket)
-            if hasattr(service_api_obj, "sockets"):
-                for socket in service_api_obj.sockets:
-                    service.set_socket(socket.protocol or "default", socket)
-        if isinstance(service, taskexecutor.baseservice.ConfigurableService) and service.config_base_path:
+            for socket in service.sockets:
+                opservice.set_socket(socket.protocol or "default", socket)
+        if isinstance(opservice, taskexecutor.opservice.ConfigurableService):
             LOGGER.debug("{} is configurable service".format(service_name))
-            templates = service_api_obj.serviceTemplate.configTemplates if oldschool_service \
-                else service_api_obj.template.configTemplates
-            for template in templates:
-                service.set_config(template.name, template.fileLink)
-        SERVICE_ID_TO_OPSERVICE_MAPPING[service_api_obj.id] = service
-    return service
+            for each in service.template.configTemplates:
+                opservice.set_config(each.pathTemplate or each.name, each.fileLink, each.context)
+        SERVICE_ID_TO_OPSERVICE_MAPPING[service.id] = opservice
+    return opservice
 
 
 def get_opservice_by_resource(resource, resource_type):
@@ -110,7 +98,7 @@ def get_opservice_by_resource(resource, resource_type):
         if not service:
             with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
                 service = get_opservice(api.Service(resource.serviceId).get())
-    elif hasattr(resource, "serviceTemplate") or hasattr(resource, "template"):
+    elif hasattr(resource, "template"):
         service = get_opservice(resource)
     elif resource_type == "ssl-certificate":
         service = get_http_proxy_service()
@@ -121,11 +109,9 @@ def get_opservice_by_resource(resource, resource_type):
 
 
 def get_all_opservices_by_res_type(resource_type):
-    return [get_opservice(s) for s in CONFIG.localserver.services
-            if (hasattr(s, "serviceTemplate") and
-                s.serviceTemplate and
-                s.serviceTemplate.serviceType.name.split("_")[0] == resource_type.upper()) or
-            (hasattr(s, "template") and s.template and s.template.resourceType == resource_type.upper())]
+    with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+        next((get_opservice(s) for s in api.server(CONFIG.localserver.id).get().services
+              if s.template.resourceType == resource_type.upper()), None)
 
 
 def get_extra_services(res_processor):

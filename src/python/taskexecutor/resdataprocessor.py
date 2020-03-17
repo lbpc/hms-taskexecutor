@@ -6,7 +6,7 @@ import shutil
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.utils
-import taskexecutor.baseservice
+import taskexecutor.opservice
 
 __all__ = ["Builder"]
 
@@ -105,7 +105,7 @@ class DataEraser(DataPostprocessor):
         db_server = self.args.get("dbServer")
         if not db_server:
             raise PostprocessorArgumentError("No database server was specified")
-        if not isinstance(db_server, taskexecutor.baseservice.DatabaseServer):
+        if not isinstance(db_server, taskexecutor.opservice.DatabaseServer):
             raise PostprocessorArgumentError("{} is not a database server".format(db_server))
         LOGGER.info("Dropping all data from {} database".format(name))
         db_server.drop_database(name)

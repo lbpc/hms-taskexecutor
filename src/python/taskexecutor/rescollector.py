@@ -270,35 +270,17 @@ class DatabaseCollector(ResCollector):
 class WebsiteCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
         if property_name == "serviceId":
-            for service in CONFIG.localserver.services:
-                if (hasattr(service, "serviceTemplate") and
-                        service.serviceTemplate and
-                        service.serviceTemplate.serviceType.name.startswith("WEBSITE_")) or \
-                    (hasattr(service, "template") and
-                     service.template and
-                     service.template.resourceType == "WEBSITE" and
-                     service.template.__class__.__name__ == "ApplicationServer"):
-                    app_server = taskexecutor.constructor.get_opservice(service)
-                    config = app_server.get_website_config(self.resource.id)
-                    if config.exists:
-                        return service.id
+            for service in taskexecutor.constructor.get_application_servers():
+                if len(service.get_website_configs(self.resource)) > 0:
+                    return service.spec.id
 
 
 class RedirectCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
         if property_name == "serviceId":
-            for service in CONFIG.localserver.services:
-                if (hasattr(service, "serviceTemplate") and
-                        service.serviceTemplate and
-                        service.serviceTemplate.serviceType.name == "STAFF_NGINX") or \
-                    (hasattr(service, "template") and
-                     service.template and
-                     service.template.__class__.__name__ == "HttpServer"):
-                    app_server = taskexecutor.constructor.get_opservice(service)
-                    config = app_server.get_website_config(self.resource.id)
-                    if config.exists:
-                        return service.id
-            return
+            http_server = taskexecutor.constructor.get_http_proxy_service()
+            if http_server and len(http_server.get_website_configs(self.resource.id)) > 0:
+                return http_server.spec.id
 
 
 class SslCertificateCollector(ResCollector):
