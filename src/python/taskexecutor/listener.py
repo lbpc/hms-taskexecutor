@@ -16,7 +16,7 @@ import taskexecutor.constructor
 import taskexecutor.task
 import taskexecutor.utils
 
-__all__ = ["Builder"]
+__all__ = ["AMQPListener", "TimeListener"]
 
 
 class OverridenPikaConnection(Connection):
@@ -39,10 +39,6 @@ class OverridenPikaConnection(Connection):
 
 
 Connection._client_properties = OverridenPikaConnection._client_properties
-
-
-class BuilderTypeError(Exception):
-    pass
 
 
 class ContextValidationError(Exception):
@@ -312,12 +308,3 @@ class TimeListener(Listener):
     def stop(self):
         schedule.clear()
         self._stopping = True
-
-
-class Builder:
-    def __new__(cls, listener_type):
-        ListenerClass = {"amqp": AMQPListener,
-                         "time": TimeListener}.get(listener_type)
-        if not ListenerClass:
-            raise BuilderTypeError("Unknown Listener type: {}".format(listener_type))
-        return ListenerClass

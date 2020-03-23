@@ -94,7 +94,7 @@ class ApiClient(HttpsClient):
         self._connection.request("POST", uri_path, body=body, headers=headers)
         LOGGER.debug("Performing POST request by URI path {0} with following data: '{1}'".format(uri_path, body))
         response = self._connection.getresponse()
-        self.uri_path = None
+        self.uri_path = ""
         if response.status // 100 != 2:
             LOGGER.error("POST failed, API gateway returned "
                          "{0.status} {0.reason} {1}".format(response, response.read()))
@@ -107,7 +107,7 @@ class ApiClient(HttpsClient):
         LOGGER.debug("Performing GET request by URI path {}".format(uri_path))
         self._connection.request("GET", uri_path, headers=headers)
         response = self._connection.getresponse()
-        self.uri_path = None
+        self.uri_path = ""
         if response.status == 404:
             LOGGER.warning("API gateway returned {0.status} {0.reason} {1}".format(response, response.read()))
             return

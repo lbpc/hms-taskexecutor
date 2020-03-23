@@ -6,11 +6,7 @@ from taskexecutor.logger import LOGGER
 import taskexecutor.constructor
 import taskexecutor.utils
 
-__all__ = ["Builder"]
-
-
-class BuilderTypeError(Exception):
-    pass
+__all__ = ["LinuxUserManager", "MaildirManager"]
 
 
 class MaildirManagerSecurityViolation(Exception):
@@ -201,12 +197,3 @@ class MaildirManager:
         path = self.get_maildir_path(spool, dir)
         LOGGER.info("Calculating real {} size".format(path))
         return sum([sum(map(lambda f: os.path.getsize(os.path.join(d, f)), files)) for d, _, files in os.walk(path)])
-
-
-class Builder:
-    def __new__(cls, service_type):
-        SysServiceClass = {service_type == "LINUX_USER_MANAGER": LinuxUserManager,
-                           service_type.split("_")[1] == "MAILDIR": MaildirManager}.get(True)
-        if not SysServiceClass:
-            raise BuilderTypeError("Unknown SysService type: {}".format(service_type))
-        return SysServiceClass

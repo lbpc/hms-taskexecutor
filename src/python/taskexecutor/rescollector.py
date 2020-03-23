@@ -12,11 +12,8 @@ import taskexecutor.constructor
 import taskexecutor.watchdog
 import taskexecutor.utils
 
-__all__ = ["Builder"]
-
-
-class BuilderTypeError(Exception):
-    pass
+__all__ = ["UnixAccountCollector", "DatabaseUserCollector", "DatabaseCollector", "MailboxCollector", "WebsiteCollector",
+           "SslCertificateCollector", "ServiceCollector", "ResourceArchiveCollector", "RedirectCollector"]
 
 
 class ResCollector(metaclass=abc.ABCMeta):
@@ -259,19 +256,3 @@ class ServiceCollector(ResCollector):
 class ResourceArchiveCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
         return
-
-
-class Builder:
-    def __new__(cls, res_type):
-        ResCollectorClass = {"unix-account": UnixAccountCollector,
-                             "database-user": DatabaseUserCollector,
-                             "database": DatabaseCollector,
-                             "mailbox": MailboxCollector,
-                             "website": WebsiteCollector,
-                             "ssl-certificate": SslCertificateCollector,
-                             "service": ServiceCollector,
-                             "resource-archive": ResourceArchiveCollector,
-                             "redirect": RedirectCollector}.get(res_type)
-        if not ResCollectorClass:
-            raise BuilderTypeError("Unknown resource type: {}".format(res_type))
-        return ResCollectorClass

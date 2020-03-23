@@ -18,14 +18,12 @@ import taskexecutor.dbclient
 import taskexecutor.httpsclient
 import taskexecutor.utils
 
-__all__ = ["Builder"]
+__all__ = ["SomethingInDocker", "Cron", "Postfix", "HttpServer", "Apache", "SharedAppServer", "PersonalAppServer",
+           "MySQL", "PostgreSQL"]
+
 
 UP = True
 DOWN = False
-
-
-class BuilderTypeError(Exception):
-    pass
 
 
 class ServiceReloadError(Exception):
@@ -46,7 +44,7 @@ class BaseService:
         self.spec = spec
 
     def __str__(self):
-        return "{0}(name={1}, spec={2})".format(self.__class__.__name__, self.name, self.spec)
+        return "{0}(name='{1}', spec={2})".format(self.__class__.__name__, self.name, self.spec)
 
 
 class NetworkingService(BaseService):
@@ -1029,23 +1027,3 @@ class PostgreSQL(DatabaseServer, SysVService):
 
     def set_initial_permissions(self, user_name, addrs_list):
         return
-
-
-class Builder:
-    def __new__(cls, type_name, supervisor, personal=False, type_modifier=None):
-        OpServiceClass = {
-            supervisor == "docker":                                                   SomethingInDocker,
-            type_name == "CronD":                                                     Cron,
-            type_name == "Postfix":                                                   Postfix,
-            type_name == "HttpServer":                                                HttpServer,
-            type_name == "ApplicationServer":                                         Apache,
-            type_name == "ApplicationServer" and supervisor == "docker":              SharedAppServer,
-            type_name == "ApplicationServer" and supervisor == "docker" and personal: PersonalAppServer,
-            type_name == "DatabaseServer" and type_modifier == "MYSQL":               MySQL,
-            type_name == "DatabaseServer" and type_modifier == "POSTGRESQL":          PostgreSQL
-        }.get(True)
-        if not OpServiceClass:
-            raise BuilderTypeError("Unknown OpService type: {} "
-                                   "and catch-all 'SomethingInDocker' did not match "
-                                   "due to '{}' supervision".format(type_name, supervisor))
-        return OpServiceClass

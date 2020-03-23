@@ -9,11 +9,7 @@ import taskexecutor.task
 import taskexecutor.utils
 import taskexecutor.httpsclient
 
-__all__ = ["Builder"]
-
-
-class BuilderTypeError(Exception):
-    pass
+__all__ = ["AMQPReporter", "HttpsReporter", "AlertaReporter", "NullReporter"]
 
 
 class Reporter(metaclass=abc.ABCMeta):
@@ -175,14 +171,3 @@ class NullReporter(Reporter):
 
     def send_report(self):
         pass
-
-
-class Builder:
-    def __new__(cls, reporter_type):
-        ReporterClass = {"amqp": AMQPReporter,
-                         "https": HttpsReporter,
-                         "alerta": AlertaReporter,
-                         "null": NullReporter}.get(reporter_type)
-        if not ReporterClass:
-            raise BuilderTypeError("Unknown Reporter type: {}".format(reporter_type))
-        return ReporterClass

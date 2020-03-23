@@ -14,11 +14,8 @@ import taskexecutor.opservice
 import taskexecutor.watchdog
 import taskexecutor.utils
 
-__all__ = ["Builder"]
-
-
-class BuilderTypeError(Exception):
-    pass
+__all__ = ["UnixAccountProcessor", "DatabaseUserProcessor", "DatabaseProcessor", "MailboxProcessor", "WebSiteProcessor",
+           "SslCertificateProcessor", "ServiceProcessor", "ResourceArchiveProcessor", "RedirectProcessor"]
 
 
 class ResourceValidationError(Exception):
@@ -565,19 +562,3 @@ class RedirectProcessor(ResProcessor):
     def delete(self):
         for each in self.service.get_website_configs(self.resource.id): each.delete()
         self.service.reload()
-
-
-class Builder:
-    def __new__(cls, res_type):
-        ResProcessorClass = {"service": ServiceProcessor,
-                             "unix-account": UnixAccountProcessor,
-                             "database-user": DatabaseUserProcessor,
-                             "database": DatabaseProcessor,
-                             "website": WebSiteProcessor,
-                             "ssl-certificate": SslCertificateProcessor,
-                             "mailbox": MailboxProcessor,
-                             "resource-archive": ResourceArchiveProcessor,
-                             "redirect": RedirectProcessor}.get(res_type)
-        if not ResProcessorClass:
-            raise BuilderTypeError("Unknown resource type: {}".format(res_type))
-        return ResProcessorClass

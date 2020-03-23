@@ -4,14 +4,10 @@ import shutil
 import jinja2
 from taskexecutor.logger import LOGGER
 
-__all__ = ["Builder"]
+__all__ = ["ConfigFile", "LineBasedConfigFile", "TemplatedConfigFile"]
 
 
 class PropertyValidationError(Exception):
-    pass
-
-
-class BuilderTypeError(Exception):
     pass
 
 
@@ -160,13 +156,3 @@ class LineBasedConfigFile(ConfigFile):
                 list.insert(idx, new_line)
                 count -= 1
         self.body = "\n".join(list)
-
-
-class Builder:
-    def __new__(cls, config_type):
-        ConfigFileClass = {"templated": TemplatedConfigFile,
-                           "lines": LineBasedConfigFile,
-                           "basic": ConfigFile}.get(config_type)
-        if not ConfigFileClass:
-            raise BuilderTypeError("Unknown config type: {}".format(config_type))
-        return ConfigFileClass

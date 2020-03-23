@@ -11,11 +11,7 @@ from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.utils
 
-__all__ = ["Builder"]
-
-
-class BuilderTypeError(Exception):
-    pass
+__all__ = ["ResticBackup"]
 
 
 class BackupError(Exception):
@@ -103,12 +99,3 @@ class ResticBackup(Backuper):
         #     requests.get("http://{}/_snapshot/{}".format(CONFIG.backup.server.names[0], os.path.basename(repo)))
         # except Exception as e:
         #     LOGGER.warn("Failed to list snapshots on backup server: {}".format(e))
-
-
-class Builder:
-    def __new__(cls, res_type):
-        BackuperClass = {"unix-account": ResticBackup,
-                         "website": ResticBackup}.get(res_type)
-        if not BackuperClass:
-            raise BuilderTypeError("Unknown resource type: {}".format(res_type))
-        return BackuperClass

@@ -8,11 +8,7 @@ from taskexecutor.logger import LOGGER
 import taskexecutor.utils
 import taskexecutor.opservice
 
-__all__ = ["Builder"]
-
-
-class BuilderTypeError(Exception):
-    pass
+__all__ = ["DockerDataPostprocessor", "StringReplaceDataProcessor", "DataEraser"]
 
 
 class PostprocessorArgumentError(Exception):
@@ -109,13 +105,3 @@ class DataEraser(DataPostprocessor):
             raise PostprocessorArgumentError("{} data type is not supported by {}".format(type,
                                                                                           self.__class__.__name__))
         getattr(self, "_erase_{}".format(type))()
-
-
-class Builder:
-    def __new__(cls, postproc_type):
-        DataPostprocessorClass = {"docker": DockerDataPostprocessor,
-                                  "string-replace": StringReplaceDataProcessor,
-                                  "eraser": DataEraser}.get(postproc_type)
-        if not DataPostprocessorClass:
-            raise BuilderTypeError("Unknown data postprocessor type: {}".format(postproc_type))
-        return DataPostprocessorClass

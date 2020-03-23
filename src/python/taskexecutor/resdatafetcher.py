@@ -10,11 +10,7 @@ from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 import taskexecutor.utils
 
-__all__ = ["Builder"]
-
-
-class BuilderTypeError(Exception):
-    pass
+__all__ = ["FileDataFetcher", "RsyncDataFetcher", "MysqlDataFetcher", "HttpDataFetcher", "GitDataFetcher"]
 
 
 class UnsupportedDstUriScheme(Exception):
@@ -219,6 +215,7 @@ class HttpDataFetcher(DataFetcher):
 class GitDataFetcher(DataFetcher):
     def __init__(self, src_uri, dst_uri, params):
         super().__init__(src_uri, dst_uri, params)
+        self._params = params
         self.src_uri = self.src_uri.lstrip('git+')
         src_uri_parsed = urllib.parse.urlparse(src_uri)
         self.src_uri_scheme = src_uri_parsed.scheme
@@ -252,14 +249,3 @@ class GitDataFetcher(DataFetcher):
             taskexecutor.utils.exec_command("git -C {} pull".format(self.dst_path))
         else:
             taskexecutor.utils.exec_command("git -b {} clone {}".format(branch, self.dst_path))
-
-
-class Builder:
-    def __new__(cls, proto):
-        DataFetcherClass = {"file": FileDataFetcher,
-                            "rsync": RsyncDataFetcher,
-                            "mysql": MysqlDataFetcher,
-                            "http": HttpDataFetcher}.get(proto)
-        if not DataFetcherClass:
-            raise BuilderTypeError("Unknown data source URI scheme: {}".format(proto))
-        return DataFetcherClass
