@@ -32,74 +32,11 @@ class ResourceProcessingError(Exception):
 class ResProcessor(metaclass=abc.ABCMeta):
     def __init__(self, resource, service, params):
         super().__init__()
-        self._resource = None
-        self._service = None
-        self._params = dict()
-        self._extra_services = None
-        self._op_resource = None
         self.resource = resource
         self.service = service
         self.params = params
-
-    @property
-    def resource(self):
-        return self._resource
-
-    @resource.setter
-    def resource(self, value):
-        self._resource = value
-
-    @resource.deleter
-    def resource(self):
-        del self._resource
-
-    @property
-    def service(self):
-        return self._service
-
-    @service.setter
-    def service(self, value):
-        self._service = value
-
-    @service.deleter
-    def service(self):
-        del self._service
-
-    @property
-    def params(self):
-        return self._params
-
-    @params.setter
-    def params(self, value):
-        self._params = value
-
-    @params.deleter
-    def params(self):
-        del self._params
-
-    @property
-    def extra_services(self):
-        return self._extra_services
-
-    @extra_services.setter
-    def extra_services(self, value):
-        self._extra_services = value
-
-    @extra_services.deleter
-    def extra_services(self):
-        del self._extra_services
-
-    @property
-    def op_resource(self):
-        return self._op_resource
-
-    @op_resource.setter
-    def op_resource(self, value):
-        self._op_resource = value
-
-    @op_resource.deleter
-    def op_resource(self):
-        del self._op_resource
+        self.extra_services = None
+        self.op_resource = None
 
     @abc.abstractmethod
     def create(self):

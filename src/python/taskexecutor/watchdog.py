@@ -14,15 +14,11 @@ class ProcessWatchdog:
         self._stopping = False
         self.interval = interval
         self.max_lifetime = max_lifetime
-        self._restricted_uids = set()
+        self.restricted_uids = set()
 
     @classmethod
     def get_uids_queue(cls):
         return cls.__uids_queue
-
-    @property
-    def restricted_uids(self):
-        return self._restricted_uids
 
     @staticmethod
     def _get_processes(uids):

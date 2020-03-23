@@ -27,23 +27,13 @@ class DataFetchingError(Exception):
 
 class DataFetcher(metaclass=abc.ABCMeta):
     def __init__(self, src_uri, dst_uri, params):
-        self._src_uri = None
-        self._dst_uri = None
-        self._params = params
         self.src_uri = src_uri
         self.dst_uri = dst_uri
-
-    @property
-    def src_uri(self):
-        return self._src_uri
-
-    @src_uri.setter
-    def src_uri(self, value):
-        self._src_uri = value
+        self.params = params
 
     @property
     def dst_uri(self):
-        return self._dst_uri
+        return getattr(self, "_dst_uri", None)
 
     @dst_uri.setter
     def dst_uri(self, value):
@@ -53,14 +43,6 @@ class DataFetcher(metaclass=abc.ABCMeta):
                                                                                   self.supported_dst_uri_schemes,
                                                                                   value))
         self._dst_uri = value
-
-    @property
-    def params(self):
-        return self._params
-
-    @params.setter
-    def params(self, value):
-        self._params = value
 
     @property
     @abc.abstractmethod

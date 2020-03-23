@@ -400,14 +400,6 @@ class DockerService(OpService):
         return args
 
     @property
-    def image(self):
-        return self._image
-
-    @image.setter
-    def image(self, value):
-        self._image = value
-
-    @property
     def container(self):
         return next(iter(
             self._docker_client.containers.list(filters={"name": "^/" + self._container_name + "$"}, all=True)
@@ -432,7 +424,7 @@ class DockerService(OpService):
         super().__init__(name, spec)
         self._docker_client = docker.from_env()
         self._docker_client.login(**CONFIG.docker_registry._asdict())
-        self._image = spec.template.sourceUri.replace("docker://", "")
+        self.image = spec.template.sourceUri.replace("docker://", "")
         self._container_name = getattr(self, "_container_name", self.name)
         self._default_run_args = {"name": self._container_name,
                                   "detach": True,

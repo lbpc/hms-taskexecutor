@@ -25,7 +25,7 @@ class HttpsClient(metaclass=abc.ABCMeta):
         self._port = port
         self._user = user
         self._password = password
-        self._uri_path = None
+        self.uri_path = ""
 
     def __enter__(self):
         LOGGER.debug("Connecting to {0}:{1}".format(self._host, self._port))
@@ -35,18 +35,6 @@ class HttpsClient(metaclass=abc.ABCMeta):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._connection.close()
-
-    @property
-    def uri_path(self):
-        return self._uri_path or ""
-
-    @uri_path.setter
-    def uri_path(self, value):
-        self._uri_path = value
-
-    @uri_path.deleter
-    def uri_path(self):
-        del self._uri_path
 
     @staticmethod
     def decode_response(resp_bytes):
@@ -167,7 +155,7 @@ class ApiClient(HttpsClient):
 class ConfigServerClient(ApiClient):
     def __init__(self, host, port, user, password):
         super().__init__(host, port, user, password)
-        self._extra_attrs = dict()
+        self._extra_attrs = {}
 
     @property
     def extra_attrs(self):
@@ -187,7 +175,7 @@ class ConfigServerClient(ApiClient):
 
     @extra_attrs.deleter
     def extra_attrs(self):
-        del self._extra_attrs
+        self._extra_attrs = {}
 
     def get(self, uri_path=None, headers=None):
         if uri_path:

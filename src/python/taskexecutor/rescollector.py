@@ -24,48 +24,10 @@ class ResCollector(metaclass=abc.ABCMeta):
 
     def __init__(self, resource, service):
         super().__init__()
-        self._resource = None
-        self._service = None
-        self._extra_services = None
-        self._ignored_properties = set()
         self.resource = resource
         self.service = service
-
-    @property
-    def resource(self):
-        return self._resource
-
-    @resource.setter
-    def resource(self, value):
-        self._resource = value
-
-    @resource.deleter
-    def resource(self):
-        del self._resource
-
-    @property
-    def service(self):
-        return self._service
-
-    @service.setter
-    def service(self, value):
-        self._service = value
-
-    @service.deleter
-    def service(self):
-        del self._service
-
-    @property
-    def extra_services(self):
-        return self._extra_services
-
-    @extra_services.setter
-    def extra_services(self, value):
-        self._extra_services = value
-
-    @extra_services.deleter
-    def extra_services(self):
-        del self._extra_services
+        self.extra_services = None
+        self._ignored_properties = set()
 
     @abc.abstractmethod
     def get_property(self, property_name, cache_ttl=0):

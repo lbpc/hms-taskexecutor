@@ -16,20 +16,11 @@ class BuilderTypeError(Exception):
 
 
 class ConfigFile:
-    def __init__(self, abs_path, owner_uid, mode):
-        self._file_path = None
-        self._body = None
+    def __init__(self, file_path, owner_uid, mode):
+        self._body = ""
         self._owner_uid = owner_uid
         self._mode = mode
-        self.file_path = abs_path
-
-    @property
-    def file_path(self):
-        return self._file_path
-
-    @file_path.setter
-    def file_path(self, value):
-        self._file_path = value
+        self.file_path = file_path
 
     @property
     def body(self):
@@ -43,20 +34,20 @@ class ConfigFile:
 
     @body.deleter
     def body(self):
-        del self._body
+        self._body = ""
 
     @property
     def exists(self):
-        return os.path.exists(self._file_path)
+        return os.path.exists(self.file_path)
 
     @property
     def _backup_file_path(self):
-        backup_path = os.path.normpath("{0}/{1}".format("/var/tmp", self._file_path))
+        backup_path = os.path.normpath("{0}/{1}".format("/var/tmp", self.file_path))
         os.makedirs(os.path.dirname(backup_path), exist_ok=True)
         return backup_path
 
     def _read_file(self):
-        with open(self._file_path, "r") as f:
+        with open(self.file_path, "r") as f:
             self._body = f.read()
 
     def write(self):
@@ -109,21 +100,9 @@ class ConfigFile:
 
 
 class TemplatedConfigFile(ConfigFile):
-    def __init__(self, abs_path, owner_uid, mode):
-        super().__init__(abs_path, owner_uid, mode)
-        self._template = None
-
-    @property
-    def template(self):
-        return self._template
-
-    @template.setter
-    def template(self, value):
-        self._template = value
-
-    @template.deleter
-    def template(self):
-        del self._template
+    def __init__(self, file_path, owner_uid, mode):
+        super().__init__(file_path, owner_uid, mode)
+        self.template = None
 
     @staticmethod
     def _setup_jinja2_env():
@@ -142,8 +121,8 @@ class TemplatedConfigFile(ConfigFile):
 
 
 class LineBasedConfigFile(ConfigFile):
-    def __init__(self, abs_path, owner_uid, mode):
-        super().__init__(abs_path, owner_uid, mode)
+    def __init__(self, file_path, owner_uid, mode):
+        super().__init__(file_path, owner_uid, mode)
 
     def _body_as_list(self):
         return str(self.body).split("\n") if self.body else []

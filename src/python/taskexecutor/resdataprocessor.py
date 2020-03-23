@@ -21,15 +21,7 @@ class PostprocessorArgumentError(Exception):
 
 class DataPostprocessor(metaclass=abc.ABCMeta):
     def __init__(self, **kwargs):
-        self._args = kwargs
-
-    @property
-    def args(self):
-        return self._args
-
-    @args.setter
-    def args(self, value):
-        self._args = value
+        self.args = kwargs
 
     @abc.abstractmethod
     def process(self):
