@@ -1,6 +1,5 @@
 import os
 import shutil
-import sys
 import abc
 import collections
 import urllib.parse
@@ -279,10 +278,9 @@ class WebSiteProcessor(ResProcessor):
             else:
                 LOGGER.warning("{} does not exist".format(directory))
         os.chown(opcache_root, self.resource.unixAccount.uid, self.resource.unixAccount.uid)
-        services = []
+        services = [self.extra_services.http_proxy]
         if self.params.get("oldHttpProxyIp") != self.extra_services.http_proxy.socket.http.address:
             services.append(self.service)
-        services.append(self.extra_services.http_proxy)
         for service in services:
             configs = service.get_website_configs(self.resource.id)
             for each in configs:
@@ -538,17 +536,14 @@ class ServiceProcessor(ResProcessor):
 
     def update(self):
         self.params.update(hostname=CONFIG.hostname)
-        if isinstance(self.service, taskexecutor.opservice.Nginx):
-            self.params["app_servers"] = [s for s in taskexecutor.constructor.get_all_opservices_by_res_type("website")
-                                          if not isinstance(s, taskexecutor.opservice.Nginx)]
+        if isinstance(self.service, taskexecutor.opservice.HttpServer):
+            self.params["app_servers"] = taskexecutor.constructor.get_application_servers()
         elif isinstance(self.service, taskexecutor.opservice.Apache):
             self.params.update(admin_networks=CONFIG.apache.admin_networks)
         if isinstance(self.service, taskexecutor.opservice.ConfigurableService):
             configs = self.service.configs_in_context(self.service)
         else:
             configs = []
-        if isinstance(self.service, taskexecutor.opservice.Apache) and self.service.interpreter.name != "php":
-            configs = [c for c in configs if os.path.basename(c.file_path) != "php.ini"]
         for each in configs:
             each.render_template(service=self.service, params=self.params)
             each.write()

@@ -194,15 +194,14 @@ class ArchivableService(metaclass=abc.ABCMeta):
 class ApplicationServer(BaseService, ArchivableService):
     @property
     def interpreter(self):
-        if not hasattr(self, "name") or not self.name or "-" not in self.name:
-            return
-        match = re.compile(r".+-(?P<name>[a-z]+)(?P<version>\d+)(-(?P<suffix>.+))*").match(self.name)
-        name = match.group("name")
-        version_major = match.group("version")[0]
-        version_minor = match.group("version")[1:]
-        suffix = match.group("suffix")
+        name = (getattr(self.spec.template, "language", "")).lower() or None
+        version = getattr(self.spec.template, "version", "").split(".")
+        version_major = next(iter(version[0:1]), None) or None
+        version_minor = next(iter(version[1:2]), None)
+        suffix = getattr(self.spec.instanceProps, "security_level", None)
         Interpreter = collections.namedtuple("Interpreter", "name version_major version_minor suffix")
-        return Interpreter(name, version_major, version_minor, suffix)
+        if any((name, version_major, version_minor, suffix)):
+            return Interpreter(name, version_major, version_minor, suffix)
 
     def get_archive_stream(self, source, params={}):
         stdout, stderr = taskexecutor.utils.exec_command("nice -n 19 "
@@ -433,12 +432,7 @@ class DockerService(OpService):
         super().__init__(name, spec)
         self._docker_client = docker.from_env()
         self._docker_client.login(**CONFIG.docker_registry._asdict())
-        if hasattr(spec, "template") and spec.template and spec.template.sourceUri:
-            self._image = spec.template.sourceUri.replace("docker://", "")
-        elif hasattr(spec, "template"):
-            self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, spec.template.name)
-        else:
-            self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, self.name)
+        self._image = spec.template.sourceUri.replace("docker://", "")
         self._container_name = getattr(self, "_container_name", self.name)
         self._default_run_args = {"name": self._container_name,
                                   "detach": True,
@@ -576,11 +570,9 @@ class HttpServer(WebServer, DockerService):
         self.ssl_certs_base_path = CONFIG.nginx.ssl_certs_path
 
 
-class ApacheInDocker(WebServer, ApplicationServer, DockerService):
+class SharedAppServer(WebServer, ApplicationServer, DockerService):
     def __init__(self, name, spec):
         super().__init__(name, spec)
-        short_name = "apache2-{0.name}{0.version_major}{0.version_minor}".format(self.interpreter)
-        self.image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, short_name)
         self._config_base_path = os.path.join("/etc", self.name)
         self._sites_conf_path = os.path.join(self._config_base_path, "sites-available")
         self.security_level = getattr(getattr(self.spec, "instanceProps", None), "security_level", "default")
@@ -1050,15 +1042,15 @@ class PostgreSQL(DatabaseServer, SysVService):
 class Builder:
     def __new__(cls, type_name, supervisor, personal=False, type_modifier=None):
         OpServiceClass = {
-            supervisor == "docker":                                                    SomethingInDocker,
-            type_name == "CronD":                                                      Cron,
-            type_name == "Postfix":                                                    Postfix,
-            type_name == "HttpServer":                                                 HttpServer,
-            type_name == "ApplicationServer":                                          Apache,
-            type_name == "ApplicationServer" and supervisor == "docker":               ApacheInDocker,
-            type_name == "ApplicationServer" and supervisor == "docker" and personal:  PersonalAppServer,
-            type_name == "DatabaseServer" and type_modifier == "MYSQL":                MySQL,
-            type_name == "DatabaseServer" and type_modifier == "POSTGRESQL":           PostgreSQL
+            supervisor == "docker":                                                   SomethingInDocker,
+            type_name == "CronD":                                                     Cron,
+            type_name == "Postfix":                                                   Postfix,
+            type_name == "HttpServer":                                                HttpServer,
+            type_name == "ApplicationServer":                                         Apache,
+            type_name == "ApplicationServer" and supervisor == "docker":              SharedAppServer,
+            type_name == "ApplicationServer" and supervisor == "docker" and personal: PersonalAppServer,
+            type_name == "DatabaseServer" and type_modifier == "MYSQL":               MySQL,
+            type_name == "DatabaseServer" and type_modifier == "POSTGRESQL":          PostgreSQL
         }.get(True)
         if not OpServiceClass:
             raise BuilderTypeError("Unknown OpService type: {} "
