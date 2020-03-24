@@ -185,7 +185,7 @@ class WebServer(ConfigurableService, NetworkingService):
 
 class ArchivableService(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def get_archive_stream(self, source, params={}):
+    def get_archive_stream(self, source, params=None):
         pass
 
 
@@ -201,7 +201,8 @@ class ApplicationServer(BaseService, ArchivableService):
         if any((name, version_major, version_minor, suffix)):
             return Interpreter(name, version_major, version_minor, suffix)
 
-    def get_archive_stream(self, source, params={}):
+    def get_archive_stream(self, source, params=None):
+        params = params or {}
         stdout, stderr = taskexecutor.utils.exec_command("nice -n 19 "
                                                          "tar --ignore-command-error --ignore-failed-read --warning=no-file-changed -czf - -C {0} {1}".format(params.get("basedir"), source),
                                                          return_raw_streams=True)
@@ -795,7 +796,7 @@ class MySQL(DatabaseServer, SysVService):
             line.split('\t')[::-1] for line in stdout[0:-1].split('\n')
         )
 
-    def get_archive_stream(self, source, params={}):
+    def get_archive_stream(self, source, params=None):
         stdout, stderr = taskexecutor.utils.exec_command(
                 "mysqldump -h{0.address} -P{0.port} "
                 "-u{1.user} -p{1.password} {2} | nice -n 19 gzip -9c".format(self.socket.mysql, CONFIG.mysql, source),
@@ -1009,7 +1010,7 @@ class PostgreSQL(DatabaseServer, SysVService):
                      self.dbclient.execute_query("SELECT datname FROM pg_database WHERE datistemplate=false", ())]
         return {database: self.get_database_size(database) for database in databases}
 
-    def get_archive_stream(self, source, params={}):
+    def get_archive_stream(self, source, params=None):
         stdout, stderr = taskexecutor.utils.exec_command(
                 "pg_dump --host {0.address} --port {0.port} --user {1.user} --password {1.password} "
                 "{2} | gzip -9c".format(self.socket.psql, CONFIG.postgresql, source), return_raw_streams=True

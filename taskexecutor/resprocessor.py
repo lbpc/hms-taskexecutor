@@ -47,7 +47,8 @@ class ResProcessor(metaclass=abc.ABCMeta):
     def delete(self):
         pass
 
-    def _process_data(self, src_uri, dst_uri, extra_postproc_args={}):
+    def _process_data(self, src_uri, dst_uri, extra_postproc_args=None):
+        extra_postproc_args = extra_postproc_args or {}
         datafetcher = taskexecutor.constructor.get_datafetcher(src_uri, dst_uri, self.params.get("dataSourceParams"))
         datafetcher.fetch()
         data_postprocessor_type = self.params.get("dataPostprocessorType")
