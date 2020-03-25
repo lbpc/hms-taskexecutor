@@ -94,32 +94,8 @@ class LinuxUserManager:
         authorized_keys.body = pub_key_string
         authorized_keys.save()
 
-    def create_crontab(self, user_name, cron_tasks_list):
-        crontab_string = str()
-        for task in cron_tasks_list:
-            crontab_string = ("{0}"
-                              "#{1.execTimeDescription}\n"
-                              "{1.execTime} {1.command}\n").format(crontab_string, task)
-        LOGGER.debug("Installing '{0}' crontab for {1}".format(crontab_string, user_name))
-        taskexecutor.utils.exec_command("crontab -u {} -".format(user_name), pass_to_stdin=crontab_string)
-
-    def get_crontab(self, user_name):
-        return taskexecutor.utils.exec_command("crontab -l -u {} | awk '$1!~/^#/ {{print}}'".format(user_name))
-
-    def delete_crontab(self, user_name):
-        if os.path.exists(os.path.join("/var/spool/cron/crontabs", user_name)):
-            taskexecutor.utils.exec_command("crontab -u {} -r".format(user_name))
-
     def kill_user_processes(self, user_name):
         taskexecutor.utils.exec_command("killall -9 -u {} || true".format(user_name))
-
-    def enable_sendmail(self, uid):
-        taskexecutor.utils.exec_command("(/usr/bin/postfix_dbs_ctrl --db map --uid {0} --get && "
-                                        "/usr/bin/postfix_dbs_ctrl --db map --uid {0} --del) || true".format(uid))
-
-    def disable_sendmail(self, uid):
-        taskexecutor.utils.exec_command("/usr/bin/postfix_dbs_ctrl --db map --uid {0} --get || "
-                                        "/usr/bin/postfix_dbs_ctrl --db map --uid {0} --add".format(uid))
 
     @with_sync_passwd
     def set_shell(self, user_name, path):

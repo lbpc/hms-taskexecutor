@@ -89,9 +89,9 @@ class UnixAccountProcessor(ResProcessor):
             LOGGER.error("Setting quota failed for user {0.name}".format(self.resource))
             self.service.delete_user(self.resource.name)
             raise
-        cron_service = self.extra_services.cron or self.service
         if len(self.resource.crontab) > 0:
-            cron_service.create_crontab(self.resource.name, [task for task in self.resource.crontab if task.switchedOn])
+            self.extra_services.cron.create_crontab(self.resource.name,
+                                                    [task for task in self.resource.crontab if task.switchedOn])
         if hasattr(self.resource, "keyPair") and self.resource.keyPair:
             LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
             self.service.create_authorized_keys(self.resource.keyPair.publicKey,
@@ -115,11 +115,10 @@ class UnixAccountProcessor(ResProcessor):
                 taskexecutor.utils.exec_command("chown -R {0}:{0} {1}".format(self.resource.uid, self.resource.homeDir))
             self.service.set_shell(self.resource.name,
                                    {True: self.service.default_shell, False: None}[switched_on])
-            mta_service = self.extra_services.mta or self.service
             if self.resource.sendmailAllowed:
-                mta_service.enable_sendmail(self.resource.uid)
+                self.extra_services.mta.enable_sendmail(self.resource.uid)
             else:
-                mta_service.disable_sendmail(self.resource.uid)
+                self.extra_services.mta.disable_sendmail(self.resource.uid)
             if not self.resource.writable:
                 LOGGER.info("Disabling writes by setting quota=quotaUsed for user {0.name} "
                             "(quotaUsed={0.quotaUsed})".format(self.resource))
@@ -137,13 +136,11 @@ class UnixAccountProcessor(ResProcessor):
                 LOGGER.info("Creating authorized_keys for user {0.name}".format(self.resource))
                 self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                     self.resource.uid, self.resource.homeDir)
-            self.service.delete_crontab(self.resource.name)
-            cron_service = self.extra_services.cron or self.service
             if len(self.resource.crontab) > 0 and switched_on:
-                cron_service.create_crontab(self.resource.name,
-                                            [task for task in self.resource.crontab if task.switchedOn])
+                self.extra_services.cron.create_crontab(self.resource.name,
+                                                        [task for task in self.resource.crontab if task.switchedOn])
             else:
-                cron_service.delete_crontab(self.resource.name)
+                self.extra_services.cron.delete_crontab(self.resource.name)
             self.service.set_comment(self.resource.name, "Hosting account,,,,"
                                                          "UnixAccount(id={0.id}, "
                                                          "accountId={0.accountId}, "
