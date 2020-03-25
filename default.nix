@@ -1,6 +1,6 @@
 with import <nixpkgs> {};
 let
-  inherit (python37Packages) buildPythonPackage fetchPypi;
+  inherit (python37Packages) buildPythonPackage buildPythonApplication fetchPypi;
 
   PyMySQL = buildPythonPackage rec {
     name = "${pname}-${version}";
@@ -26,7 +26,7 @@ let
 
 
 in
-  buildPythonPackage rec {
+  buildPythonApplication rec {
     name = "taskexecutor";
     src = ./.;
     propagatedBuildInputs = with python37Packages; [

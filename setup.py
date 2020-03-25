@@ -9,5 +9,6 @@ setup(
         description='',
         packages=find_packages(),
         install_requires=[],
+        test_suite='taskexecutor.test'
 )
 

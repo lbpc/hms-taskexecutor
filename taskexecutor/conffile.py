@@ -2,6 +2,8 @@ import re
 import os
 import shutil
 import jinja2
+import tempfile
+from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 
 __all__ = ["ConfigFile", "LineBasedConfigFile", "TemplatedConfigFile"]
@@ -11,17 +13,25 @@ class PropertyValidationError(Exception):
     pass
 
 
+class NoSuchLine(Exception):
+    pass
+
+
 class ConfigFile:
     def __init__(self, file_path, owner_uid, mode):
+        self._tmp_dir = getattr(getattr(CONFIG, "conffile", None), "tmp_dir", None) or tempfile.gettempdir()
+        self._bad_confs_dir = (getattr(getattr(CONFIG, "conffile", None), "bad_confs_dir", None)
+                               or os.path.join(tempfile.gettempdir(), 'te-bad-confs'))
         self._body = ""
         self._owner_uid = owner_uid
         self._mode = mode
-        self.file_path = file_path
+        self.file_path = os.path.abspath(file_path)
 
     @property
     def body(self):
         if not self._body and self.exists:
-            self._read_file()
+            with open(self.file_path, "r") as f:
+                self._body = f.read()
         return self._body
 
     @body.setter
@@ -38,17 +48,13 @@ class ConfigFile:
 
     @property
     def _backup_file_path(self):
-        backup_path = os.path.normpath("{0}/{1}".format("/var/tmp", self.file_path))
+        backup_path = os.path.join(self._tmp_dir, self.file_path.lstrip("/"))
         os.makedirs(os.path.dirname(backup_path), exist_ok=True)
         return backup_path
 
-    def _read_file(self):
-        with open(self.file_path, "r") as f:
-            self._body = f.read()
-
     def write(self):
         dir_path = os.path.dirname(self.file_path)
-        if not os.path.exists(dir_path):
+        if dir_path and not os.path.exists(dir_path):
             LOGGER.warning("There is no {} found, creating".format(dir_path))
             os.makedirs(dir_path)
         if os.path.exists(self.file_path):
@@ -59,20 +65,20 @@ class ConfigFile:
             f.write(self.body)
         if self._mode:
             os.chmod(self.file_path, self._mode)
-        if self._owner_uid:
+        if self._owner_uid is not None:
             os.chown(self.file_path, self._owner_uid, self._owner_uid)
 
     def revert(self):
+        bad_conf_path = os.path.join(self._bad_confs_dir, self.file_path.replace("/", "_"))
         if os.path.exists(self._backup_file_path):
-            LOGGER.warning(
-                    "Reverting {0} from {1}, {0} will be saved as "
-                    "/var/tmp/te_{2}".format(self.file_path,
-                                             self._backup_file_path,
-                                             self.file_path.replace("/", "_"))
-            )
-            shutil.move(self.file_path,
-                        "/var/tmp/te_{}".format(self.file_path.replace("/", "_")))
+            LOGGER.warning("Reverting {0} from {1},"
+                           "{0} will be saved as {2}".format(self.file_path, self._backup_file_path, bad_conf_path))
+            os.makedirs(self._bad_confs_dir, exist_ok=True)
+            shutil.move(self.file_path, bad_conf_path)
             shutil.move(self._backup_file_path, self.file_path)
+        else:
+            LOGGER.warning("No backed up version found, moving {} to {}".format(self.file_path, bad_conf_path))
+            shutil.move(self.file_path, bad_conf_path)
 
     def confirm(self):
         if os.path.exists(self._backup_file_path):
@@ -80,7 +86,7 @@ class ConfigFile:
             try:
                 os.unlink(self._backup_file_path)
             except FileNotFoundError as e:
-                LOGGER.warning("Could not delete file cuz not exist, ERROR: {}".format(e))
+                LOGGER.warning("Could not delete file, ERROR: {}".format(e))
 
     def save(self):
         self.write()
@@ -144,13 +150,16 @@ class LineBasedConfigFile(ConfigFile):
     def remove_line(self, line):
         LOGGER.debug("Removing '{0}' from {1}".format(line, self.file_path))
         list = self._body_as_list()
-        list.remove(line)
+        try:
+            list.remove(line.rstrip('\n'))
+        except ValueError:
+            raise NoSuchLine(line)
         self.body = "\n".join(list)
 
     def replace_line(self, regex, new_line, count=1):
         list = self._body_as_list()
         for idx, line in enumerate(list):
-            if count != 0 and re.match(regex, line):
+            if count != 0 and (re.match(regex, line) or re.match(regex, line + '\n')):
                 LOGGER.debug("Replacing '{0}' by '{1}' in {2}".format(line, new_line, self.file_path))
                 del list[idx]
                 list.insert(idx, new_line)
