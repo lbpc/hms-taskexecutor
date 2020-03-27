@@ -473,7 +473,7 @@ class DockerService(OpService):
 
     def start(self):
         image = self._pull_image()
-        arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json"), "{}")
+        arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json", "{}"))
         if arg_hints:
             LOGGER.info("Docker image {} has run arguments hints: {}".format(self.image, arg_hints))
         run_args = self._default_run_args.copy()

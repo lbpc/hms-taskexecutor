@@ -1,10 +1,10 @@
-import functools
 import os
 import shutil
 
+from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-import taskexecutor.constructor
-import taskexecutor.utils
+from taskexecutor.constructor import get_conffile
+from taskexecutor.utils import exec_command, rgetattr, repquota
 
 __all__ = ["LinuxUserManager", "MaildirManager"]
 
@@ -13,103 +13,59 @@ class MaildirManagerSecurityViolation(Exception):
     pass
 
 
-def with_sync_passwd(f):
-    @functools.wraps(f)
-    def wrapper(self, *args, **kwargs):
-        f(self, *args, **kwargs)
-        os.makedirs("/opt/etc", exist_ok=True)
-        LOGGER.info("Copying /etc/{passwd,group,shadow,gshadow} to /opt/etc")
-        for each in ("passwd", "group", "shadow", "gshadow"):
-            shutil.copy2("/etc/{}".format(each), "/opt/etc")
-
-    return wrapper
-
-
 class LinuxUserManager:
-    @property
-    def default_shell(self):
-        return "/bin/bash"
+    def create_group(self, name, gid=None):
+        etc_group_file = os.path.join(rgetattr(CONFIG, 'builtinservice.sysconf_dir', '/opt/etc/group'), 'group')
+        etc_group = get_conffile('lines', etc_group_file, 0, 0o644)
+        etc_group.add_line(':'.join((name, 'x', str(gid), '')))
+        etc_group.add_line()
+        etc_group.save()
+        etc_gshadow_file = os.path.join(rgetattr(CONFIG, 'builtinservice.sysconf_dir', '/opt/etc/gshadow'), 'gshadow')
+        etc_gshadow = get_conffile('lines', etc_gshadow_file, 0, 0o640)
+        etc_gshadow.add_line(':'.join((name, '!', '', '')))
+        etc_gshadow.add_line()
+        etc_gshadow.save()
 
-    @property
-    def disabled_shell(self):
-        return "/usr/sbin/nologin"
+    def create_user(self, name, uid, home_dir, pass_hash, shell, gecos='', extra_groups=None):
+        ...
 
-    @with_sync_passwd
-    def create_group(self, name, gid=None, delete_first=False):
-        if delete_first:
-            taskexecutor.utils.exec_command("groupdel {} || true".format(name))
-        setgid = "--gid {}".format(gid) if gid else ""
-        taskexecutor.utils.exec_command("groupadd --force {0} {1}".format(setgid, name))
-
-    @with_sync_passwd
-    def create_user(self, name, uid, home_dir, pass_hash, shell, gecos="", extra_groups=[]):
-        if os.path.exists(home_dir):
-            os.chown(home_dir, uid, uid)
-        self.create_group(name, gid=uid, delete_first=True)
-        extra_groups = [g for g in extra_groups if g]
-        for group in extra_groups:
-            self.create_group(group)
-        groups = ",".join(extra_groups) if extra_groups else '""'
-        taskexecutor.utils.exec_command("useradd "
-                                        "--comment '{0}' "
-                                        "--uid {1} "
-                                        "--gid {1} "
-                                        "--home {2} "
-                                        "--password '{3}' "
-                                        "--create-home "
-                                        "--shell {4} "
-                                        "--groups {5} "
-                                        "{6}".format(gecos, uid, home_dir, pass_hash, shell, groups, name))
-        os.chmod(home_dir, 0o0700)
-
-    @with_sync_passwd
     def delete_user(self, name):
-        taskexecutor.utils.exec_command("userdel --force --remove {}".format(name))
+        ...
 
     def set_quota(self, uid, quota_bytes):
-        taskexecutor.utils.exec_command("setquota "
-                                        "-g {0} 0 {1} "
-                                        "0 0 /home".format(uid, int(quota_bytes / 1024) or 1))
+        exec_command('setquota -g {0} 0 {1} 0 0 /home'.format(uid, int(quota_bytes / 1024) or 1))
 
-    @taskexecutor.utils.synchronized
     def get_quota(self):
-        return {k: v["block_limit"]["used"] * 1024
-                for k, v in taskexecutor.utils.repquota("vangp").items()}
+        return {k: v['block_limit']['used'] * 1024 for k, v in repquota('vangp').items()}
 
     def get_cpuacct(self, user_name):
         try:
-            with open(os.path.join("/sys/fs/cgroup/cpuacct/limitgroup", user_name, "cpuacct.usage"), "r") as f:
+            with open(os.path.join('/sys/fs/cgroup/cpuacct/limitgroup', user_name, 'cpuacct.usage'), 'r') as f:
                 return int(f.read())
         except FileNotFoundError:
             return 0
 
     def create_authorized_keys(self, pub_key_string, uid, home_dir):
-        ssh_dir = os.path.join(home_dir, ".ssh")
-        authorized_keys_path = os.path.join(ssh_dir, "authorized_keys")
+        ssh_dir = os.path.join(home_dir, '.ssh')
+        authorized_keys_path = os.path.join(ssh_dir, 'authorized_keys')
         if not os.path.exists(ssh_dir):
             os.makedirs(ssh_dir, mode=0o700, exist_ok=True)
             os.chown(ssh_dir, uid, uid)
-        authorized_keys = taskexecutor.constructor.get_conffile("basic",
-                                                                authorized_keys_path, owner_uid=uid, mode=0o400)
+        authorized_keys = get_conffile('basic', authorized_keys_path, owner_uid=uid, mode=0o400)
         authorized_keys.body = pub_key_string
         authorized_keys.save()
 
     def kill_user_processes(self, user_name):
-        taskexecutor.utils.exec_command("killall -9 -u {} || true".format(user_name))
+        ...
 
-    @with_sync_passwd
     def set_shell(self, user_name, path):
-        path = path or "/usr/sbin/nologin"
-        taskexecutor.utils.exec_command("usermod --shell {0} {1}".format(path, user_name))
+        ...
 
-    @with_sync_passwd
     def set_comment(self, user_name, comment):
-        taskexecutor.utils.exec_command("usermod --comment '{0}' {1}".format(comment, user_name))
+        ...
 
-    @with_sync_passwd
     def change_uid(self, user_name, uid):
-        taskexecutor.utils.exec_command("groupmod --gid {0} {1}".format(uid, user_name))
-        taskexecutor.utils.exec_command("usermod --uid {0} --gid {0} {1}".format(uid, user_name))
+        ...
 
 
 class MaildirManager:

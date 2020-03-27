@@ -56,12 +56,12 @@ class TestConfigFile(unittest.TestCase):
     @patch('os.makedirs')
     @patch('os.path.exists')
     @patch('builtins.open', new_callable=mock_open)
-    def test_write_new(self, mock_open, mock_exists, mock_makedirs, mock_chmod, mock_chown):
+    def test_write_new(self, mo, mock_exists, mock_makedirs, mock_chmod, mock_chown):
         mock_exists.return_value = False
         config = ConfigFile('/opt/etc/passwd', 0, 0o644)
         config.body = "root:x:0:0:root:/root:/bin/bash\n"
         config.write()
-        mock_open().write.assert_called_once_with("root:x:0:0:root:/root:/bin/bash\n")
+        mo().write.assert_called_once_with("root:x:0:0:root:/root:/bin/bash\n")
         mock_makedirs.assert_called_once_with('/opt/etc')
         mock_chmod.assert_called_once_with('/opt/etc/passwd', 0o644)
         mock_chown.assert_called_once_with('/opt/etc/passwd', 0, 0)
@@ -72,14 +72,14 @@ class TestConfigFile(unittest.TestCase):
     @patch('shutil.move')
     @patch('os.path.exists')
     @patch('builtins.open', new_callable=mock_open)
-    def test_write_existing(self, mock_open, mock_exists, mock_move, mock_chmod, mock_chown, mock_backup):
+    def test_write_existing(self, mo, mock_exists, mock_move, mock_chmod, mock_chown, mock_backup):
         mock_exists.return_value = True
         mock_backup.return_value = '/tmp/opt/etc/passwd'
         config = ConfigFile('/opt/etc/passwd', 0, 0o644)
         config.body = "root:x:0:0:root:/root:/bin/bash\n"
         config.write()
         mock_move.assert_called_once_with('/opt/etc/passwd', '/tmp/opt/etc/passwd')
-        mock_open().write.assert_called_once_with("root:x:0:0:root:/root:/bin/bash\n")
+        mo().write.assert_called_once_with("root:x:0:0:root:/root:/bin/bash\n")
         mock_chmod.assert_called_once_with('/opt/etc/passwd', 0o644)
         mock_chown.assert_called_once_with('/opt/etc/passwd', 0, 0)
 
@@ -251,9 +251,35 @@ class TestLineBasedConfigFile(unittest.TestCase):
         self.config.body = '1'
         self.config.add_line('2')
         self.assertEqual(self.config.body, '1\n2')
-        self.assertNotEquals(self.config.body, '1\n2\n')
+        self.config.body = '1\n'
+        self.config.add_line('2')
+        self.assertEqual(self.config.body, '1\n2')
+        self.config.body = ''
+        self.config.add_line('1')
+        self.assertEqual(self.config.body, '1')
+        self.config.body = '\n'
+        self.config.add_line('1')
+        self.assertEqual(self.config.body, '\n1')
+
+    def test_add_line_empty(self):
+        self.config.body = '1'
+        self.config.add_line('')
+        self.assertEqual(self.config.body, '1\n')
+        self.config.body = '1'
+        self.config.add_line()
+        self.assertEqual(self.config.body, '1\n')
+        self.config.body = '1'
         self.config.add_line('\n')
-        self.assertEqual(self.config.body, '1\n2\n\n')
+        self.assertEqual(self.config.body, '1\n')
+        self.config.body = ''
+        self.config.add_line()
+        self.assertEqual(self.config.body, '\n')
+        self.config.body = ''
+        self.config.add_line('\n')
+        self.assertEqual(self.config.body, '\n')
+        self.config.body = '\n'
+        self.config.add_line()
+        self.assertEqual(self.config.body, '\n\n')
 
     def test_remove_line(self):
         self.config.body = dedent("""

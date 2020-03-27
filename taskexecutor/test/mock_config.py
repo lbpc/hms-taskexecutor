@@ -15,4 +15,6 @@ mock_config.CONFIG.amqp.connection_timeout = 5
 mock_config.CONFIG.enabled_resources = ['unix-account', 'database-user', 'database', 'website', 'ssl-certificate']
 mock_config.CONFIG.conffile.tmp_dir = '/nowhere/conf'
 mock_config.CONFIG.conffile.bad_confs_dir = '/nowhere/conf-broken'
-
+mock_config.CONFIG.builtinservice.sysconf_dir = '/nowhere/etc'
+mock_config.CONFIG.builtinservice.linux_user_manager.default_shell = '/bin/bash'
+mock_config.CONFIG.builtinservice.linux_user_manager.disabled_shell = '/bin/false'

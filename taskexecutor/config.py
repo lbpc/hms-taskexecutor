@@ -11,10 +11,15 @@ class PropertyValidationError(Exception):
     pass
 
 
-REMOTE_CONFIG_TIMESTAMP = 0
-REMOTE_CONFIG_STALE = False
-REMOTE_CONFIG_TTL = os.environ.get("REMOTE_CONFIG_TTL") or 60
+__REMOTE_CONFIG_TIMESTAMP = 0
+__REMOTE_CONFIG_STALE = False
+__REMOTE_CONFIG_TTL = os.environ.get("REMOTE_CONFIG_TTL") or 60
 
+DEFAULT_VALUES = {
+    'profile': 'dev',
+    'apigw': dict(host='api.intr', port=443, user='service', password='Efu0ahs6'),
+    'amqp': dict()
+}
 
 class __Config:
     @classmethod
@@ -58,10 +63,10 @@ class __Config:
             elif len(result) == 0:
                 raise PropertyValidationError("No {} server found".format(cls.hostname))
             cls.localserver = result[0]
-        global REMOTE_CONFIG_TIMESTAMP
-        REMOTE_CONFIG_TIMESTAMP = time.time()
-        global REMOTE_CONFIG_STALE
-        REMOTE_CONFIG_STALE = False
+        global __REMOTE_CONFIG_TIMESTAMP
+        __REMOTE_CONFIG_TIMESTAMP = time.time()
+        global __REMOTE_CONFIG_STALE
+        __REMOTE_CONFIG_STALE = False
         if not hasattr(cls, "role"):
             raise PropertyValidationError("No role descriptions found")
         enabled_resources = list()
@@ -81,7 +86,8 @@ class __Config:
     def __getattr__(cls, item):
         LOGGER.warn(item)
         value = getattr(cls, item, None)
-        if not value or REMOTE_CONFIG_STALE:
+        global __REMOTE_CONFIG_STALE
+        if not value or __REMOTE_CONFIG_STALE:
             cls._fetch_remote_properties()
             LOGGER.debug("Effective configuration:{}".format(cls))
             value = getattr(cls, item)
@@ -94,9 +100,11 @@ class __Config:
         setattr(cls, name, value)
 
     def __getattribute__(self, item):
-        if not item.startswith("_") and time.time() - REMOTE_CONFIG_TIMESTAMP > REMOTE_CONFIG_TTL:
-            global REMOTE_CONFIG_STALE
-            REMOTE_CONFIG_STALE = True
+        global __REMOTE_CONFIG_STALE
+        global __REMOTE_CONFIG_TIMESTAMP
+        global __REMOTE_CONFIG_TTL
+        if not item.startswith("_") and time.time() - __REMOTE_CONFIG_TIMESTAMP > __REMOTE_CONFIG_TTL:
+            __REMOTE_CONFIG_STALE = True
             raise AttributeError
         return super().__getattribute__(item)
 

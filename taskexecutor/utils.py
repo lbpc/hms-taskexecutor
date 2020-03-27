@@ -56,6 +56,16 @@ class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
         return (i.args for i in self._get_workqueue_items() if filter_fn(i.args))
 
 
+def rgetattr(obj, path, *default):
+    attrs = path.split('.')
+    try:
+        return functools.reduce(getattr, attrs, obj)
+    except AttributeError:
+        if default:
+            return default[0]
+        raise
+
+
 def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_streams=False, raise_exc=True):
     LOGGER.debug("Running shell command: {}".format(command))
     stdin = subprocess.PIPE
