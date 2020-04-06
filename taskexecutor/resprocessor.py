@@ -112,7 +112,6 @@ class UnixAccountProcessor(ResProcessor):
                 LOGGER.warning("UnixAccount {0} UID changed from {1} "
                                "to: {2}".format(self.resource.name, self.op_resource.uid, self.resource.uid))
                 self.service.change_uid(self.resource.name, self.resource.uid)
-                taskexecutor.utils.exec_command("chown -R {0}:{0} {1}".format(self.resource.uid, self.resource.homeDir))
             self.service.set_shell(self.resource.name,
                                    {True: self.service.default_shell, False: None}[switched_on])
             if self.resource.sendmailAllowed:

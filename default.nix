@@ -5,12 +5,12 @@ with import <nixpkgs> {
     (import (builtins.fetchGit { url = "git@gitlab.intr:_ci/nixpkgs.git"; inherit ref; }))
   ];
 };
-with import ./pypkgs.nix;
+with callPackage ./pypkgs.nix { inherit ref; };
 
-python37Packages.buildPythonPackage rec {
+python37mj.pkgs.buildPythonPackage rec {
   name = "taskexecutor";
   src = ./.;
-  propagatedBuildInputs = with python37Packages; [
+  propagatedBuildInputs = with python37mj.pkgs; [
     pika
     clamd
     PyMySQL
@@ -21,7 +21,8 @@ python37Packages.buildPythonPackage rec {
     docker
     pg8000
     requests
-    alerta 
+    alerta
+    attrs 
   ];
   checkInputs = [ pyfakefs ];
 }

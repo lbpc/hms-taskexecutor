@@ -10,7 +10,7 @@ from .mock_config import mock_config
 sys.modules['taskexecutor.config'] = mock_config
 
 from taskexecutor.conffile import *
-from taskexecutor.conffile import PropertyValidationError, NoSuchLine
+from taskexecutor.conffile import PropertyValidationError, NoSuchLine, TooBroadCondition
 
 
 class TestConfigFile(unittest.TestCase):
@@ -246,6 +246,24 @@ class TestLineBasedConfigFile(unittest.TestCase):
         self.assertEqual(self.config.get_lines(r'^Rented\s{1}(a tent(,|;|.)\s*){3}'),
                                                ['Rented a tent, a tent, a tent;',
                                                 'Rented a tent, a tent, a tent.'])
+
+    def test_get_line(self):
+        self.config.body = dedent("""
+            alfa
+            bravo
+            charlie
+        """).lstrip()
+        self.assertEqual(self.config.get_line('^a.+'), 'alfa')
+        self.config.body = dedent("""
+            alfa
+            alpha
+            bravo
+            charlie
+        """).lstrip()
+        self.assertRaises(TooBroadCondition, self.config.get_line, '^a.+')
+        self.assertEqual(self.config.get_line('^a.+', lenient=True), 'alfa')
+        self.assertRaises(NoSuchLine, self.config.get_line, '^f.+')
+        self.assertEqual(self.config.get_line('^f.+', default='foxtrot'), 'foxtrot')
 
     def test_add_line(self):
         self.config.body = '1'

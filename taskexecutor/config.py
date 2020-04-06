@@ -11,9 +11,9 @@ class PropertyValidationError(Exception):
     pass
 
 
-__REMOTE_CONFIG_TIMESTAMP = 0
-__REMOTE_CONFIG_STALE = False
-__REMOTE_CONFIG_TTL = os.environ.get("REMOTE_CONFIG_TTL") or 60
+_REMOTE_CONFIG_TIMESTAMP = 0
+_REMOTE_CONFIG_STALE = False
+_REMOTE_CONFIG_TTL = os.environ.get("REMOTE_CONFIG_TTL") or 60
 
 DEFAULT_VALUES = {
     'profile': 'dev',
@@ -63,10 +63,10 @@ class __Config:
             elif len(result) == 0:
                 raise PropertyValidationError("No {} server found".format(cls.hostname))
             cls.localserver = result[0]
-        global __REMOTE_CONFIG_TIMESTAMP
-        __REMOTE_CONFIG_TIMESTAMP = time.time()
-        global __REMOTE_CONFIG_STALE
-        __REMOTE_CONFIG_STALE = False
+        global _REMOTE_CONFIG_TIMESTAMP
+        _REMOTE_CONFIG_TIMESTAMP = time.time()
+        global _REMOTE_CONFIG_STALE
+        _REMOTE_CONFIG_STALE = False
         if not hasattr(cls, "role"):
             raise PropertyValidationError("No role descriptions found")
         enabled_resources = list()
@@ -86,8 +86,8 @@ class __Config:
     def __getattr__(cls, item):
         LOGGER.warn(item)
         value = getattr(cls, item, None)
-        global __REMOTE_CONFIG_STALE
-        if not value or __REMOTE_CONFIG_STALE:
+        global _REMOTE_CONFIG_STALE
+        if not value or _REMOTE_CONFIG_STALE:
             cls._fetch_remote_properties()
             LOGGER.debug("Effective configuration:{}".format(cls))
             value = getattr(cls, item)
@@ -100,11 +100,11 @@ class __Config:
         setattr(cls, name, value)
 
     def __getattribute__(self, item):
-        global __REMOTE_CONFIG_STALE
-        global __REMOTE_CONFIG_TIMESTAMP
-        global __REMOTE_CONFIG_TTL
-        if not item.startswith("_") and time.time() - __REMOTE_CONFIG_TIMESTAMP > __REMOTE_CONFIG_TTL:
-            __REMOTE_CONFIG_STALE = True
+        global _REMOTE_CONFIG_STALE
+        global _REMOTE_CONFIG_TIMESTAMP
+        global _REMOTE_CONFIG_TTL
+        if not item.startswith("_") and time.time() - _REMOTE_CONFIG_TIMESTAMP > _REMOTE_CONFIG_TTL:
+            _REMOTE_CONFIG_STALE = True
             raise AttributeError
         return super().__getattribute__(item)
 

@@ -1,6 +1,12 @@
-with import <nixpkgs> {};
+{ ref ? "master" }:
+
+with import <nixpkgs> {
+  overlays = [
+    (import (builtins.fetchGit { url = "git@gitlab.intr:_ci/nixpkgs.git"; inherit ref; }))
+  ];
+};
 let
-inherit (python37Packages) buildPythonPackage fetchPypi;
+  inherit (python37mj.pkgs) buildPythonPackage fetchPypi;
 in
 {
   PyMySQL = buildPythonPackage rec {

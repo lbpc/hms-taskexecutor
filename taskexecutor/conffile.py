@@ -17,6 +17,10 @@ class NoSuchLine(Exception):
     pass
 
 
+class TooBroadCondition(Exception):
+    pass
+
+
 class ConfigFile:
     def __init__(self, file_path, owner_uid, mode):
         self._tmp_dir = getattr(getattr(CONFIG, 'conffile', None), 'tmp_dir', None) or tempfile.gettempdir()
@@ -139,6 +143,16 @@ class LineBasedConfigFile(ConfigFile):
                 ret_list.append(line)
                 count -= 1
         return ret_list
+
+    def get_line(self, regex, lenient=False, default=None):
+        matched = self.get_lines(regex)
+        if not any((matched, default)):
+            raise NoSuchLine('Not a single line matched the regular expression /{}/'.format(regex))
+        elif len(matched) > 1 and not lenient:
+            raise TooBroadCondition('More than one line matched the regular expression /{}/:\n'
+                                    '{}'.format(regex, '\n'.join(matched)))
+        else:
+            return next(iter(matched), default)
 
     def add_line(self, line=''):
         LOGGER.debug("Adding '{0}' to {1}".format(line, self.file_path))
