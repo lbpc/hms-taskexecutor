@@ -1,10 +1,13 @@
-import re
 import os
+import re
 import shutil
-import jinja2
 import tempfile
+
+import jinja2
+
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
+from taskexecutor.utils import rgetattr
 
 __all__ = ['ConfigFile', 'LineBasedConfigFile', 'TemplatedConfigFile']
 
@@ -23,35 +26,39 @@ class TooBroadCondition(Exception):
 
 class ConfigFile:
     def __init__(self, file_path, owner_uid, mode):
-        self._tmp_dir = getattr(getattr(CONFIG, 'conffile', None), 'tmp_dir', None) or tempfile.gettempdir()
-        self._bad_confs_dir = (getattr(getattr(CONFIG, 'conffile', None), 'bad_confs_dir', None)
-                               or os.path.join(tempfile.gettempdir(), 'te-bad-confs'))
+        self._tmp_dir = rgetattr(CONFIG, 'conffile.tmp_dir', tempfile.gettempdir())
+        self._bad_confs_dir = rgetattr(CONFIG, 'conffile.bad_confs_dir',
+                                       os.path.join(tempfile.gettempdir(), 'te-bad-confs'))
         self._body = ''
         self._owner_uid = owner_uid
         self._mode = mode
         self.file_path = os.path.abspath(file_path)
 
     @property
-    def tmp_dir(self): return self._tmp_dir
+    def tmp_dir(self):
+        return self._tmp_dir
 
     @property
-    def bad_confs_dir(self): return self._bad_confs_dir
+    def bad_confs_dir(self):
+        return self._bad_confs_dir
 
     @property
     def body(self):
         if not self._body and self.exists:
-            with open(self.file_path, 'r') as f:
-                self._body = f.read()
+            with open(self.file_path, 'r') as f: self._body = f.read()
         return self._body
 
     @body.setter
-    def body(self, value): self._body = value
+    def body(self, value):
+        self._body = value
 
     @body.deleter
-    def body(self): self._body = ''
+    def body(self):
+        self._body = ''
 
     @property
-    def exists(self): return os.path.exists(self.file_path)
+    def exists(self):
+        return os.path.exists(self.file_path)
 
     @property
     def _backup_file_path(self):
@@ -62,49 +69,47 @@ class ConfigFile:
     def write(self):
         dir_path = os.path.dirname(self.file_path)
         if dir_path and not os.path.exists(dir_path):
-            LOGGER.warning('There is no {} found, creating'.format(dir_path))
+            LOGGER.warning(f'There is no {dir_path} found, creating')
             os.makedirs(dir_path)
         if os.path.exists(self.file_path):
-            LOGGER.debug('Backing up {0} file as {1}'.format(self.file_path, self._backup_file_path))
+            LOGGER.debug(f'Backing up {self.file_path} file as {self._backup_file_path}')
             shutil.move(self.file_path, self._backup_file_path)
-        LOGGER.debug('Saving {} file'.format(self.file_path))
+        LOGGER.debug(f'Saving {self.file_path} file')
         with open(self.file_path, 'w') as f:
             f.write(self.body)
-        if self._mode:
-            os.chmod(self.file_path, self._mode)
-        if self._owner_uid is not None:
-            os.chown(self.file_path, self._owner_uid, self._owner_uid)
+        if self._mode: os.chmod(self.file_path, self._mode)
+        if self._owner_uid is not None: os.chown(self.file_path, self._owner_uid, self._owner_uid)
 
     def revert(self):
         bad_conf_path = os.path.join(self.bad_confs_dir, self.file_path.replace('/', '_'))
         if os.path.exists(self._backup_file_path):
-            LOGGER.warning('Reverting {0} from {1},'
-                           '{0} will be saved as {2}'.format(self.file_path, self._backup_file_path, bad_conf_path))
+            LOGGER.warning(f'Reverting {self.file_path} from {self._backup_file_path}, '
+                           f'{self.file_path} will be saved as {bad_conf_path}')
             os.makedirs(self.bad_confs_dir, exist_ok=True)
             shutil.move(self.file_path, bad_conf_path)
             shutil.move(self._backup_file_path, self.file_path)
         else:
-            LOGGER.warning('No backed up version found, moving {} to {}'.format(self.file_path, bad_conf_path))
+            LOGGER.warning(f'No backed up version found, moving {self.file_path} to {bad_conf_path}')
             shutil.move(self.file_path, bad_conf_path)
 
     def confirm(self):
         if os.path.exists(self._backup_file_path):
-            LOGGER.debug('Removing {}'.format(self._backup_file_path))
+            LOGGER.debug(f'Removing {self._backup_file_path}')
             try:
                 os.unlink(self._backup_file_path)
             except FileNotFoundError as e:
-                LOGGER.warning('Could not delete file, ERROR: {}'.format(e))
+                LOGGER.warning(f'Could not delete file, ERROR: {e}')
 
     def save(self):
         self.write()
         self.confirm()
 
     def delete(self):
-        LOGGER.debug('Deleting {} file'.format(self.file_path))
+        LOGGER.debug(f'Deleting {self.file_path} file')
         if os.path.exists(self.file_path):
             os.unlink(self.file_path)
         else:
-            LOGGER.warn("{} doesn't exists")
+            LOGGER.warning(f"{self.file_path} doesn't exists")
         del self.body
 
 
@@ -147,7 +152,7 @@ class LineBasedConfigFile(ConfigFile):
     def get_line(self, regex, lenient=False, default=None):
         matched = self.get_lines(regex)
         if not any((matched, default)):
-            raise NoSuchLine('Not a single line matched the regular expression /{}/'.format(regex))
+            raise NoSuchLine(f'Not a single line matched the regular expression /{regex}/')
         elif len(matched) > 1 and not lenient:
             raise TooBroadCondition('More than one line matched the regular expression /{}/:\n'
                                     '{}'.format(regex, '\n'.join(matched)))
@@ -155,7 +160,7 @@ class LineBasedConfigFile(ConfigFile):
             return next(iter(matched), default)
 
     def add_line(self, line=''):
-        LOGGER.debug("Adding '{0}' to {1}".format(line, self.file_path))
+        LOGGER.debug(f"Adding '{line}' to {self.file_path}")
         if line.endswith('\n'): line = line[::-1].replace('\n', '', 1)[::-1]
         list = self.body.split('\n')
         if list and not list[-1] and line: list.pop(-1)
@@ -163,7 +168,7 @@ class LineBasedConfigFile(ConfigFile):
         self.body = '\n'.join(list)
 
     def remove_line(self, line):
-        LOGGER.debug("Removing '{0}' from {1}".format(line, self.file_path))
+        LOGGER.debug(f"Removing '{line}' from {self.file_path}")
         list = self.body.split('\n')
         try:
             list.remove(line.rstrip('\n'))
@@ -175,7 +180,7 @@ class LineBasedConfigFile(ConfigFile):
         list = self.body.split('\n')
         for idx, line in enumerate(list):
             if count != 0 and (re.match(regex, line) or re.match(regex, line + '\n')):
-                LOGGER.debug("Replacing '{0}' by '{1}' in {2}".format(line, new_line, self.file_path))
+                LOGGER.debug(f"Replacing '{line}' by '{new_line}' in {self.file_path}")
                 del list[idx]
                 list.insert(idx, new_line)
                 count -= 1

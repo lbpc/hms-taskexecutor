@@ -1,12 +1,15 @@
 import sys
 from textwrap import dedent
-from unittest.mock import patch, Mock
+from unittest.mock import patch
+
 from pyfakefs.fake_filesystem_unittest import TestCase
+
 from .mock_config import mock_config
 
 sys.modules['taskexecutor.config'] = mock_config
 
 import taskexecutor.builtinservice as bs
+
 
 class TestLinuxUserManager(TestCase):
     def setUp(self):
@@ -261,7 +264,6 @@ class TestLinuxUserManager(TestCase):
         bs.LinuxUserManager().create_group('testgroup', gid=1000)
         self.assertEqual(self.fs.get_object(etc_group_path).contents, 'testgroup:x:1000:\n')
         self.assertEqual(self.fs.get_object(etc_gshadow_path).contents, 'testgroup:!::\n')
-
 
     def test_create_group_conflicting_gid(self):
         etc_group_path = '{}/group'.format(mock_config.CONFIG.builtinservice.sysconf_dir)

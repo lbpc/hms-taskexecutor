@@ -1,12 +1,13 @@
 import os
 import shutil
-import attr
 import time
 from typing import Set
 
+import attr
+
+import taskexecutor.constructor as cnstr
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-import taskexecutor.constructor as cnstr
 from taskexecutor.utils import exec_command, rgetattr, repquota, CommandExecutionError
 
 __all__ = ["LinuxUserManager", "MaildirManager"]
@@ -57,10 +58,12 @@ class LinuxUserManager:
         self._etc_gshadow = cnstr.get_conffile('lines', os.path.join(sysconf_dir, 'gshadow'), 0, 0o640)
 
     @property
-    def default_shell(self): return rgetattr(CONFIG, 'builtinservice.linux_user_manager.default_shell', '/bin/bash')
+    def default_shell(self):
+        return rgetattr(CONFIG, 'builtinservice.linux_user_manager.default_shell', '/bin/bash')
 
     @property
-    def disabled_shell(self): return rgetattr(CONFIG, 'builtinservice.linux_user_manager.disabled_shell', '/bin/false')
+    def disabled_shell(self):
+        return rgetattr(CONFIG, 'builtinservice.linux_user_manager.disabled_shell', '/bin/false')
 
     @staticmethod
     def _id_from_config(config, name):
@@ -72,8 +75,8 @@ class LinuxUserManager:
         if not id:
             try:
                 id = max(g for g in
-                          (int(l.split(':')[2]) for l in config.get_lines('.*') if l)
-                          if g < rgetattr(CONFIG, 'builtinservice.linux_user_manager.min_uid', 2000)) + 1
+                         (int(l.split(':')[2]) for l in config.get_lines('.*') if l)
+                         if g < rgetattr(CONFIG, 'builtinservice.linux_user_manager.min_uid', 2000)) + 1
             except ValueError:
                 id = 1000
         return id
@@ -284,6 +287,7 @@ class LinuxUserManager:
             self._etc_passwd.replace_line(f'^{user_name}:.+', line)
             self._etc_passwd.save()
             exec_command(f'chown -R {uid}:{uid} {user.home}')
+
 
 class MaildirManager:
     def normalize_spool(self, spool):

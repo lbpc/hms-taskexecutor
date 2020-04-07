@@ -37,28 +37,38 @@ def get_conffile(config_type, abs_path, owner_uid=None, mode=None):
     return ConfigFile(abs_path, owner_uid, mode)
 
 
-def get_http_proxy_service():
+def get_services_of_type(type_name):
     with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-        return next((get_opservice(s) for s in api.server(CONFIG.localserver.id).get().services
-              if s.template.__class__.__name__ == "HttpServer"), None)
+        return (get_opservice(s) for s in api.server(CONFIG.localserver.id).get().services
+                if s.template.__class__.__name__ == type_name)
+
+
+def get_http_proxy_service():
+    return next(get_services_of_type('HttpServer'), None)
 
 
 def get_application_servers():
-    with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-        return (get_opservice(s) for s in api.server(CONFIG.localserver.id).get().services
-              if s.template.__class__.__name__ == "ApplicationServer")
+    return get_services_of_type('ApplicationServer')
+
+
+def get_database_server():
+    return next(get_services_of_type('DatabaseServer'), None)
 
 
 def get_mta_service():
-    with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-        return next((get_opservice(s) for s in api.server(CONFIG.localserver.id).get().services
-              if s.template.__class__.__name__ == "Postfix"), None)
+    return next(get_services_of_type('Postfix'), None)
 
 
 def get_cron_service():
-    with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
-        return next((get_opservice(s) for s in api.server(CONFIG.localserver.id).get().services
-              if s.template.__class__.__name__ == "CronD"), None)
+    return next(get_services_of_type('CronD'), None)
+
+
+def get_ssh_service():
+    return next(get_services_of_type('SshD'), None)
+
+
+def get_ftp_service():
+    return next(get_services_of_type('FtpD'), None)
 
 
 def get_opservice(service):

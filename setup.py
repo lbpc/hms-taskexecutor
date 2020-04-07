@@ -2,13 +2,12 @@ from setuptools import setup, find_packages
 
 setup(
         name='taskexecutor',
-        version='0.1.0',
+        version='0.2.0',
         url='git@gitlab.intr:hms/taskexecutor.git',
         author='Pyotr Sidorov',
         author_email='sidorov@majordomo.ru',
-        description='',
+        description='Operational tasks manager and executor for HMS',
         packages=find_packages(),
-        install_requires=[],
-        test_suite='taskexecutor.test'
+        test_suite='test'
 )
 
