@@ -10,6 +10,7 @@ from taskexecutor.executor import Executor
 from taskexecutor.httpsclient import ApiClient
 from taskexecutor.logger import LOGGER, StreamToLogger
 from taskexecutor.task import Task
+from taskexecutor.utils import asdict
 from taskexecutor.watchdog import ProcessWatchdog
 
 sys.stderr = StreamToLogger(LOGGER, logging.ERROR)
@@ -28,15 +29,16 @@ def receive_signal(signum, unused_stack):
 
 
 def update_all_services(new_task_queue, isolated=False):
-    LOGGER.info('Performing Service updates')
-    services = [constructor.get_http_proxy_service(),
-                constructor.get_database_server(),
-                constructor.get_cron_service(),
-                constructor.get_mta_service(),
-                constructor.get_ssh_service(),
-                constructor.get_ftp_service()]
-    if isolated: services.append(constructor.get_application_servers())
-    for each in services:
+    maybe_spec = lambda x: getattr(x, 'spec', None)
+    services = [maybe_spec(constructor.get_http_proxy_service()),
+                maybe_spec(constructor.get_database_server()),
+                maybe_spec(constructor.get_cron_service()),
+                maybe_spec(constructor.get_mta_service()),
+                maybe_spec(constructor.get_ssh_service()),
+                maybe_spec(constructor.get_ftp_service())]
+    if isolated: services.extend(filter(None, (maybe_spec(s) for s in constructor.get_application_servers())))
+    LOGGER.info('Performing Service updates: {}'.format(tuple(s.name for s in services if s)))
+    for each in filter(None, services):
         task = Task(None, type(None), 'LOCAL', f'{each.name}.update', 'service', 'update',
                     params={'resource': each, 'isolated': isolated})
         new_task_queue.put(task)
@@ -63,7 +65,7 @@ time_listener_thread = Thread(target=time_listener.listen, daemon=True)
 time_listener_thread.start()
 LOGGER.info('Time listener thread started')
 
-process_watchdog = ProcessWatchdog(**CONFIG.process_watchdog._asdict())
+process_watchdog = ProcessWatchdog(**asdict(CONFIG.process_watchdog))
 process_watchdog_thread = Thread(target=process_watchdog.run, daemon=True)
 process_watchdog_thread.start()
 uids_queue = process_watchdog.get_uids_queue()

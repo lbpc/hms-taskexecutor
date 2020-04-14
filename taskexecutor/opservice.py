@@ -1,26 +1,27 @@
 import abc
 import collections
-import docker
+import ipaddress
 import json
-import re
 import os
 import pickle
-import psutil
+import re
 import string
 import time
-import ipaddress
 from functools import reduce
 
+import docker
+import psutil
+
+import taskexecutor.constructor as cnstr
 from taskexecutor.config import CONFIG
+from taskexecutor.dbclient import MySQLClient, PostgreSQLClient
+from taskexecutor.httpsclient import ApiClient, GitLabClient
 from taskexecutor.logger import LOGGER
-import taskexecutor.constructor
-import taskexecutor.dbclient
-import taskexecutor.httpsclient
-import taskexecutor.utils
+from taskexecutor.utils import asdict, exec_command, CommandExecutionError, synchronized, attrs_to_env, \
+    set_apparmor_mode
 
 __all__ = ["SomethingInDocker", "Cron", "Postfix", "HttpServer", "Apache", "SharedAppServer", "PersonalAppServer",
            "MySQL", "PostgreSQL"]
-
 
 UP = True
 DOWN = False
@@ -115,7 +116,7 @@ class ConfigurableService(BaseService):
                 and ConfigurableService._cache[template_source]["timestamp"] + 10 > time.time():
             return ConfigurableService._cache[template_source]["value"]
         try:
-            with taskexecutor.httpsclient.GitLabClient(**CONFIG.gitlab._asdict()) as gitlab:
+            with GitLabClient(**asdict(CONFIG.gitlab)) as gitlab:
                 template = gitlab.get(template_source)
                 ConfigurableService._cache[template_source] = {"timestamp": time.time(), "value": template}
                 ConfigurableService._dump_cache()
@@ -134,25 +135,24 @@ class ConfigurableService(BaseService):
     def set_config(self, path_template, file_link, context_type="SERVICE"):
         self._template_sources_map[context_type][path_template] = file_link
 
-    def get_config(self, path_template, context=None, config_type="templated"):
+    def get_config(self, path_template, context=None, config_type='templated'):
         if not context:
             context = self
         context_type = self._context_name_of(context)
-        if context_type == "SERVICE":
-            if hasattr(self, "spec") and self.spec:
-                for k, v in vars(self.spec).items():
+        if context_type == 'SERVICE':
+            if hasattr(self, 'spec') and self.spec:
+                for k, v in asdict(self.spec).items():
                     setattr(context, k, v)
-                if hasattr(self.spec, "instanceProps") and self.spec.instanceProps:
-                    for k, v in vars(self.spec.instanceProps).items():
+                if hasattr(self.spec, 'instanceProps') and self.spec.instanceProps:
+                    for k, v in asdict(self.spec.instanceProps).items():
                         setattr(context, k, v)
         path = self.resolve_path_template(path_template, context)
         file_link = self._template_sources_map[context_type].get(path_template)
         if file_link:
-            config = taskexecutor.constructor.get_conffile(config_type, path)
+            config = cnstr.get_conffile(config_type, path)
             config.template = self.get_config_template(file_link)
             return config
-        raise ConfigConstructionError("No '{0}' config defined "
-                                      "for service {1} in {2} context".format(path, self, context_type))
+        raise ConfigConstructionError(f"No '{path}' config defined for service {self} in {context_type} context")
 
     def get_configs_in_context(self, context):
         return (self.get_config(t, context) for t in self._template_sources_map[self._context_name_of(context)].keys())
@@ -178,8 +178,8 @@ class WebServer(ConfigurableService, NetworkingService):
     def get_ssl_key_pair_files(self, basename):
         cert_file_path = os.path.join(self.ssl_certs_base_path, "{}.pem".format(basename))
         key_file_path = os.path.join(self.ssl_certs_base_path, "{}.key".format(basename))
-        cert_file = taskexecutor.constructor.get_conffile("basic", cert_file_path)
-        key_file = taskexecutor.constructor.get_conffile("basic", key_file_path)
+        cert_file = cnstr.get_conffile('basic', cert_file_path)
+        key_file = cnstr.get_conffile('basic', key_file_path)
         return cert_file, key_file
 
 
@@ -202,10 +202,14 @@ class ApplicationServer(BaseService, ArchivableService):
             return Interpreter(name, version_major, version_minor, suffix)
 
     def get_archive_stream(self, source, params=None):
-        params = params or {}
-        stdout, stderr = taskexecutor.utils.exec_command("nice -n 19 "
-                                                         "tar --ignore-command-error --ignore-failed-read --warning=no-file-changed -czf - -C {0} {1}".format(params.get("basedir"), source),
-                                                         return_raw_streams=True)
+        basedir = (params or {}).get('basedir')
+        stdout, stderr = exec_command(f'nice -n 19 '
+                                      f'tar'
+                                      f' --ignore-command-error'
+                                      f' --ignore-failed-read'
+                                      f' --warning=no-file-changed'
+                                      f' -czf -'
+                                      f' -C {basedir} {source}', return_raw_streams=True)
         return stdout, stderr
 
 
@@ -316,54 +320,28 @@ class OpService(BaseService, metaclass=abc.ABCMeta):
 
 class UpstartService(OpService):
     def start(self):
-        LOGGER.info("starting {} service via Upstart".format(self.name))
-        taskexecutor.utils.exec_command("start {}".format(self.name))
+        LOGGER.info(f'starting {self.name} service via Upstart')
+        exec_command(f'start {self.name}')
 
     def stop(self):
-        LOGGER.info("stopping {} service via Upstart".format(self.name))
-        taskexecutor.utils.exec_command("stop {}".format(self.name))
+        LOGGER.info(f'stopping {self.name} service via Upstart')
+        exec_command(f'stop {self.name}')
 
     def restart(self):
-        LOGGER.info("restarting {} service via Upstart".format(self.name))
-        taskexecutor.utils.exec_command("restart {}".format(self.name))
+        LOGGER.info(f'restarting {self.name} service via Upstart')
+        exec_command(f'restart {self.name}')
 
     def reload(self):
-        LOGGER.info("reloading {} service via Upstart".format(self.name))
-        taskexecutor.utils.exec_command("reload {}".format(self.name))
+        LOGGER.info(f'reloading {self.name} service via Upstart')
+        exec_command(f'reload {self.name}')
 
     def status(self):
         status = DOWN
         try:
-            status = UP if "running" in taskexecutor.utils.exec_command("status {}".format(self.name)) else DOWN
-        except taskexecutor.utils.CommandExecutionError:
+            status = UP if 'running' in exec_command(f'status {self.name}') else DOWN
+        except CommandExecutionError:
             pass
         return status
-
-
-class SysVService(OpService):
-    def start(self):
-        LOGGER.info("starting {} service via init script".format(self.name))
-        taskexecutor.utils.exec_command("invoke-rc.d {} start".format(self.name))
-
-    def stop(self):
-        LOGGER.info("stopping {} service via init script".format(self.name))
-        taskexecutor.utils.exec_command("invoke-rc.d {} stop".format(self.name))
-
-    def restart(self):
-        LOGGER.info("restarting {} service via init script".format(self.name))
-        taskexecutor.utils.exec_command("invoke-rc.d {} restart".format(self.name))
-
-    def reload(self):
-        LOGGER.info("reloading {} service via init script".format(self.name))
-        taskexecutor.utils.exec_command("invoke-rc.d {} reload".format(self.name))
-
-    def status(self):
-        try:
-            taskexecutor.utils.exec_command("invoke-rc.d {} status".format(self.name))
-            return UP
-        except Exception as e:
-            LOGGER.warn(e)
-            return DOWN
 
 
 class DockerService(OpService):
@@ -422,7 +400,7 @@ class DockerService(OpService):
     def __init__(self, name, spec):
         super().__init__(name, spec)
         self._docker_client = docker.from_env()
-        self._docker_client.login(**CONFIG.docker_registry._asdict())
+        self._docker_client.login(**asdict(CONFIG.docker_registry))
         self.image = spec.template.sourceUri.replace("docker://", "")
         self._container_name = getattr(self, "_container_name", self.name)
         self._default_run_args = {"name": self._container_name,
@@ -432,7 +410,7 @@ class DockerService(OpService):
                                   "restart_policy": {"Name": "always"},
                                   "network": "host"}
 
-    @taskexecutor.utils.synchronized
+    @synchronized
     def _pull_image(self):
         LOGGER.info("Pulling {} docker image".format(self.image))
         self._docker_client.images.pull(self.image)
@@ -441,7 +419,7 @@ class DockerService(OpService):
     def _setup_env(self):
         self._env = {"${}".format(k): v for k, v in os.environ.items()}
         self._env.update({"${{{}}}".format(k): v for k, v in os.environ.items()})
-        self._env.update(taskexecutor.utils.attrs_to_env(self))
+        self._env.update(attrs_to_env(self))
 
     def _subst_env_vars(self, to_subst):
         if isinstance(to_subst, str):
@@ -497,11 +475,11 @@ class DockerService(OpService):
         self.container.remove()
 
     def restart(self):
-       if self.container.attrs["NetworkSettings"]["Ports"]:
-           self._pull_image()
-           self.stop()
-           self.start()
-       else:
+        if self.container.attrs["NetworkSettings"]["Ports"]:
+            self._pull_image()
+            self.stop()
+            self.start()
+        else:
             timestamp = str(int(time.time()))
             old_container = None
             if self.container:
@@ -512,7 +490,8 @@ class DockerService(OpService):
                 self.start()
             except Exception:
                 if old_container:
-                    LOGGER.warn("Failed to start new container {0}, renaming {0}_{1} back".format(self._container_name, timestamp))
+                    LOGGER.warn("Failed to start new container {0}, renaming {0}_{1} back".format(self._container_name,
+                                                                                                  timestamp))
                     old_container.rename(self._container_name)
                 raise
             if old_container:
@@ -576,7 +555,7 @@ class Cron(DockerService):
         self.spool = "/opt/cron/tabs"
 
     def _get_uid(self, user_name):
-        passwd = taskexecutor.constructor.get_conffile('lines', os.path.join(self.passwd_root, "etc/passwd"))
+        passwd = cnstr.get_conffile('lines', os.path.join(self.passwd_root, 'etc/passwd'))
         matched = passwd.get_lines("^{}:".format(user_name))
         if len(matched) != 1:
             raise ValueError("Cannot determine user {0},"
@@ -584,8 +563,8 @@ class Cron(DockerService):
         return int(matched[0].split(":")[2])
 
     def _get_crontab_file(self, user_name):
-        return taskexecutor.constructor.get_conffile("lines", os.path.join(self.spool, user_name),
-                                                     owner_uid=self._get_uid(user_name), mode=0o600)
+        return cnstr.get_conffile('lines', os.path.join(self.spool, user_name),
+                                  owner_uid=self._get_uid(user_name), mode=0o600)
 
     def create_crontab(self, user_name, cron_tasks_list):
         crontab = self._get_crontab_file(user_name)
@@ -622,7 +601,7 @@ class PersonalAppServer(WebServer, ApplicationServer, DockerService):
     @property
     def unix_account(self):
         if not self._unix_account:
-            with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+            with ApiClient(**CONFIG.apigw) as api:
                 try:
                     self._unix_account = api.unixAccount().filter(accountId=self._account_id).get()[0]
                 except IndexError:
@@ -641,14 +620,14 @@ class Apache(WebServer, ApplicationServer, UpstartService):
         self.init_base_path = os.path.join("/etc/init", self.name)
 
     def reload(self):
-        taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/apache2")
+        set_apparmor_mode("enforce", "/usr/sbin/apache2")
         LOGGER.info("Testing apache2 config in {}".format(self.config_base_path))
-        taskexecutor.utils.exec_command("apache2ctl -d {} -t".format(self.config_base_path))
+        exec_command("apache2ctl -d {} -t".format(self.config_base_path))
         super().reload()
-        taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/apache2")
+        set_apparmor_mode("enforce", "/usr/sbin/apache2")
 
 
-class MySQL(DatabaseServer, SysVService):
+class MySQL(DatabaseServer, OpService):
     def __init__(self, name, spec):
         super().__init__(name, spec)
         self._config_base_path = "/etc/mysql"
@@ -659,11 +638,11 @@ class MySQL(DatabaseServer, SysVService):
     @property
     def dbclient(self):
         if not self._dbclient:
-            return taskexecutor.dbclient.MySQLClient(host=self.socket.mysql.address,
-                                                     port=self.socket.mysql.port,
-                                                     user=CONFIG.mysql.user,
-                                                     password=CONFIG.mysql.password,
-                                                     database="mysql")
+            return MySQLClient(host=self.socket.mysql.address,
+                               port=self.socket.mysql.port,
+                               user=CONFIG.mysql.user,
+                               password=CONFIG.mysql.password,
+                               database="mysql")
         else:
             return self._dbclient
 
@@ -715,9 +694,18 @@ class MySQL(DatabaseServer, SysVService):
             LOGGER.warn(e)
             return DOWN
 
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def restart(self):
+        pass
+
     def get_user(self, name):
         name, password_hash, comma_separated_addrs = self.dbclient.execute_query(
-                "SELECT User, Password, GROUP_CONCAT(Host) FROM mysql.user WHERE User = %s", (name,))[0]
+            "SELECT User, Password, GROUP_CONCAT(Host) FROM mysql.user WHERE User = %s", (name,))[0]
         if not name:
             return "", "", []
         addrs = [] if not comma_separated_addrs else comma_separated_addrs.split(",")
@@ -791,21 +779,22 @@ class MySQL(DatabaseServer, SysVService):
         )[0][0])
 
     def get_all_databases_size(self):
-        stdout = taskexecutor.utils.exec_command('cd /mysql/DB/ && find ./* -maxdepth 0 -type d -printf "%f\n" | xargs -n1 du -sb')
+        stdout = exec_command('cd /mysql/DB/ && find ./* -maxdepth 0 -type d -printf "%f\n" | xargs -n1 du -sb')
         return dict(
             line.split('\t')[::-1] for line in stdout[0:-1].split('\n')
         )
 
     def get_archive_stream(self, source, params=None):
-        stdout, stderr = taskexecutor.utils.exec_command(
-                "mysqldump -h{0.address} -P{0.port} "
-                "-u{1.user} -p{1.password} {2} | nice -n 19 gzip -9c".format(self.socket.mysql, CONFIG.mysql, source),
-                return_raw_streams=True
+        stdout, stderr = exec_command(
+            "mysqldump -h{0.address} -P{0.port} "
+            "-u{1.user} -p{1.password} {2} | nice -n 19 gzip -9c".format(self.socket.mysql, CONFIG.mysql, source),
+            return_raw_streams=True
         )
         return stdout, stderr
 
     def restrict_user_cpu(self, name, time):
-        self.dbclient.execute_query("REPLACE INTO mysql_restrict.CPU_RESTRICT (USER, MAX_CPU) VALUES (%s, %s)", (name, time))
+        self.dbclient.execute_query("REPLACE INTO mysql_restrict.CPU_RESTRICT (USER, MAX_CPU) VALUES (%s, %s)",
+                                    (name, time))
 
     def unrestrict_user_cpu(self, name):
         self.dbclient.execute_query("DELETE FROM mysql_restrict.CPU_RESTRICT WHERE USER = %s", (name,))
@@ -834,24 +823,23 @@ class MySQL(DatabaseServer, SysVService):
             self.dbclient.execute_query("GRANT SELECT ON mysql_custom.session_vars TO %s@%s", (user_name, address))
 
 
-class PostgreSQL(DatabaseServer, SysVService):
+class PostgreSQL(DatabaseServer, OpService):
     def __init__(self, name, spec):
         DatabaseServer.__init__(self)
-        SysVService.__init__(self, name, spec)
+        OpService.__init__(self, name, spec)
         self._config_base_path = "/etc/postgresql/9.3/main"
         self._dbclient = None
-        self._hba_conf = taskexecutor.constructor.get_conffile("lines",
-                                                               os.path.join(self.config_base_path, "pg_hba.conf"))
+        self._hba_conf = cnstr.get_conffile('lines', os.path.join(self.config_base_path, 'pg_hba.conf'))
         self._full_privileges = CONFIG.postgresql.common_privileges + CONFIG.postgresql.write_privileges
 
     @property
     def dbclient(self):
         if not self._dbclient:
-            return taskexecutor.dbclient.PostgreSQLClient(host=self.socket.postgresql.address,
-                                                          port=self.socket.postgresql.port,
-                                                          user=CONFIG.postgresql.user,
-                                                          password=CONFIG.postgresql.password,
-                                                          database="postgres")
+            return PostgreSQLClient(host=self.socket.postgresql.address,
+                                    port=self.socket.postgresql.port,
+                                    user=CONFIG.postgresql.user,
+                                    password=CONFIG.postgresql.password,
+                                    database="postgres")
         else:
             return self._dbclient
 
@@ -982,7 +970,7 @@ class PostgreSQL(DatabaseServer, SysVService):
         related_lines = list()
         for address in addrs_list:
             related_lines.extend(
-                    self._hba_conf.get_lines(r"host\s{0}\{1}\s{2}\smd5".format(database_name, user_name, address))
+                self._hba_conf.get_lines(r"host\s{0}\{1}\s{2}\smd5".format(database_name, user_name, address))
             )
         for line in related_lines:
             self._hba_conf.remove_line(line)
@@ -1011,9 +999,9 @@ class PostgreSQL(DatabaseServer, SysVService):
         return {database: self.get_database_size(database) for database in databases}
 
     def get_archive_stream(self, source, params=None):
-        stdout, stderr = taskexecutor.utils.exec_command(
-                "pg_dump --host {0.address} --port {0.port} --user {1.user} --password {1.password} "
-                "{2} | gzip -9c".format(self.socket.psql, CONFIG.postgresql, source), return_raw_streams=True
+        stdout, stderr = exec_command(
+            "pg_dump --host {0.address} --port {0.port} --user {1.user} --password {1.password} "
+            "{2} | gzip -9c".format(self.socket.psql, CONFIG.postgresql, source), return_raw_streams=True
         )
         return stdout, stderr
 

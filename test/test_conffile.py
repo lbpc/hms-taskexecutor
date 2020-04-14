@@ -5,10 +5,10 @@ from textwrap import dedent
 import os
 import sys
 import jinja2.environment
-from .mock_config import mock_config
 
-sys.modules['taskexecutor.config'] = mock_config
+sys.modules['taskexecutor.config'] = Mock()
 
+from taskexecutor.config import CONFIG
 from taskexecutor.conffile import *
 from taskexecutor.conffile import PropertyValidationError, NoSuchLine, TooBroadCondition
 
@@ -45,11 +45,10 @@ class TestConfigFile(unittest.TestCase):
 
     @patch('os.makedirs')
     def test_backup_file_path(self, mock_makedirs):
+        CONFIG.conffile.tmp_dir = '/nowhere/conf'
         config = ConfigFile('/opt/etc/passwd', 0, 0o644)
-        tmp_file = '{}/opt/etc/passwd'.format(mock_config.CONFIG.conffile.tmp_dir)
-        tmp_dir = '{}/opt/etc'.format(mock_config.CONFIG.conffile.tmp_dir)
-        self.assertEqual(config._backup_file_path, tmp_file)
-        mock_makedirs.assert_called_once_with(tmp_dir, exist_ok=True)
+        self.assertEqual(config._backup_file_path, '/nowhere/conf/opt/etc/passwd')
+        mock_makedirs.assert_called_once_with('/nowhere/conf/opt/etc', exist_ok=True)
 
     @patch('os.chown')
     @patch('os.chmod')
@@ -90,12 +89,12 @@ class TestConfigFile(unittest.TestCase):
     @patch('os.path.exists')
     def test_revert(self, mock_exists, mock_move, mock_makedirs, mock_backup):
         mock_exists.return_value = True
-        bad_file = '{}/_opt_etc_passwd'.format(mock_config.CONFIG.conffile.bad_confs_dir)
+        CONFIG.conffile.bad_confs_dir = '/nowhere/conf-broken'
         mock_backup.return_value = '/tmp/opt/etc/passwd'
         config = ConfigFile('/opt/etc/passwd', 0, 0o644)
         config.revert()
-        mock_makedirs.assert_called_once_with(mock_config.CONFIG.conffile.bad_confs_dir, exist_ok=True)
-        mock_move.assert_has_calls((call('/opt/etc/passwd', bad_file),
+        mock_makedirs.assert_called_once_with('/nowhere/conf-broken', exist_ok=True)
+        mock_move.assert_has_calls((call('/opt/etc/passwd', '/nowhere/conf-broken/_opt_etc_passwd'),
                                     call('/tmp/opt/etc/passwd', '/opt/etc/passwd')))
 
     @patch('taskexecutor.conffile.ConfigFile._backup_file_path', new_callable=PropertyMock)
@@ -103,11 +102,11 @@ class TestConfigFile(unittest.TestCase):
     @patch('os.path.exists')
     def test_revert_no_backup(self, mock_exists, mock_move, mock_backup):
         mock_exists.return_value = False
-        bad_file = '{}/_opt_etc_passwd'.format(mock_config.CONFIG.conffile.bad_confs_dir)
+        CONFIG.conffile.bad_confs_dir = '/nowhere/conf-broken'
         mock_backup.return_value = '/tmp/opt/etc/passwd'
         config = ConfigFile('/opt/etc/passwd', 0, 0o644)
         config.revert()
-        mock_move.assert_called_once_with('/opt/etc/passwd', bad_file)
+        mock_move.assert_called_once_with('/opt/etc/passwd', '/nowhere/conf-broken/_opt_etc_passwd')
 
     @patch('taskexecutor.conffile.ConfigFile._backup_file_path', new_callable=PropertyMock)
     @patch('os.unlink')

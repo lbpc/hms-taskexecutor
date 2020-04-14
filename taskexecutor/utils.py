@@ -1,14 +1,14 @@
-import concurrent.futures
 import collections
+import concurrent.futures
 import copy
+import functools
 import hashlib
-import time
-import traceback
+import queue
 import re
 import subprocess
-import functools
 import threading
-import queue
+import time
+import traceback
 from numbers import Number
 
 from taskexecutor.logger import LOGGER
@@ -101,7 +101,7 @@ def repquota(args, shell="/bin/bash"):
     stdout = exec_command("repquota -{}".format(args), shell=shell)
     for line in stdout.split("\n"):
         parsed_line = list(filter(None, line.replace("\t", " ").split(" ")))
-        if len(parsed_line) == 10 and  \
+        if len(parsed_line) == 10 and \
                 parsed_line[1] in ("--", "+-", "-+", "++"):
             parsed_line.pop(1)
             normalized_line = [
@@ -133,22 +133,22 @@ def set_thread_name(name):
 
 def to_camel_case(name):
     return re.sub(
-            r"([^A-Za-z0-9])*", "",
-            (re.sub(r"([A-Za-z0-9])+", lambda m: m.group(0).capitalize(), name))
+        r"([^A-Za-z0-9])*", "",
+        (re.sub(r"([A-Za-z0-9])+", lambda m: m.group(0).capitalize(), name))
     )
 
 
 def to_lower_dashed(name):
     return re.sub(
-            "([a-z0-9])([A-Z])", r"\1-\2",
-            re.sub("(.)([A-Z][a-z]+)", r"\1-\2", name)
+        "([a-z0-9])([A-Z])", r"\1-\2",
+        re.sub("(.)([A-Z][a-z]+)", r"\1-\2", name)
     ).lower().replace("_", "-")
 
 
 def to_snake_case(name):
     return re.sub(
-            "([a-z0-9])([A-Z])", r"\1_\2",
-            re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
+        "([a-z0-9])([A-Z])", r"\1_\2",
+        re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
     ).lower()
 
 
@@ -192,7 +192,7 @@ def cleanup_types_mapping():
 def namedtuple_from_mapping(mapping, type_name="Something"):
     cleanup_types_mapping()
     class_key = hashlib.sha1(
-            (mapping.get("@type", "") + " ".join([str(k) for k in mapping.keys()])).encode()
+        (mapping.get("@type", "") + " ".join([str(k) for k in mapping.keys()])).encode()
     ).hexdigest() + str(int(time.time()) // 3600 * 3600)
     if "@type" in mapping.keys():
         type_name = mapping.pop("@type")
@@ -296,3 +296,12 @@ def attrs_to_env(obj):
                             res["${}_{}".format(n, k)] = str(v)
                             res["${{{}_{}}}".format(n, k)] = str(v)
     return res
+
+
+def asdict(obj):
+    if hasattr(obj, '_asdict') and callable(obj._asdict):
+        return obj._asdict()
+    elif isinstance(obj, dict):
+        return obj
+    else:
+        return vars(obj)

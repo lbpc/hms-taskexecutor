@@ -1,18 +1,18 @@
-import os
-import shutil
 import abc
 import collections
+import os
+import shutil
 import urllib.parse
 
-from taskexecutor.config import CONFIG
-from taskexecutor.logger import LOGGER
-import taskexecutor.constructor
 import taskexecutor.conffile
+import taskexecutor.constructor
 import taskexecutor.ftpclient
 import taskexecutor.httpsclient
 import taskexecutor.opservice
 import taskexecutor.watchdog
-import taskexecutor.utils
+from taskexecutor.config import CONFIG
+from taskexecutor.logger import LOGGER
+from taskexecutor.utils import asdict, synchronized, to_snake_case
 
 __all__ = ["UnixAccountProcessor", "DatabaseUserProcessor", "DatabaseProcessor", "MailboxProcessor", "WebSiteProcessor",
            "SslCertificateProcessor", "ServiceProcessor", "ResourceArchiveProcessor", "RedirectProcessor"]
@@ -64,7 +64,7 @@ class ResProcessor(metaclass=abc.ABCMeta):
 
 
 class UnixAccountProcessor(ResProcessor):
-    @taskexecutor.utils.synchronized
+    @synchronized
     def create(self):
         if self.op_resource:
             LOGGER.warning("User {0.name} already exists, updating".format(self.resource))
@@ -98,12 +98,13 @@ class UnixAccountProcessor(ResProcessor):
                                                 self.resource.uid, self.resource.homeDir)
         if not "dataSourceParams" in self.params.keys():
             self.params["dataSourceParams"] = {}
-        self.params["dataSourceParams"]["ownerUid"] = self.params["dataSourceParams"].get("ownerUid") or self.resource.uid
+        self.params["dataSourceParams"]["ownerUid"] = self.params["dataSourceParams"].get(
+            "ownerUid") or self.resource.uid
         data_dest_uri = self.params.get("datadestinationUri", "file://{}".format(self.resource.homeDir))
         data_source_uri = self.params.get("datasourceUri") or data_dest_uri
         self._process_data(data_source_uri, data_dest_uri, {"dataType": "directory", "path": self.resource.homeDir})
 
-    @taskexecutor.utils.synchronized
+    @synchronized
     def update(self):
         if self.op_resource:
             switched_on = self.resource.switchedOn and not self.params.get("forceSwitchOff")
@@ -127,7 +128,8 @@ class UnixAccountProcessor(ResProcessor):
                 self.service.set_quota(self.resource.uid, self.resource.quota)
             if not "dataSourceParams" in self.params.keys():
                 self.params["dataSourceParams"] = {}
-            self.params["dataSourceParams"]["ownerUid"] = self.params["dataSourceParams"].get("ownerUid") or self.resource.uid
+            self.params["dataSourceParams"]["ownerUid"] = self.params["dataSourceParams"].get(
+                "ownerUid") or self.resource.uid
             data_dest_uri = self.params.get("datadestinationUri", "file://{}".format(self.resource.homeDir))
             data_source_uri = self.params.get("datasourceUri") or data_dest_uri
             self._process_data(data_source_uri, data_dest_uri, {"dataType": "directory", "path": self.resource.homeDir})
@@ -154,7 +156,7 @@ class UnixAccountProcessor(ResProcessor):
             LOGGER.warning("UnixAccount {0} not found, creating".format(self.resource.name))
             self.create()
 
-    @taskexecutor.utils.synchronized
+    @synchronized
     def delete(self):
         self.service.kill_user_processes(self.resource.name)
         self.service.delete_user(self.resource.name)
@@ -169,14 +171,14 @@ class WebSiteProcessor(ResProcessor):
     def _build_vhost_obj_list(self):
         vhosts = list()
         non_ssl_domains = list()
-        res_dict = self.resource._asdict()
+        res_dict = asdict(self.resource)
         for domain in (d for d in self.resource.domains if d.switchedOn):
             if domain.sslCertificate and domain.sslCertificate.switchedOn:
                 res_dict["domains"] = [domain, ]
                 vhosts.append(
-                        collections.namedtuple("VHost", res_dict.keys())(*res_dict.values()))
+                    collections.namedtuple("VHost", res_dict.keys())(*res_dict.values()))
             else:
-                domain_dict = domain._asdict()
+                domain_dict = asdict(domain)
                 if "sslCertificate" in domain_dict.keys():
                     del domain_dict["sslCertificate"]
                 non_ssl_domains.append(collections.namedtuple("Domain", domain_dict.keys())(*domain_dict.values()))
@@ -185,7 +187,7 @@ class WebSiteProcessor(ResProcessor):
             vhosts.append(collections.namedtuple("VHost", res_dict.keys())(*res_dict.values()))
         return vhosts
 
-    @taskexecutor.utils.synchronized
+    @synchronized
     def create(self):
         self.params.update(app_server_name=self.service.name,
                            subdomains_document_root="/".join(str(self.resource.documentRoot).split("/")[:-1]))
@@ -239,7 +241,7 @@ class WebSiteProcessor(ResProcessor):
                              env=env)
         self._process_data(data_source_uri, data_dest_uri, postproc_args)
 
-    @taskexecutor.utils.synchronized
+    @synchronized
     def update(self):
         if not self.resource.switchedOn:
             for service in (self.service, self.extra_services.http_proxy):
@@ -256,7 +258,7 @@ class WebSiteProcessor(ResProcessor):
                 if not self._without_reload:
                     self.extra_services.old_app_server.reload()
 
-    @taskexecutor.utils.synchronized
+    @synchronized
     def delete(self):
         shutil.rmtree(os.path.join("/opcache", self.resource.id), ignore_errors=True)
         for service in (self.extra_services.http_proxy, self.service):
@@ -265,7 +267,7 @@ class WebSiteProcessor(ResProcessor):
 
 
 class SslCertificateProcessor(ResProcessor):
-    @taskexecutor.utils.synchronized
+    @synchronized
     def create(self):
         cert_file, key_file = self.service.get_ssl_key_pair_files(self.resource.name)
         cert_file.body = self.resource.cert + self.resource.chain or ''
@@ -304,15 +306,15 @@ class DatabaseUserProcessor(ResProcessor):
     def _apply_customizations(self):
         vars = getattr(self.resource, "sessionVariables", {})
         if not isinstance(vars, dict):
-            vars = vars._asdict()
+            vars = asdict(vars)
         if len(set(vars.keys()).intersection({"queryCacheType", "characterSetClient", "characterSetConnection",
                                               "characterSetResults", "collationConnection", "innodbStrictMode"})) > 0:
-            vars = {taskexecutor.utils.to_snake_case(k): v for k, v in vars.items()}
+            vars = {to_snake_case(k): v for k, v in vars.items()}
             addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
             LOGGER.info("Presetting session variables for user {0} with addresses {1}: {2}".format(
-                    self.resource.name,
-                    addrs_set,
-                    ", ".join(("{}={}".format(k ,v) for k, v in vars.items()))
+                self.resource.name,
+                addrs_set,
+                ", ".join(("{}={}".format(k, v) for k, v in vars.items()))
             ))
             self.service.preset_user_session_vars(self.resource.name, list(addrs_set), vars)
 
@@ -472,7 +474,7 @@ class ServiceProcessor(ResProcessor):
         elif isinstance(self.service, taskexecutor.opservice.Apache):
             self.params.update(admin_networks=CONFIG.apache.admin_networks)
         if isinstance(self.service, taskexecutor.opservice.ConfigurableService):
-            configs = self.service.configs_in_context(self.service)
+            configs = self.service.get_configs_in_context(self.service)
         else:
             configs = []
         for each in configs:
@@ -496,7 +498,7 @@ class ServiceProcessor(ResProcessor):
 class ResourceArchiveProcessor(ResProcessor):
     def __init__(self, resource, service, params):
         super().__init__(resource, service, params)
-        self._archive_storage = taskexecutor.ftpclient.FTPClient(**CONFIG.ftp._asdict())
+        self._archive_storage = taskexecutor.ftpclient.FTPClient(**asdict(CONFIG.ftp))
         self._archive_filename = urllib.parse.urlparse(self.resource.fileLink).path.lstrip("/")
 
     def create(self):
@@ -531,9 +533,9 @@ class RedirectProcessor(ResProcessor):
     def _without_reload(self):
         return self.params.get("required_for", [None])[0] == "service"
 
-    @taskexecutor.utils.synchronized
+    @synchronized
     def create(self):
-        res_dict = self.resource._asdict()
+        res_dict = asdict(self.resource)
         res_dict['domains'] = [res_dict.get('domain')]
         del res_dict['domain']
         vhost = collections.namedtuple("VHost", res_dict.keys())(*res_dict.values())
@@ -555,7 +557,7 @@ class RedirectProcessor(ResProcessor):
         else:
             self.delete()
 
-    @taskexecutor.utils.synchronized
+    @synchronized
     def delete(self):
         for each in self.service.get_website_configs(self.resource.id): each.delete()
         self.service.reload()

@@ -1,12 +1,13 @@
 import abc
-import docker
 import os
 import shutil
 
+import docker
+
+import taskexecutor.opservice
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-import taskexecutor.utils
-import taskexecutor.opservice
+from taskexecutor.utils import exec_command, asdict
 
 __all__ = ["DockerDataPostprocessor", "StringReplaceDataProcessor", "DataEraser"]
 
@@ -32,7 +33,7 @@ class DockerDataPostprocessor(DataPostprocessor):
         hosts = self.args.get("hosts")
         user = "{0}:{0}".format(self.args.get("uid", 65534))
         docker_client = docker.from_env()
-        docker_client.login(**CONFIG.docker_registry._asdict())
+        docker_client.login(**asdict(CONFIG.docker_registry))
         docker_client.images.pull(image)
         LOGGER.info("Runnig Docker container from {} with dns=127.0.0.1, net=host, "
                     "volumes={} user={}, env={} hosts={}".format(image, volumes, user, env, hosts))
@@ -68,7 +69,7 @@ class StringReplaceDataProcessor(DataPostprocessor):
         cmd = ("find -O3 {0} {1} -type f "
                "-exec grep -q -e'{2}' {{}} \; -and "
                "-exec sed -i 's#{2}#{3}#g' {{}} \;").format(cwd, find_expr, search_pattern, replace_string)
-        taskexecutor.utils.exec_command(cmd)
+        exec_command(cmd)
 
 
 class DataEraser(DataPostprocessor):

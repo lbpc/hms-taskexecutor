@@ -1,21 +1,21 @@
 import collections
 import urllib.parse
 
-from taskexecutor.config import CONFIG
-from taskexecutor.logger import LOGGER
+import taskexecutor.backup
+import taskexecutor.builtinservice
 import taskexecutor.conffile
 import taskexecutor.executor
+import taskexecutor.httpsclient
+import taskexecutor.listener
 import taskexecutor.opservice
+import taskexecutor.reporter
+import taskexecutor.rescollector
 import taskexecutor.resdatafetcher
 import taskexecutor.resdataprocessor
-import taskexecutor.rescollector
 import taskexecutor.resprocessor
-import taskexecutor.builtinservice
-import taskexecutor.listener
-import taskexecutor.reporter
-import taskexecutor.backup
-import taskexecutor.httpsclient
 import taskexecutor.utils
+from taskexecutor.config import CONFIG
+from taskexecutor.logger import LOGGER
 
 
 class ClassSelectionError(Exception):
@@ -116,24 +116,23 @@ def get_opservice(service):
 
 def get_opservice_by_resource(resource, resource_type):
     global SERVICE_ID_TO_OPSERVICE_MAPPING
-    if hasattr(resource, "serverId") and resource_type != "service":
-        BuiltinService = {"unix-account": taskexecutor.builtinservice.LinuxUserManager,
-                          "mailbox": taskexecutor.builtinservice.MaildirManager}.get(True)
-        if not BuiltinService: raise ClassSelectionError("Resource has 'serverId' property,"
-                                                         "but no built-in service exist for {}".format(resource_type))
+    if hasattr(resource, 'serverId') and resource_type != 'service':
+        BuiltinService = {'unix-account': taskexecutor.builtinservice.LinuxUserManager,
+                          'mailbox': taskexecutor.builtinservice.MaildirManager}.get(resource_type)
+        if not BuiltinService: raise ClassSelectionError(f"Resource has 'serverId' property, "
+                                                         f"but no built-in service exist for {resource_type}")
         service = BuiltinService()
-    elif hasattr(resource, "serviceId"):
+    elif hasattr(resource, 'serviceId'):
         service = SERVICE_ID_TO_OPSERVICE_MAPPING.get(resource.serviceId)
         if not service:
             with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
                 service = get_opservice(api.Service(resource.serviceId).get())
-    elif hasattr(resource, "template"):
+    elif hasattr(resource, 'template'):
         service = get_opservice(resource)
-    elif resource_type == "ssl-certificate":
+    elif resource_type == 'ssl-certificate':
         service = get_http_proxy_service()
     else:
-        raise OpServiceNotFound("Cannot find operational service for given "
-                                "'{0}' resource: {1}".format(resource_type, resource))
+        raise OpServiceNotFound(f"Cannot find operational service for given '{resource_type}' resource: {resource}")
     return service
 
 
@@ -224,7 +223,7 @@ def get_reporter(reporter_type):
                 "https": taskexecutor.reporter.HttpsReporter,
                 "alerta": taskexecutor.reporter.AlertaReporter,
                 "null": taskexecutor.reporter.NullReporter}.get(reporter_type)
-    if not Reporter: raise  ClassSelectionError("Unknown Reporter type: {}".format(reporter_type))
+    if not Reporter: raise ClassSelectionError("Unknown Reporter type: {}".format(reporter_type))
     return Reporter()
 
 

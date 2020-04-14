@@ -10,7 +10,7 @@ from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 from taskexecutor.utils import exec_command, rgetattr, repquota, CommandExecutionError
 
-__all__ = ["LinuxUserManager", "MaildirManager"]
+__all__ = ['LinuxUserManager', 'MaildirManager']
 
 
 class MaildirManagerSecurityViolation(Exception): ...

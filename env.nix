@@ -9,6 +9,6 @@ with import <nixpkgs> {
 with callPackage ./pypkgs.nix { inherit ref; };
 
 let
-  te = callPackage ./default.nix {};
+  te = callPackage ./te.nix { inherit ref; };
 in
   python37mj.withPackages (ps: te.requiredPythonModules ++ [ pyfakefs ])

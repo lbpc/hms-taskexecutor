@@ -1,44 +1,21 @@
-import functools
-import json
 import abc
-import itertools
-import pika
-import pika.exceptions
-import platform
 import datetime
-import time
-import schedule
+import json
 import queue
-from pika.connection import Connection
+import time
+import platform
+from itertools import product
+
+import schedule
+from kombu import Connection, Exchange, Queue
+from kombu.mixins import ConsumerMixin
+
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-import taskexecutor.constructor
-import taskexecutor.task
-import taskexecutor.utils
+from taskexecutor.task import Task, TaskState
+from taskexecutor.utils import set_thread_name, to_lower_dashed, asdict, rgetattr
 
-__all__ = ["AMQPListener", "TimeListener"]
-
-
-class OverridenPikaConnection(Connection):
-    @property
-    def _client_properties(self):
-        return {
-            "product": "HMS.Taskexecutor (Pika Python Client Library)",
-            "platform": "Python {}".format(platform.python_version()),
-            "capabilities": {
-                "authentication_failure_close": True,
-                "basic.nack": True,
-                "connection.blocked": True,
-                "consumer_cancel_notify": True,
-                "publisher_confirms": True
-            },
-            "connection_name": "taskexecutor@{}".format(CONFIG.hostname),
-            "information": "See http://pika.rtfd.org",
-            "version": "0.10.0"
-        }
-
-
-Connection._client_properties = OverridenPikaConnection._client_properties
+__all__ = ['AMQPListener', 'TimeListener']
 
 
 class ContextValidationError(Exception):
@@ -61,7 +38,7 @@ class Listener(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def take_event(self, context, message):
+    def take_event(self, message, context):
         pass
 
     @abc.abstractmethod
@@ -69,180 +46,74 @@ class Listener(metaclass=abc.ABCMeta):
         pass
 
 
-class AMQPListener(Listener):
+class AMQPListener(Listener, ConsumerMixin):
     __processed_task_queue = queue.Queue()
 
     def __init__(self, new_task_queue):
         super().__init__(new_task_queue)
-        self._exchange_list = list(itertools.product(CONFIG.enabled_resources, ("create", "update", "delete")))
-        self._connection = None
-        self._channel = None
-        self._on_cancel_callback_is_set = False
-        self._closing = False
-        self._consumer_tag = None
-        self._url = "amqp://{0.user}:{0.password}@{0.host}:{0.port}/%2F" \
-                    "?heartbeat_interval={0.heartbeat_interval}" \
-                    "&connection_attempts={0.connection_attempts}" \
-                    "&retry_delay={0.retry_delay}".format(CONFIG.amqp)
+        self.connect_max_retries = CONFIG.amqp.connection_attempts
+        self.should_stop = False
+        self.connection = None
+        self._messages = {}
 
     @classmethod
     def get_processed_task_queue(cls):
         return cls.__processed_task_queue
 
-    def _connect(self):
-        return pika.SelectConnection(pika.URLParameters(self._url), self._on_connection_open)
+    def _register_message(self, body, message):
+        self._messages[message.delivery_tag] = message
 
-    def _on_connection_open(self, unused_connection):
-        self._add_on_connection_close_callback()
-        self._open_channel()
+    def on_iteration(self):
+        internal_queue = self.get_processed_task_queue()
+        while internal_queue.qsize() > 0:
+            task = internal_queue.get_nowait()
+            if task.tag in self._messages:
+                msg = self._messages.pop(task.tag)
+                if task.state is TaskState.DONE:
+                    msg.ack()
+                elif task.state is TaskState.FAILED:
+                    msg.requeue()
+                else:
+                    LOGGER.warning(f"Task with unexpected state found in 'processed' queue: {task}")
+            else:
+                LOGGER.warning(f"Task with unseen tag found in 'processed' queue: {task}")
 
-    def _add_on_connection_close_callback(self):
-        self._connection.add_on_close_callback(self._on_connection_closed)
-
-    def _on_connection_closed(self, unused_connection, unused_reply_code, unused_reply_text):
-        if self._closing:
-            self._connection.ioloop._stopping = True
-        else:
-            self._reconnect()
-
-    def _reconnect(self):
-        if not self._closing:
-            time.sleep(CONFIG.amqp.connection_timeout)
-            self.listen()
-
-    def _open_channel(self):
-        self._connection.channel(on_open_callback=self._on_channel_open)
-
-    def _on_channel_open(self, channel):
-        self._channel = channel
-        self._add_on_channel_close_callback()
-        for exchange in self._exchange_list:
-            self._setup_exchange("{0}.{1}".format(*exchange))
-
-    def _add_on_channel_close_callback(self):
-        self._channel.add_on_close_callback(self._on_channel_closed)
-
-    def _on_channel_closed(self, unused_channel, unused_reply_code, unused_reply_text):
-        self._connection.close()
-
-    def _setup_exchange(self, exchange_name):
-        queue_name = "{0}.{1}".format(CONFIG.amqp.consumer_routing_key, exchange_name)
-        self._channel.exchange_declare(
-            callback=functools.partial(self._on_exchange_declareok, queue_name=queue_name, exchange_name=exchange_name),
-            exchange=exchange_name,
-            exchange_type=CONFIG.amqp.exchange_type,
-            durable=bool(CONFIG.amqp._asdict().get("exchange_durability"))
-        )
-
-    def _on_exchange_declareok(self, unused_frame, queue_name, exchange_name):
-        self._setup_queue(queue_name, exchange_name)
-
-    def _setup_queue(self, queue_name, exchange_name):
-        self._channel.queue_declare(callback=functools.partial(self._on_queue_declareok,
-                                                               queue_name=queue_name,
-                                                               exchange_name=exchange_name),
-                                    queue=queue_name,
-                                    durable=True,
-                                    auto_delete=False)
-
-    def _on_queue_declareok(self, unused_method_frame, queue_name, exchange_name):
-        self._channel.queue_bind(functools.partial(self._on_bindok,
-                                                   queue_name=queue_name,
-                                                   exchange_name=exchange_name),
-                                 queue_name,
-                                 exchange_name,
-                                 CONFIG.amqp.consumer_routing_key)
-
-    def _on_bindok(self, unused_frame, queue_name, exchange_name):
-        self._start_consuming(queue_name, exchange_name)
-
-    def _start_consuming(self, queue_name, exchange_name):
-        if not self._on_cancel_callback_is_set:
-            self._add_on_cancel_callback()
-        self._consumer_tag = self._channel.basic_consume(
-            consumer_callback=functools.partial(self._on_message, exchange_name=exchange_name),
-            queue=queue_name
-        )
-
-    def _add_on_cancel_callback(self):
-        self._channel.add_on_cancel_callback(self._on_consumer_cancelled)
-        self._on_cancel_callback_is_set = True
-
-    def _on_consumer_cancelled(self, unused_method_frame):
-        if self._channel:
-            self._channel.close()
-
-    def _on_message(self, unused_channel, basic_deliver, properties, body, exchange_name):
-        if exchange_name != basic_deliver.exchange:
-            raise ContextValidationError("Message '{0}' came from unexpected exchange '{1}', "
-                                         "expected '{2}'".format(body, basic_deliver.exchange, exchange_name))
-        context = dict(zip(("res_type", "action"), exchange_name.split(".")))
-        context["delivery_tag"] = basic_deliver.delivery_tag
-        context["provider"] = properties.headers["provider"]
-        self.take_event(context, body)
-
-    def _acknowledge_message(self, delivery_tag):
-        try:
-            self._channel.basic_ack(delivery_tag)
-        except pika.exceptions.ConnectionClosed:
-            time.sleep(CONFIG.amqp.retry_delay + 1)
-            self._channel.basic_ack(delivery_tag)
-
-    def _reject_message(self, delivery_tag):
-        try:
-            self._channel.basic_nack(delivery_tag)
-        except pika.exceptions.ConnectionClosed:
-            time.sleep(CONFIG.amqp.retry_delay + 1)
-            self._channel.basic_nack(delivery_tag)
-
-    def _stop_consuming(self):
-        if self._channel:
-            self._channel.basic_cancel(self._on_cancelok, self._consumer_tag)
-
-    def _on_cancelok(self, unused_frame):
-        self._close_channel()
-
-    def _close_channel(self):
-        self._channel.close()
-
-    def _close_connection(self):
-        self._connection.close()
+    def get_consumers(self, Consumer, channel):
+        identity = f'te.{CONFIG.hostname}'
+        exc_type = CONFIG.amqp.exchange_type
+        rk = rgetattr(CONFIG, 'amqp.consumer_routing_key', identity)
+        queues = [Queue(name=f'{identity}.{exc}', exchange=Exchange(exc, type=exc_type), routing_key=rk)
+                  for exc in ('.'.join(p) for p in product(CONFIG.enabled_resources, ('create', 'update', 'delete')))]
+        return [Consumer(queues=queues, callbacks=[self.take_event, self._register_message])]
 
     def listen(self):
-        taskexecutor.utils.set_thread_name("AMQPListener")
-        self._connection = self._connect()
-        queue = self.get_processed_task_queue()
-        while not self._connection.ioloop._stopping:
-            while queue.qsize() > 0:
-                task = queue.get_nowait()
-                method = {task.state is taskexecutor.task.DONE: self._acknowledge_message,
-                          task.state is taskexecutor.task.FAILED: self._reject_message}[True]
-                method(task.tag)
-            self._connection.ioloop.poll()
-            self._connection.ioloop.process_timeouts()
+        set_thread_name('AMQPListener')
+        url = 'amqp://{0.user}:{0.password}@{0.host}:{0.port}//'.format(CONFIG.amqp)
+        transport_options = {'client_properties': {'connection_name': f'taskexecutor@{CONFIG.hostname}'}}
+        with Connection(url, heartbeat=CONFIG.amqp.heartbeat_interval, transport_options=transport_options) as conn:
+            self.connection = conn
+            self.run()
 
-    def take_event(self, context, message):
-        message = json.loads(message.decode("UTF-8"))
-        message["params"]["objRef"] = message["objRef"]
-        message["params"]["provider"] = context["provider"]
-        message.pop("objRef")
-        taskexecutor.utils.set_thread_name("OPERATION IDENTITY: {0[operationIdentity]} "
-                                           "ACTION IDENTITY: {0[actionIdentity]}".format(message))
-        task = taskexecutor.task.Task(tag=context["delivery_tag"],
-                                      origin=self.__class__,
-                                      opid=message["operationIdentity"],
-                                      actid=message["actionIdentity"],
-                                      res_type=context["res_type"],
-                                      action=context["action"],
-                                      params=message["params"])
+    def take_event(self, message, context):
+        res_type, action = context.delivery_info.get('exchange', '.').split('.')
+        message = json.loads(message)
+        message['params']['objRef'] = message.pop('objRef')
+        message['params']['provider'] = context.headers['provider']
+        set_thread_name('OPERATION IDENTITY: {} '
+                        'ACTION IDENTITY: {}'.format(message['operationIdentity'], message['actionIdentity']))
+        task = Task(tag=context.delivery_tag,
+                    origin=self.__class__,
+                    opid=message["operationIdentity"],
+                    actid=message["actionIdentity"],
+                    res_type=res_type,
+                    action=action,
+                    params=message["params"])
         self._new_task_queue.put(task)
-        LOGGER.debug("New task created: {}".format(task))
-        taskexecutor.utils.set_thread_name("AMQPListener")
+        LOGGER.debug(f'New task created: {task}')
+        set_thread_name('AMQPListener')
 
     def stop(self):
-        self._closing = True
-        self._stop_consuming()
-        return not self._connection
+        self.should_stop = True
 
 
 class TimeListener(Listener):
@@ -258,52 +129,52 @@ class TimeListener(Listener):
         return cls.__processed_task_queue
 
     def _schedule(self):
-        for action, res_types in CONFIG.schedule._asdict().items():
-            for res_type, params in res_types._asdict().items():
-                res_type = taskexecutor.utils.to_lower_dashed(res_type)
+        for action, res_types in asdict(CONFIG.schedule).items():
+            for res_type, params in asdict(res_types).items():
+                res_type = to_lower_dashed(res_type)
                 if res_type in CONFIG.enabled_resources:
-                    context = {"res_type": res_type, "action": action}
-                    message = {"params": dict(params._asdict())}
-                    if hasattr(params, "daily") and params.daily:
-                        if not hasattr(params, "at"):
-                            LOGGER.warning("Invalid schedule definition for {}: {},"
-                                           "`at` time needs to be specified".format(res_type, params))
+                    context = {'res_type': res_type, 'action': action}
+                    message = {'params': asdict(params)}
+                    if hasattr(params, 'daily') and params.daily:
+                        if not hasattr(params, 'at'):
+                            LOGGER.warning(f"Invalid schedule definition for {res_types}: "
+                                           f"{params}, 'at' time needs to be specified")
                             continue
-                        job = schedule.every().day.at(params.at).do(self.take_event, context, message)
+                        job = schedule.every().day.at(params.at).do(self.take_event, message, context)
                     else:
-                        if not hasattr(params, "interval"):
-                            LOGGER.warning("Invalid schedule definition for {}: {},"
-                                           "interval needs to be specified".format(res_type, params))
+                        if not hasattr(params, 'interval'):
+                            LOGGER.warning(f'Invalid schedule definition for {res_type}: {params}, '
+                                           'interval needs to be specified')
                             continue
-                        job = schedule.every(params.interval).seconds.do(self.take_event, context, message)
+                        job = schedule.every(params.interval).seconds.do(self.take_event, message, context)
                     LOGGER.debug(job)
 
     def listen(self):
-        taskexecutor.utils.set_thread_name("TimeListener")
+        set_thread_name('TimeListener')
         self._schedule()
         while not self._stopping:
             schedule.run_pending()
             queue = self.get_processed_task_queue()
             while queue.qsize() > 0:
                 task = queue.get_nowait()
-                if task.state == taskexecutor.task.FAILED:
-                    LOGGER.warning("Got failed scheduled task: {}".format(task))
+                if task.state is TaskState.FAILED:
+                    LOGGER.warning(f'Got failed scheduled task: {task}')
                     self._new_task_queue.put(task)
             sleep_interval = abs(schedule.idle_seconds()) if schedule.jobs else 10
             if not self._stopping:
                 time.sleep(sleep_interval if sleep_interval < 1 else 1)
 
-    def take_event(self, context, message):
-        action_id = "{0}.{1}".format(context["res_type"], context["action"])
-        task = taskexecutor.task.Task(tag="{0}.{1}".format(datetime.datetime.now().isoformat(), action_id),
-                                      origin=self.__class__,
-                                      opid="LOCAL-SCHED",
-                                      actid=action_id,
-                                      res_type=context["res_type"],
-                                      action=context["action"],
-                                      params=message["params"])
+    def take_event(self, message, context):
+        action_id = '{}.{}'.format(context['res_type'], context['action'])
+        task = Task(tag='{}.{}'.format(datetime.datetime.now().isoformat(), action_id),
+                    origin=self.__class__,
+                    opid='LOCAL-SCHED',
+                    actid=action_id,
+                    res_type=context['res_type'],
+                    action=context['action'],
+                    params=message['params'])
         self._new_task_queue.put(task)
-        LOGGER.debug("New task created from locally scheduled event: {}".format(task))
+        LOGGER.debug(f'New task created from locally scheduled event: {task}')
 
     def stop(self):
         schedule.clear()

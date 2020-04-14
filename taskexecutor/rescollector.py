@@ -1,16 +1,16 @@
 import abc
-import clamd
 import collections
 import os
 import sys
 import time
 
-from taskexecutor.logger import LOGGER
-from taskexecutor.config import CONFIG
+import clamd
 
-import taskexecutor.constructor
-import taskexecutor.watchdog
-import taskexecutor.utils
+import taskexecutor.constructor as cnstr
+from taskexecutor.config import CONFIG
+from taskexecutor.logger import LOGGER
+from taskexecutor.utils import synchronized, asdict
+from taskexecutor.watchdog import ProcessWatchdog
 
 __all__ = ["UnixAccountCollector", "DatabaseUserCollector", "DatabaseCollector", "MailboxCollector", "WebsiteCollector",
            "SslCertificateCollector", "ServiceCollector", "ResourceArchiveCollector", "RedirectCollector"]
@@ -55,7 +55,7 @@ class ResCollector(metaclass=abc.ABCMeta):
 
     def get(self, cache_ttl=0):
         op_resource = dict()
-        properties_set = set(self.resource._asdict().keys())
+        properties_set = set(asdict(self.resource).keys())
         properties_set.difference_update(self._ignored_properties)
         start_collecting_time = time.time()
         for property_name in properties_set:
@@ -79,7 +79,7 @@ class UnixAccountCollector(ResCollector):
         if cached and not expired:
             LOGGER.debug("Cache hit for property: {}".format(property_name))
             return self.get_property_from_cache(key)
-        etc_passwd = taskexecutor.constructor.get_conffile("lines", "/etc/passwd")
+        etc_passwd = cnstr.get_conffile("lines", "/etc/passwd")
         matched_lines = etc_passwd.get_lines("^{}:".format(self.resource.name))
         if property_name == "quotaUsed":
             uid_quota_used_mapping = self.service.get_quota()
@@ -104,13 +104,13 @@ class UnixAccountCollector(ResCollector):
             if self.resource.infected and cached:
                 infected_files = self.get_property_from_cache(key)
             elif self.get_property("cpuUsed")["percents"] > CONFIG.unix_account.malscan_cpu_threshold:
-                for path in taskexecutor.watchdog.ProcessWatchdog.get_workdirs_by_uid(self.resource.uid):
+                for path in ProcessWatchdog.get_workdirs_by_uid(self.resource.uid):
                     files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
                     for file in files:
                         if os.path.exists(file) and \
-                                        os.stat(file).st_mode & 0o0777 > 0o0 and \
-                                        os.stat(file).st_uid == self.resource.uid and \
-                                        os.path.getsize(file) < CONFIG.clamd.stream_max_length:
+                                os.stat(file).st_mode & 0o0777 > 0o0 and \
+                                os.stat(file).st_uid == self.resource.uid and \
+                                os.path.getsize(file) < CONFIG.clamd.stream_max_length:
                             with open(file, "rb") as f:
                                 try:
                                     scan_res = self._clamd.instream(f)
@@ -186,7 +186,7 @@ class DatabaseUserCollector(ResCollector):
 
 
 class DatabaseCollector(ResCollector):
-    @taskexecutor.utils.synchronized
+    @synchronized
     def get_property(self, property_name, cache_ttl=0):
         key = self.get_cache_key(property_name, self.resource.name)
         cached, expired = self.check_cache(key, cache_ttl)
@@ -229,7 +229,7 @@ class DatabaseCollector(ResCollector):
 class WebsiteCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
         if property_name == "serviceId":
-            for service in taskexecutor.constructor.get_application_servers():
+            for service in cnstr.get_application_servers():
                 if len(service.get_website_configs(self.resource)) > 0:
                     return service.spec.id
 
@@ -237,7 +237,7 @@ class WebsiteCollector(ResCollector):
 class RedirectCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
         if property_name == "serviceId":
-            http_server = taskexecutor.constructor.get_http_proxy_service()
+            http_server = cnstr.get_http_proxy_service()
             if http_server and len(http_server.get_website_configs(self.resource.id)) > 0:
                 return http_server.spec.id
 

@@ -1,91 +1,158 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import patch, Mock
 import queue
 import json
 import sys
-import pika
-from .mock_config import mock_config
+from kombu import Queue, Exchange, Message
 
-sys.modules['taskexecutor.config'] = mock_config
+sys.modules['taskexecutor.config'] = Mock()
 
-import taskexecutor.task
-import taskexecutor.listener
+from taskexecutor.config import CONFIG
+from taskexecutor.task import Task, TaskState
+from taskexecutor.listener import AMQPListener
 
 
 class TestAMQPListener(unittest.TestCase):
     def setUp(self):
+        CONFIG.amqp.exchange_type = 'topic'
+        CONFIG.amqp.consumer_routing_key = 'te.web99'
+        CONFIG.amqp.connection_attempts = 1
+        CONFIG.amqp.retry_delay = 5
+        CONFIG.amqp.connection_timeout = 5
 
-        self.mock_task = Mock(spec=taskexecutor.task.Task)
-        self.mock_task.state = 0
-        self.mock_new_task_queue = Mock(spec=queue.Queue)
-        self.amqp_listener = taskexecutor.listener.AMQPListener(self.mock_new_task_queue)
+    def test_get_processed_task_queue(self):
+        q1 = AMQPListener(Mock()).get_processed_task_queue()
+        q2 = AMQPListener(Mock()).get_processed_task_queue()
+        self.assertIs(q1, q2)
+        self.assertIsInstance(q1, queue.Queue)
 
-    def test_listen(self):
-        self.poll_count = 0
+    @patch('taskexecutor.listener.AMQPListener.run')
+    @patch('taskexecutor.listener.Connection')
+    def test_listen(self, mock_connection, mock_run):
+        CONFIG.hostname = 'web99'
+        CONFIG.amqp.user = 'rabbituser'
+        CONFIG.amqp.password = 'rabbitpassword'
+        CONFIG.amqp.host = 'rabbithost'
+        CONFIG.amqp.port = 95672
+        CONFIG.amqp.heartbeat_interval = 42
+        listener = AMQPListener(Mock())
+        listener.listen()
+        mock_connection.assert_called_once_with('amqp://rabbituser:rabbitpassword@rabbithost:95672//',
+                                                heartbeat=42,
+                                                transport_options={'client_properties': {
+                                                    'connection_name': 'taskexecutor@web99'
+                                                }})
+        mock_run.assert_called_once_with()
 
-        def decrement_processed_task_queue_qsize(_):
-            self.mock_processed_task_queue.qsize.return_value -= 1
+    def test_get_consumers(self):
+        CONFIG.hostname = 'web99'
+        CONFIG.enabled_resources = ['unix-account', 'website']
+        CONFIG.amqp.consumer_routing_key = 'te.rk'
+        CONFIG.amqp.exchange_type = 'direct'
+        listener = AMQPListener(Mock())
+        mock_consumer_class = Mock()
+        mock_consumer_class.return_value = 'dummy'
+        self.assertEqual(listener.get_consumers(mock_consumer_class, Mock()), ['dummy'])
+        mock_consumer_class.assert_called_once_with(
+            queues=[
+                Queue(name='te.web99.unix-account.create',
+                      exchange=Exchange('unix-account.create', 'direct'), routing_key='te.rk'),
+                Queue(name='te.web99.unix-account.update',
+                      exchange=Exchange('unix-account.update', 'direct'), routing_key='te.rk'),
+                Queue(name='te.web99.unix-account.delete',
+                      exchange=Exchange('unix-account.delete', 'direct'), routing_key='te.rk'),
+                Queue(name='te.web99.website.create',
+                      exchange=Exchange('website.create', 'direct'), routing_key='te.rk'),
+                Queue(name='te.web99.website.update',
+                      exchange=Exchange('website.update', 'direct'), routing_key='te.rk'),
+                Queue(name='te.web99.website.delete',
+                      exchange=Exchange('website.delete', 'direct'), routing_key='te.rk')
+            ],
+            callbacks=[listener.take_event, listener._register_message]
+        )
 
-        def ioloop_poll_side_effect():
-            if self.poll_count == 0:
-                self.mock_processed_task_queue.qsize.return_value = 1
-                self.mock_task.tag = 42
-                self.mock_task.state = 2
-                self.assertTrue(self.amqp_listener._acknowledge_message.called_once_with(42))
-            elif self.poll_count == 1:
-                self.mock_processed_task_queue.qsize.return_value = 1
-                self.mock_task.tag = 666
-                self.assertTrue(self.amqp_listener._reject_message.called_once_with(666))
-                self.mock_task.state = 3
-            else:
-                self.mock_connection.ioloop._stopping = True
-            self.poll_count += 1
-
-        self.mock_connection = Mock(spec=pika.adapters.select_connection.SelectConnection)
-        self.mock_connection.ioloop = Mock(spec=pika.adapters.select_connection.IOLoop)
-        self.mock_processed_task_queue = Mock(spec=queue.Queue)
-        self.mock_processed_task_queue.qsize = Mock(return_value=0)
-        self.mock_processed_task_queue.get_nowait = Mock(return_value=self.mock_task)
-        self.amqp_listener._connect = Mock(return_value=self.mock_connection)
-        self.amqp_listener._reject_message = Mock(side_effect=decrement_processed_task_queue_qsize)
-        self.amqp_listener._acknowledge_message = Mock(side_effect=decrement_processed_task_queue_qsize)
-        self.amqp_listener.get_processed_task_queue = Mock(return_value=self.mock_processed_task_queue)
-        self.mock_connection.ioloop.poll = Mock(side_effect=ioloop_poll_side_effect)
-        self.mock_connection.ioloop._stopping = False
-        self.mock_connection.ioloop.process_timeouts = Mock()
-        self.amqp_listener.listen()
-        self.assertEqual(self.amqp_listener._connect.call_count, 1)
-        self.assertEqual(self.mock_connection.ioloop.poll.call_count, 3)
+    def test_register_message(self):
+        listener = AMQPListener(Mock())
+        msg1 = Message(body=b'json',
+                       delivery_tag=1,
+                       delivery_info={'exchange': 'website.create'},
+                       headers={'provider': 'rc-user'})
+        msg2 = Message(body=b'json',
+                       delivery_tag=2,
+                       delivery_info={'exchange': 'website.delete'},
+                       headers={'provider': 'rc-user'})
+        listener._register_message(b'json', msg1)
+        msg1.delivery_info['exchange'] = 'website.update'
+        listener._register_message(b'json', msg1)
+        listener._register_message(b'json', msg2)
+        self.assertEqual(listener._messages, {1: msg1, 2: msg2})
 
     def test_take_event(self):
-        test_operationIdentity = 'testOpId'
-        test_actionIdentity = 'testActId'
-        test_objRef = 'http://host/path/to/resource'
-        test_params = {'provider': 'rc-user', 'objRef': test_objRef}
-        test_message = json.dumps({'operationIdentity': test_operationIdentity,
-                                   'actionIdentity': test_actionIdentity,
-                                   'objRef': test_objRef,
-                                   'params': test_params}).encode('UTF-8')
-        test_context = {'res_type': 'unix-account',
-                        'action': 'create',
-                        'delivery_tag': 1,
-                        'provider': 'rc-user'}
-        self.amqp_listener._new_task_queue = self.mock_new_task_queue
-        self.amqp_listener.take_event(test_context, test_message)
-        self.assertEqual(self.mock_new_task_queue.put.call_count, 1)
-        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].tag, test_context['delivery_tag'])
-        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].origin, self.amqp_listener.__class__)
-        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].opid, test_operationIdentity)
-        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].actid, test_actionIdentity)
-        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].res_type, test_context['res_type'])
-        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].action, test_context['action'])
-        self.assertEqual(self.mock_new_task_queue.put.call_args[0][0].params, test_params)
+        message = json.dumps({'operationIdentity': 'testOpId',
+                              'actionIdentity': 'testActId',
+                              'objRef': 'http://host/path/to/resource',
+                              'params': {'param': {'param': 'params'}}}).encode()
+        context = Message(body=message,
+                          delivery_tag=1,
+                          delivery_info={'exchange': 'website.create'},
+                          headers={'provider': 'rc-user'})
+        new_task_queue = Mock(spec=queue.Queue)
+        listener = AMQPListener(new_task_queue)
+        listener.take_event(message, context)
+        new_task_queue.put.assert_called_once_with(Task(
+            tag=1,
+            origin=AMQPListener,
+            opid='testOpId',
+            actid='testActId',
+            res_type='website',
+            action='create',
+            params={'param': {'param': 'params'},
+                    'objRef': 'http://host/path/to/resource',
+                    'provider': 'rc-user'}
+        ))
+
+    def test_on_iteration(self):
+        listener = AMQPListener(Mock())
+        msg1 = Mock(spec=Message)
+        msg1.delivery_tag = 1
+        msg2 = Mock(spec=Message)
+        msg2.delivery_tag = 2
+        task1 = Mock(spec=Task)
+        task1.tag = 1
+        task1.state = TaskState.DONE
+        task2 = Mock(spec=Task)
+        task2.tag = 2
+        task2.state = TaskState.FAILED
+        listener._register_message(None, msg1)
+        internal_queue = listener.get_processed_task_queue()
+        internal_queue.put(task1)
+        listener.on_iteration()
+        self.assertEqual(listener._messages, {})
+        msg1.ack.assert_called_once()
+        msg1.requeue.assert_not_called()
+        msg1.reset_mock()
+        listener._register_message(None, msg1)
+        listener._register_message(None, msg2)
+        internal_queue.put(task2)
+        listener.on_iteration()
+        self.assertEqual(listener._messages, {1: msg1})
+        msg1.ack.assert_not_called()
+        msg1.requeue.assert_not_called()
+        msg2.ack.assert_not_called()
+        msg2.requeue.assert_called_once()
+        task1.tag = 3
+        internal_queue.put(task1)
+        self.assertEqual(listener._messages, {1: msg1})
+        msg1.ack.assert_not_called()
+        msg1.requeue.assert_not_called()
+        task1.tag = 1
+        task1.state = TaskState.NEW
+        internal_queue.put(task1)
+        self.assertEqual(listener._messages, {1: msg1})
+        msg1.ack.assert_not_called()
+        msg1.requeue.assert_not_called()
 
     def test_stop(self):
-        self.amqp_listener._stop_consuming = Mock()
-        self.amqp_listener.stop()
-        self.assertEqual(self.amqp_listener._stop_consuming.call_count, 1)
-
-
-if __name__ == '__main__':
-    unittest.main()
+        listener = AMQPListener(Mock())
+        listener.stop()
+        self.assertTrue(listener.should_stop)
