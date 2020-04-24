@@ -1,6 +1,6 @@
 ```bash
-root@web99:~# docker image inspect docker-registry.intr/hms/taskexecutor:latest | jq
-.[].Config.Labels
+root@web99:~# docker image inspect docker-registry.intr/hms/taskexecutor:latest | \
+jq .[].Config.Labels
 {
   "ru.majordomo.docker.cmd": "docker run --init --read-only --pid=host --network=host \
 --hostname=$(hostname -s) --mount source=/run/docker.sock,target=/var/run/docker.sock,type=bind \
@@ -21,6 +21,8 @@ properties from config server
 
 root@web99:~# eval $(echo $(docker image inspect docker-registry.intr/hms/taskexecutor:latest | \
 jq -r '.[].Config.Labels["ru.majordomo.docker.cmd"]') | awk 'NF{$3="-it" OFS $3} 1') code
+```
+```python
 Python 3.7.4 (default, Jul  8 2019, 18:31:06) 
 [GCC 8.3.0] on linux
 Type "help", "copyright", "credits" or "license" for more information.
