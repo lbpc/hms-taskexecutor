@@ -43,6 +43,11 @@ let
         source = "/var/cache";
         target = "/var/cache";
       })
+      ({
+        type = "bind";
+        source = "/opcache";
+        target = "/opcache";
+      })
       # TODO: remove /etc bind mount as soon as possible
       ({
         type = "bind";
