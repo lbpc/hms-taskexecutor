@@ -232,7 +232,7 @@ class GitLabClient(HttpsClient):
         response = self._connection.getresponse()
         if response.status != 200:
             raise RequestError("GET failed, GitLab returned {0.status} {0.reason} "
-                               "{1}".format(response, response.read()))
+                               "{1}, URI: {2}".format(response, response.read(), uri_path))
         json_str = self.decode_response(response.read())
         if len(json_str) == 0:
             raise RequestError("GET failed, Gitlab returned empty response")

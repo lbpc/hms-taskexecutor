@@ -1,25 +1,14 @@
 import unittest
 from unittest.mock import patch, Mock
 import queue
-import json
-import sys
 from kombu import Queue, Exchange, Message
+from .mock_config import CONFIG
 
-sys.modules['taskexecutor.config'] = Mock()
-
-from taskexecutor.config import CONFIG
 from taskexecutor.task import Task, TaskState
 from taskexecutor.listener import AMQPListener
 
 
 class TestAMQPListener(unittest.TestCase):
-    def setUp(self):
-        CONFIG.amqp.exchange_type = 'topic'
-        CONFIG.amqp.consumer_routing_key = 'te.web99'
-        CONFIG.amqp.connection_attempts = 1
-        CONFIG.amqp.retry_delay = 5
-        CONFIG.amqp.connection_timeout = 5
-
     def test_get_processed_task_queue(self):
         q1 = AMQPListener(Mock()).get_processed_task_queue()
         q2 = AMQPListener(Mock()).get_processed_task_queue()
@@ -88,10 +77,10 @@ class TestAMQPListener(unittest.TestCase):
         self.assertEqual(listener._messages, {1: msg1, 2: msg2})
 
     def test_take_event(self):
-        message = json.dumps({'operationIdentity': 'testOpId',
-                              'actionIdentity': 'testActId',
-                              'objRef': 'http://host/path/to/resource',
-                              'params': {'param': {'param': 'params'}}}).encode()
+        message = {'operationIdentity': 'testOpId',
+                   'actionIdentity': 'testActId',
+                   'objRef': 'http://host/path/to/resource',
+                   'params': {'param': {'param': 'params'}}}
         context = Message(body=message,
                           delivery_tag=1,
                           delivery_info={'exchange': 'website.create'},

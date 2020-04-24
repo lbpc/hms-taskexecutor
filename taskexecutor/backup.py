@@ -3,6 +3,7 @@ import hashlib
 import os
 import re
 import requests
+import shutil
 import shlex
 import time
 from psutil import pid_exists, Process
@@ -75,8 +76,9 @@ class ResticBackup(Backuper):
             repo = "{}@{}".format(self._resource.name, self._resource.domain.name)
         repo = os.path.join("slice", hashlib.sha1(repo.encode()).hexdigest()[:2], repo)
         exclude = exclude or self.default_excludes
+        restic = CONFIG.restic.binary_path if os.path.exists(CONFIG.restic.binary_path) else shutil.which('restic')
         base_cmd = ("RESTIC_PASSWORD={0.password} "
-               "{0.binary.path} -r rest:http://restic:{0.password}@{0.host}:{0.port}/{1} ".format(CONFIG.restic, repo))
+               "{1} -r rest:http://restic:{0.password}@{0.host}:{0.port}/{2} ".format(CONFIG.restic, restic, repo))
         backup_cmd = "backup {0} {1}".format("".join((" -e {}".format(shlex.quote(e)) for e in exclude)), dir)
         code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + "init", raise_exc=False)
         if code > 0 and not stderr.rstrip().endswith("already exists"):

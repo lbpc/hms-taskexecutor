@@ -53,7 +53,7 @@ class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
                 break
 
     def dump_work_queue(self, filter_fn):
-        return (i.args for i in self._get_workqueue_items() if filter_fn(i.args))
+        return (i.args for i in self._get_workqueue_items() if i and filter_fn(i.args))
 
 
 def rgetattr(obj, path, *default):
@@ -251,7 +251,7 @@ def comma_separated_to_list(dct):
         if isinstance(v, dict):
             comma_separated_to_list(v)
         elif isinstance(v, str) and "," in v:
-            dct[k] = [e.strip() for e in v.split(",")]
+            dct[k] = [e.strip() for e in v.split(",") if e]
     return dct
 
 
@@ -287,14 +287,17 @@ def attrs_to_env(obj):
         attr = getattr(obj, name)
         if not name.startswith("_") and not callable(attr) and name != "env":
             for n in possible_names:
-                res["${}".format(n)] = str(attr)
-                res["${{{}}}".format(n)] = str(attr)
-                if not isinstance(attr, Number):
-                    for k, v in attrs_to_env(attr).items():
-                        k = k.lstrip("$").strip("{}")
-                        for n in possible_names:
-                            res["${}_{}".format(n, k)] = str(v)
-                            res["${{{}_{}}}".format(n, k)] = str(v)
+                try:
+                    res["${}".format(n)] = str(attr)
+                    res["${{{}}}".format(n)] = str(attr)
+                    if not isinstance(attr, Number):
+                        for k, v in attrs_to_env(attr).items():
+                            k = k.lstrip("$").strip("{}")
+                            for n in possible_names:
+                                res["${}_{}".format(n, k)] = str(v)
+                                res["${{{}_{}}}".format(n, k)] = str(v)
+                except Exception as e:
+                    LOGGER.warning(f'Failed to convert {attr} to env variable: {e}')
     return res
 
 

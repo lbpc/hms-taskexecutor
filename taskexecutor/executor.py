@@ -13,7 +13,7 @@ from taskexecutor.httpsclient import ApiClient
 from taskexecutor.listener import AMQPListener
 from taskexecutor.logger import LOGGER
 from taskexecutor.task import Task, TaskState
-from taskexecutor.utils import set_thread_name, to_camel_case, ThreadPoolExecutorStackTraced
+from taskexecutor.utils import set_thread_name, to_camel_case, ThreadPoolExecutorStackTraced, rgetattr
 from taskexecutor.watchdog import ProcessWatchdog
 
 __all__ = ['Executor']
@@ -113,7 +113,7 @@ class ResourceBuilder:
 class Executor:
     __new_task_queue = queue.Queue()
     __failed_tasks = dict()
-    pool_dump_template = '/var/cache/te/{}.pkl'
+    pool_dump_template = '{}/{{}}.pkl'.format(getattr(CONFIG, 'executor.task_dump_dir', '/var/cache/te'))
 
     def __init__(self):
         self._stopping = False
@@ -343,6 +343,7 @@ class Executor:
                 with open(filename, 'wb') as f:
                     pickle.dump(tasks, f)
             pool.shutdown(wait=self._shutdown_wait)
+            LOGGER.debug(f'{pool} is shut down')
 
     def stop(self, wait=False):
         self._shutdown_wait = wait

@@ -1,19 +1,36 @@
+import os
 import unittest
-from unittest.mock import Mock, PropertyMock, patch, mock_open, call
 from collections.abc import Callable
 from textwrap import dedent
-import os
-import sys
+from unittest.mock import Mock, PropertyMock, patch, mock_open, call
+
 import jinja2.environment
 
-sys.modules['taskexecutor.config'] = Mock()
+from .mock_config import CONFIG
 
-from taskexecutor.config import CONFIG
-from taskexecutor.conffile import *
+from taskexecutor.conffile import ConfigFile, LineBasedConfigFile, TemplatedConfigFile
 from taskexecutor.conffile import PropertyValidationError, NoSuchLine, TooBroadCondition
 
 
 class TestConfigFile(unittest.TestCase):
+    @patch('tempfile.gettempdir')
+    def test_bad_confs_dir(self, mock_tempdir):
+        CONFIG.conffile = None
+        mock_tempdir.return_value = '/temp'
+        self.assertEqual(ConfigFile('file', 1000, 0o755).bad_confs_dir, '/temp/te-bad-confs')
+        CONFIG.conffile = Mock()
+        CONFIG.conffile.bad_confs_dir = '/var/tmp/bad-confs'
+        self.assertEqual(ConfigFile('file', 1000, 0o755).bad_confs_dir, '/var/tmp/bad-confs')
+
+    @patch('tempfile.gettempdir')
+    def test_tmp_dir(self, mock_tempdir):
+        CONFIG.conffile = None
+        mock_tempdir.return_value = '/temp'
+        self.assertEqual(ConfigFile('file', 1000, 0o755).tmp_dir, '/temp')
+        CONFIG.conffile = Mock()
+        CONFIG.conffile.tmp_dir = '/var/tmp'
+        self.assertEqual(ConfigFile('file', 1000, 0o755).tmp_dir, '/var/tmp')
+
     @patch('os.path', autospec=os.path)
     def test_exists(self, mock_path):
         mock_path.abspath = Mock(return_value='file.conf')
@@ -82,28 +99,30 @@ class TestConfigFile(unittest.TestCase):
         mock_chmod.assert_called_once_with('/opt/etc/passwd', 0o644)
         mock_chown.assert_called_once_with('/opt/etc/passwd', 0, 0)
 
-
+    @patch('taskexecutor.conffile.ConfigFile.bad_confs_dir', new_callable=PropertyMock)
     @patch('taskexecutor.conffile.ConfigFile._backup_file_path', new_callable=PropertyMock)
     @patch('os.makedirs')
     @patch('shutil.move')
     @patch('os.path.exists')
-    def test_revert(self, mock_exists, mock_move, mock_makedirs, mock_backup):
+    def test_revert(self, mock_exists, mock_move, mock_makedirs, mock_backup, mock_bad_confs):
         mock_exists.return_value = True
-        CONFIG.conffile.bad_confs_dir = '/nowhere/conf-broken'
         mock_backup.return_value = '/tmp/opt/etc/passwd'
+        mock_bad_confs.return_value = '/nowhere/conf-broken'
         config = ConfigFile('/opt/etc/passwd', 0, 0o644)
         config.revert()
         mock_makedirs.assert_called_once_with('/nowhere/conf-broken', exist_ok=True)
-        mock_move.assert_has_calls((call('/opt/etc/passwd', '/nowhere/conf-broken/_opt_etc_passwd'),
-                                    call('/tmp/opt/etc/passwd', '/opt/etc/passwd')))
+        self.assertTrue(call('/opt/etc/passwd', '/nowhere/conf-broken/_opt_etc_passwd') in mock_move.call_args_list)
+        self.assertTrue(call('/tmp/opt/etc/passwd', '/opt/etc/passwd') in mock_move.call_args_list)
+        self.assertEqual(mock_move.call_count, 2)
 
+    @patch('taskexecutor.conffile.ConfigFile.bad_confs_dir', new_callable=PropertyMock)
     @patch('taskexecutor.conffile.ConfigFile._backup_file_path', new_callable=PropertyMock)
     @patch('shutil.move')
     @patch('os.path.exists')
-    def test_revert_no_backup(self, mock_exists, mock_move, mock_backup):
+    def test_revert_no_backup(self, mock_exists, mock_move, mock_backup, mock_bad_confs):
         mock_exists.return_value = False
-        CONFIG.conffile.bad_confs_dir = '/nowhere/conf-broken'
         mock_backup.return_value = '/tmp/opt/etc/passwd'
+        mock_bad_confs.return_value = '/nowhere/conf-broken'
         config = ConfigFile('/opt/etc/passwd', 0, 0o644)
         config.revert()
         mock_move.assert_called_once_with('/opt/etc/passwd', '/nowhere/conf-broken/_opt_etc_passwd')
@@ -243,8 +262,8 @@ class TestLineBasedConfigFile(unittest.TestCase):
                                                                      'Rented a, rented a tent.'])
         self.assertEqual(self.config.get_lines('.*;', count=9), ['Rented a tent, a tent, a tent;'])
         self.assertEqual(self.config.get_lines(r'^Rented\s{1}(a tent(,|;|.)\s*){3}'),
-                                               ['Rented a tent, a tent, a tent;',
-                                                'Rented a tent, a tent, a tent.'])
+                         ['Rented a tent, a tent, a tent;',
+                          'Rented a tent, a tent, a tent.'])
 
     def test_get_line(self):
         self.config.body = dedent("""

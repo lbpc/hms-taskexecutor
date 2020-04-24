@@ -25,8 +25,8 @@ class __Config:
         LOGGER.setLevel(log_level)
         LOGGER.debug('Initializing config')
         cls.hostname = socket.gethostname().split('.')[0]
-        cls.profile = os.environ.get('TE_CONFIG_PROFILE', 'dev')
-        cls.apigw = dict(host=os.environ.get('APIGW_HOST', 'api.intr'),
+        cls.profile = os.environ.get('CONFIG_PROFILE', 'dev')
+        cls.apigw = dict(host=os.environ.get('APIGW_HOST', 'api-dev.intr'),
                          port=int(os.environ.get('APIGW_PORT', 443)),
                          user=os.environ.get('APIGW_USER', 'service'),
                          password=os.environ.get('APIGW_PASSWORD'))
@@ -75,7 +75,6 @@ class __Config:
 
     @classmethod
     def __getattr__(cls, item):
-        LOGGER.warn(item)
         value = getattr(cls, item, None)
         global _REMOTE_CONFIG_STALE
         if not value or _REMOTE_CONFIG_STALE:

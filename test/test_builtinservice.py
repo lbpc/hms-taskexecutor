@@ -1,20 +1,20 @@
-import sys
 from textwrap import dedent
 from unittest.mock import patch, Mock
 
 from pyfakefs.fake_filesystem_unittest import TestCase
 
-sys.modules['taskexecutor.config'] = Mock()
+from .mock_config import CONFIG
 
-from taskexecutor.config import CONFIG
+CONFIG.opservice.config_templates_cache = '/nowhere/cache'
+
 import taskexecutor.builtinservice as bs
 
 
 class TestLinuxUserManager(TestCase):
     def setUp(self):
+        CONFIG.builtinservice.linux_user_manager = Mock()
         CONFIG.builtinservice.sysconf_dir = '/nowhere/etc'
         CONFIG.conffile.tmp_dir = '/nowhere/conf'
-        CONFIG.builtinservice.linux_user_manager = Mock()
         self.setUpPyfakefs()
 
     def test_default_shell(self):
@@ -277,6 +277,9 @@ class TestLinuxUserManager(TestCase):
         self.fs.create_file('/nowhere/etc/group', contents='testgroup:x:123123:')
         bs.LinuxUserManager().create_group('testgroup')
         self.assertEqual(self.fs.get_object('/nowhere/etc/group').contents, 'testgroup:x:123123:')
+
+    def test_create_group_empty_name(self):
+        self.assertRaises(bs.InconsistentGroupData, bs.LinuxUserManager().create_group, '')
 
     def test_add_user_to_group(self):
         self.fs.create_file('/nowhere/etc/passwd', contents=dedent("""
@@ -569,6 +572,10 @@ class TestLinuxUserManager(TestCase):
             u2000:!::
             group1:!::u2000
         """).lstrip())
+
+    def test_create_user_empty_name(self):
+        self.assertRaises(bs.InconsistentUserData,
+                          bs.LinuxUserManager().create_user, '', 1, 'rest', 'does', 'not', 'matter')
 
     def test_delete_user(self):
         self.fs.create_dir('/home/user0')

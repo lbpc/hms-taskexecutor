@@ -96,7 +96,6 @@ class AMQPListener(Listener, ConsumerMixin):
 
     def take_event(self, message, context):
         res_type, action = context.delivery_info.get('exchange', '.').split('.')
-        message = json.loads(message)
         message['params']['objRef'] = message.pop('objRef')
         message['params']['provider'] = context.headers['provider']
         set_thread_name('OPERATION IDENTITY: {} '

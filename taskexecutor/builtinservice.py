@@ -129,6 +129,7 @@ class LinuxUserManager:
         if matched: return self.get_group(matched[0].split(':')[0])
 
     def create_group(self, name, gid=None):
+        if not name: raise InconsistentGroupData('Cannot create group without name')
         gid = gid or self._id_from_config(self._etc_group, name)
         try:
             same_gid = self.get_group_by_gid(gid)
@@ -179,6 +180,7 @@ class LinuxUserManager:
             self._etc_gshadow.save()
 
     def create_user(self, name, uid, home_dir, pass_hash, shell, gecos='', extra_groups=None):
+        if not name: raise InconsistentUserData('Cannot create user without name')
         try:
             user = self.get_user(name)
             if not user:
