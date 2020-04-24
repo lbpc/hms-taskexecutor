@@ -1,3 +1,31 @@
+Taskexecutor конфигурируется переменными окружения:
+- **LOG_LEVEL** : уровень логирования стандартного модуля logging Python, в любом регистре, по умолчанию _INFO_;
+- **APIGW_HOST** : хост API HMS, по умолчанию _api-dev.intr_;
+- **APIGW_PORT** : порт API HMS, по умолчанию _443_;
+- **APIGW_USER** : логин API HMS, по умолчанию _service_;
+- **APIGW_PASSWORD** : пароль API HMS;
+- **CONFIG_PROFILE** : профиль конфигурации HMS.configserver, аналог SPRING_PROFILES_ACTIVE, по умолчанию _dev_;
+- **REMOTE_CONFIG_TTL** : время устаревания данных от HMS.configserver в секундах, по умолчанию _60_; устаревшие данные повторно запрашиваются не сразу по истечении TTL, а по требованию, если TTL уже истек;
+
+Переменные [dev-](https://gitlab.intr/hms/config-repo/-/blob/master/te-dev.properties) и [prod-](https://gitlab.intr/hms/config-repo/-/blob/master/te-prod.properties)профилей тоже можно переназначить переменными окружения, имена переменных формируются по таким правилам:
+- все точки заменяются на подчеркивания (. →  _)
+- все подчеркивания заменяются на дефисы (_ →  -)
+- все символы переводятся в верхний регистр
+- к имени добавляется префикс TE_
+
+Например:
+
+conffile.tmp_dir=/var/tmp/conf-bak
+TE_CONFFILE_TMP-DIR=/run/cnf-swap
+
+max_workers.backup.files=2
+TE_MAX-WORKERS_BACKUP_FILES=4
+
+TE_SCHEDULE_BACKUP_UNIX-ACCOUNT_EXEC-TYPE=parallel
+TE_SCHEDULE_BACKUP_UNIX-ACCOUNT_DAILY=True
+TE_SCHEDULE_BACKUP_UNIX-ACCOUNT_AT=05:00
+TE_SCHEDULE_BACKUP_UNIX-ACCOUNT_DAILY=False
+
 ```bash
 root@web99:~# docker image inspect docker-registry.intr/hms/taskexecutor:latest | \
 jq .[].Config.Labels
