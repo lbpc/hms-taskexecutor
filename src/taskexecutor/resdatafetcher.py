@@ -8,7 +8,7 @@ import json
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-import taskexecutor.utils
+from taskexecutor.utils import exec_command
 
 __all__ = ["FileDataFetcher", "RsyncDataFetcher", "MysqlDataFetcher", "HttpDataFetcher", "GitDataFetcher"]
 
@@ -75,7 +75,7 @@ class FileDataFetcher(DataFetcher):
     def _copy_file_to_rsync(self):
         LOGGER.info("Syncing files between {} and {}".format(self._src_path, self.dst_uri))
         cmd = "rsync -av {0} {1}".format(self._src_path, self.dst_uri)
-        taskexecutor.utils.exec_command(cmd)
+        exec_command(cmd)
 
     def fetch(self):
         getattr(self, "_copy_file_to_{}".format(self._dst_scheme))()
@@ -124,7 +124,7 @@ class RsyncDataFetcher(DataFetcher):
             cmd = "rsync {} -av {} {}".format(args, shlex.quote(self.src_uri), shlex.quote(self.dst_path))
             error = None
             try:
-                taskexecutor.utils.exec_command(cmd)
+                exec_command(cmd)
             except Exception as e:
                 error = e
             if self.restic_repo:
@@ -135,7 +135,7 @@ class RsyncDataFetcher(DataFetcher):
                 if not self.src_uri.endswith("/"):
                     self.dst_path = os.path.join(self.dst_path,
                                                  os.path.split(urllib.parse.urlparse(self.src_uri).path)[1])
-                taskexecutor.utils.exec_command("chown -R {0}:{0} {1}".format(self.owner_uid, self.dst_path))
+                exec_command("chown -R {0}:{0} {1}".format(self.owner_uid, self.dst_path))
 
 
 class MysqlDataFetcher(DataFetcher):
@@ -159,7 +159,7 @@ class MysqlDataFetcher(DataFetcher):
 
     def _get_dump_streams(self):
         cmd = "mysqldump -h{0.src_host} -P{0.src_port} -u{0.src_user} -p{0.src_password} {0.src_database}".format(self)
-        return taskexecutor.utils.exec_command(cmd, return_raw_streams=True)
+        return exec_command(cmd, return_raw_streams=True)
 
     def fetch(self):
         if self.src_uri != self.dst_uri:
@@ -167,7 +167,7 @@ class MysqlDataFetcher(DataFetcher):
             if urllib.parse.urlparse(self.dst_uri).scheme == "mysql":
                 cmd = "mysql -h{0.dst_host} -P{0.dst_port} -u{1.user} -p{1.password} " \
                       "{0.dst_database}".format(self, CONFIG.mysql)
-                taskexecutor.utils.exec_command(cmd, pass_to_stdin=data)
+                exec_command(cmd, pass_to_stdin=data)
             else:
                 path = urllib.parse.urlparse(self.dst_uri).path
                 with open(path, "w") as f:
@@ -194,14 +194,14 @@ class HttpDataFetcher(DataFetcher):
         port = self._dst_uri_parsed.netloc.split(":")[-1] if ":" in self._dst_uri_parsed.netloc else CONFIG.mysql.port
         db = os.path.basename(self._dst_uri_parsed.path)
         cmd = "mysql -h{0} -P{1} -u{3.user} -p{3.password} {2}".format(host, port, db, CONFIG.mysql)
-        data, error = taskexecutor.utils.exec_command(self._curl_cmd, return_raw_streams=True)
-        taskexecutor.utils.exec_command(cmd, pass_to_stdin=data)
+        data, error = exec_command(self._curl_cmd, return_raw_streams=True)
+        exec_command(cmd, pass_to_stdin=data)
         error = error.read().decode("UTF-8")
         if error:
             raise DataFetchingError("Failed to fetch {}, error: {}".format(self.src_uri, error))
 
     def _curl_to_file(self):
-        data, error = taskexecutor.utils.exec_command(self._curl_cmd, return_raw_streams=True)
+        data, error = exec_command(self._curl_cmd, return_raw_streams=True)
         with open(self._dst_uri_parsed.path, "w") as f:
             f.write(data)
         error = error.read().decode("UTF-8")
@@ -223,12 +223,12 @@ class GitDataFetcher(DataFetcher):
 
     @staticmethod
     def is_git_repo(path):
-        r, _, __ = taskexecutor.utils.exec_command("git -C {} rev-parse --git-dir".format(path), raise_exc=False)
+        r, _, __ = exec_command("git -C {} rev-parse --git-dir".format(path), raise_exc=False)
         return r == 0
 
     @staticmethod
     def get_git_url(repo_path):
-        url = taskexecutor.utils.exec_command("git -C {} ls-remote --get-url".format(repo_path))
+        url = exec_command("git -C {} ls-remote --get-url".format(repo_path))
         if not urllib.parse.urlparse(url).scheme:
             url = "ssh://" + url
         return url
@@ -245,7 +245,7 @@ class GitDataFetcher(DataFetcher):
             if url != self.src_uri:
                 raise DataFetchingError("Git repository URL mismatch."
                                         "Requested: {} Actual: {}".format(self.src_uri, url))
-            taskexecutor.utils.exec_command("git -C {} checkout {}".format(self.dst_path, branch))
-            taskexecutor.utils.exec_command("git -C {} pull".format(self.dst_path))
+            exec_command("git -C {} checkout {}".format(self.dst_path, branch))
+            exec_command("git -C {} pull".format(self.dst_path))
         else:
-            taskexecutor.utils.exec_command("git -b {} clone {}".format(branch, self.dst_path))
+            exec_command("git -b {} clone {}".format(branch, self.dst_path))

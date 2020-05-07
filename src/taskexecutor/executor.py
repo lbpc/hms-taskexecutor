@@ -13,7 +13,7 @@ from taskexecutor.httpsclient import ApiClient
 from taskexecutor.listener import AMQPListener
 from taskexecutor.logger import LOGGER
 from taskexecutor.task import Task, TaskState
-from taskexecutor.utils import set_thread_name, to_camel_case, ThreadPoolExecutorStackTraced, rgetattr
+from taskexecutor.utils import set_thread_name, to_camel_case, ThreadPoolExecutorStackTraced
 from taskexecutor.watchdog import ProcessWatchdog
 
 __all__ = ['Executor']

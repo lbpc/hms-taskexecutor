@@ -9,7 +9,6 @@ CONFIG.opservice.config_templates_cache = '/nowhere/cache'
 
 import taskexecutor.builtinservice as bs
 
-
 class TestLinuxUserManager(TestCase):
     def setUp(self):
         CONFIG.builtinservice.linux_user_manager = Mock()

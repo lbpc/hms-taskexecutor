@@ -1,12 +1,12 @@
 import abc
+import base64
 import http.client
 import json
 import time
-import base64
 import urllib.parse
 
 from taskexecutor.logger import LOGGER
-import taskexecutor.utils
+from taskexecutor.utils import to_lower_dashed, cast_to_numeric_recursively, object_hook
 
 __all__ = ["ApiClient", "ConfigServerClient", "GitLabClient"]
 
@@ -138,7 +138,7 @@ class ApiClient(HttpsClient):
         return self
 
     def __getattr__(self, name):
-        name = taskexecutor.utils.to_lower_dashed(name)
+        name = to_lower_dashed(name)
 
         def constructor(res_id=None, query=None):
             if res_id:
@@ -258,10 +258,10 @@ class ApiObjectMapper:
     def as_object(self, extra_attrs=None, overwrite=False,
                   expand_dot_separated=False, comma_separated_to_list=False, force_numeric=False):
         return json.loads(
-                self._json_string,
-                object_hook=lambda d: taskexecutor.utils.object_hook(d, extra_attrs, overwrite, expand_dot_separated,
-                                                                     comma_separated_to_list, force_numeric)
+            self._json_string,
+            object_hook=lambda d: object_hook(d, extra_attrs, overwrite, expand_dot_separated,
+                                              comma_separated_to_list, force_numeric)
         )
 
     def as_dict(self):
-        return taskexecutor.utils.cast_to_numeric_recursively(json.loads(self._json_string))
+        return cast_to_numeric_recursively(json.loads(self._json_string))

@@ -4,7 +4,7 @@ import shutil
 
 import docker
 
-import taskexecutor.opservice
+from taskexecutor.opservice import DatabaseServer
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 from taskexecutor.utils import exec_command, asdict
@@ -94,7 +94,7 @@ class DataEraser(DataPostprocessor):
         db_server = self.args.get("dbServer")
         if not db_server:
             raise PostprocessorArgumentError("No database server was specified")
-        if not isinstance(db_server, taskexecutor.opservice.DatabaseServer):
+        if not isinstance(db_server, DatabaseServer):
             raise PostprocessorArgumentError("{} is not a database server".format(db_server))
         LOGGER.info("Dropping all data from {} database".format(name))
         db_server.drop_database(name)

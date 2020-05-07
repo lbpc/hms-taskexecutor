@@ -1,7 +1,5 @@
-import collections
 import concurrent.futures
 import copy
-import functools
 import hashlib
 import queue
 import re
@@ -9,6 +7,10 @@ import subprocess
 import threading
 import time
 import traceback
+from collections import namedtuple
+from collections.abc import Iterable, Iterator, Mapping
+from functools import partial, reduce, wraps
+from itertools import product, chain
 from numbers import Number
 
 from taskexecutor.logger import LOGGER
@@ -59,7 +61,7 @@ class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
 def rgetattr(obj, path, *default):
     attrs = path.split('.')
     try:
-        return functools.reduce(getattr, attrs, obj)
+        return reduce(getattr, attrs, obj)
     except AttributeError:
         if default:
             return default[0]
@@ -153,7 +155,7 @@ def to_snake_case(name):
 
 
 def synchronized(f):
-    @functools.wraps(f)
+    @wraps(f)
     def wrapper(self, *args, **kwargs):
         global LOCKS
         if f not in LOCKS.keys():
@@ -165,7 +167,7 @@ def synchronized(f):
 
 
 def timed(f):
-    @functools.wraps(f)
+    @wraps(f)
     def wrapper(self, *args, **kwargs):
         start = time.time()
         f(self, *args, **kwargs)
@@ -202,7 +204,7 @@ def namedtuple_from_mapping(mapping, type_name="Something"):
             del mapping[k]
     ApiObject = TYPES_MAPPING.get(class_key)
     if not ApiObject:
-        ApiObject = collections.namedtuple(type_name, mapping.keys())
+        ApiObject = namedtuple(type_name, mapping.keys())
         ApiObject.__reduce__ = namedtuple_reduce
         TYPES_MAPPING[class_key] = ApiObject
     return ApiObject(**mapping)
@@ -228,7 +230,7 @@ def dict_merge(target, *args, overwrite=False):
 
 
 def to_namedtuple(maybe_mapping):
-    if isinstance(maybe_mapping, collections.Mapping):
+    if isinstance(maybe_mapping, Mapping):
         for k, v in maybe_mapping.items():
             maybe_mapping[k] = to_namedtuple(v)
         return namedtuple_from_mapping(maybe_mapping)
@@ -264,7 +266,7 @@ def object_hook(dct, extra, overwrite, expand, comma, numcast):
     if expand:
         new_dct = dict()
         for key in dct.keys():
-            dict_merge(new_dct, functools.reduce(lambda x, y: {y: x}, reversed(key.split(".")), dct[key]),
+            dict_merge(new_dct, reduce(lambda x, y: {y: x}, reversed(key.split(".")), dct[key]),
                        overwrite=overwrite)
         if extra and all(k in new_dct.keys() for k in extra.keys()):
             dict_merge(new_dct, extra, overwrite=overwrite)
@@ -275,30 +277,66 @@ def object_hook(dct, extra, overwrite, expand, comma, numcast):
         return namedtuple_from_mapping(dct)
 
 
-def attrs_to_env(obj):
-    res = {}
-    for name in dir(obj):
-        possible_names = (name,
-                          name.upper(),
-                          to_snake_case(name),
-                          to_snake_case(name).upper(),
-                          to_lower_dashed(name),
-                          to_lower_dashed(name).upper())
-        attr = getattr(obj, name)
-        if not name.startswith("_") and not callable(attr) and name != "env":
-            for n in possible_names:
-                try:
-                    res["${}".format(n)] = str(attr)
-                    res["${{{}}}".format(n)] = str(attr)
-                    if not isinstance(attr, Number):
-                        for k, v in attrs_to_env(attr).items():
-                            k = k.lstrip("$").strip("{}")
-                            for n in possible_names:
-                                res["${}_{}".format(n, k)] = str(v)
-                                res["${{{}_{}}}".format(n, k)] = str(v)
-                except Exception as e:
-                    LOGGER.warning(f'Failed to convert {attr} to env variable: {e}')
-    return res
+def is_namedtuple(obj):
+    return (isinstance(obj, tuple) and
+            callable(getattr(obj, '_asdict', None)) and
+                     getattr(obj, '_fields', None) is not None)
+
+
+def name_variations(name):
+    name = str(name)
+    snake = to_snake_case(name)
+    dash = to_lower_dashed(name)
+    return {name, name.upper(), snake, snake.upper(), dash, dash.upper()}
+
+
+def attrs_to_env(obj, sigils=True, brackets=True, exclude_names=('env',), exclude_attrs=()):
+    result = {}
+    templates = ['${}' if sigils else '{}']
+    if brackets and sigils:
+        templates.append('${{{}}}')
+    elif brackets:
+        templates.append('{{{}}}')
+    get_value = partial(getattr, obj)
+    if isinstance(obj, dict):
+        names = obj.keys()
+        get_value = lambda n: obj.get(n)
+    elif isinstance(obj, (str, Number)):
+        names = ()
+    else:
+        names = filter(lambda n: n not in exclude_names and not n.startswith('_'), dir(obj))
+    exc = exclude_attrs + (obj,)
+    for name in names:
+        try:
+            attr = get_value(name)
+            if callable(attr) or attr in exclude_attrs: continue
+            if isinstance(attr, (str, Number)):
+                value = str(attr)
+                result.update({t.format(n): value
+                               for t, n in product(templates, name_variations(name))})
+            elif isinstance(attr, (Iterable, Iterator)) and not isinstance(attr, dict) and not is_namedtuple(obj):
+                if isinstance(attr, set): attr = sorted(attr)
+                attr = tuple(attr)
+                if not attr: continue
+                if all((isinstance(e, (str, Number)) for e in attr)):
+                    result.update({t.format(n): ','.join(map(str, attr))
+                                   for t, n in product(templates, name_variations(name))})
+                else:
+                    elements = (attrs_to_env({i: e}, sigils=False, brackets=False, exclude_attrs=exc).items() for i, e
+                                in enumerate(filter(None, attr)))
+                    result.update(
+                        {t.format(f'{n}_{k}'): v
+                         for t, n, (k, v) in product(templates, name_variations(name), chain(*elements))}
+                    )
+            else:
+                result.update({t.format(f'{n}_{k}'): v for t, n, (k, v)
+                               in product(templates,
+                                          name_variations(name),
+                                          attrs_to_env(attr, sigils=False, brackets=False, exclude_attrs=exc).items())})
+                continue
+        except Exception as e:
+            LOGGER.warning(f'Failed to convert {obj}.{name} to env variable: {e}')
+    return result
 
 
 def asdict(obj):

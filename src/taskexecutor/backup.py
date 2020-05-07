@@ -2,15 +2,15 @@ import abc
 import hashlib
 import os
 import re
-import requests
-import shutil
 import shlex
+import shutil
 import time
+
 from psutil import pid_exists, Process
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-import taskexecutor.utils
+from taskexecutor.utils import exec_command
 
 __all__ = ["ResticBackup"]
 
@@ -44,7 +44,7 @@ class ResticBackup(Backuper):
         code = 1
         stdout = stderr = ""
         while code > 0:
-            code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + cmd, raise_exc=False)
+            code, stdout, stderr = exec_command(base_cmd + cmd, raise_exc=False)
             matched = re.match(r".*locked.*by PID (\d+) on ([^.]+)", stderr or "")
             if code > 0 and not matched:
                 break
@@ -56,7 +56,7 @@ class ResticBackup(Backuper):
                     # it's safe to unlock now
                     LOGGER.warn("repo is locked by PID {} from {} which is no longer running, "
                                 "unlocking".format(pid, host))
-                    taskexecutor.utils.exec_command(base_cmd + " unlock")
+                    exec_command(base_cmd + " unlock")
                 else:
                     LOGGER.warn("repo is locked by PID {} at {}, waiting for 5s".format(pid, host))
                     time.sleep(5)
@@ -78,9 +78,9 @@ class ResticBackup(Backuper):
         exclude = exclude or self.default_excludes
         restic = CONFIG.restic.binary_path if os.path.exists(CONFIG.restic.binary_path) else shutil.which('restic')
         base_cmd = ("RESTIC_PASSWORD={0.password} "
-               "{1} -r rest:http://restic:{0.password}@{0.host}:{0.port}/{2} ".format(CONFIG.restic, restic, repo))
+                    "{1} -r rest:http://restic:{0.password}@{0.host}:{0.port}/{2} ".format(CONFIG.restic, restic, repo))
         backup_cmd = "backup {0} {1}".format("".join((" -e {}".format(shlex.quote(e)) for e in exclude)), dir)
-        code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + "init", raise_exc=False)
+        code, stdout, stderr = exec_command(base_cmd + "init", raise_exc=False)
         if code > 0 and not stderr.rstrip().endswith("already exists"):
             raise BackupError("Resic error: {}".format(stderr.strip()))
         code, stdout, stderr = self._run_expecting_restic_lock(base_cmd, backup_cmd)

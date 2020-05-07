@@ -1,9 +1,7 @@
 import abc
 import datetime
-import json
 import queue
 import time
-import platform
 from itertools import product
 
 import schedule
