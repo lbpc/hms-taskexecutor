@@ -314,7 +314,7 @@ def attrs_to_env(obj, sigils=True, brackets=True, exclude_names=('env',), exclud
                 value = str(attr)
                 result.update({t.format(n): value
                                for t, n in product(templates, name_variations(name))})
-            elif isinstance(attr, (Iterable, Iterator)) and not isinstance(attr, dict) and not is_namedtuple(obj):
+            elif isinstance(attr, (Iterable, Iterator)) and not isinstance(attr, dict) and not is_namedtuple(attr):
                 if isinstance(attr, set): attr = sorted(attr)
                 attr = tuple(attr)
                 if not attr: continue

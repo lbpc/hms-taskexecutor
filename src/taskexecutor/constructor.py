@@ -1,5 +1,5 @@
-import collections
 import urllib.parse
+from types import SimpleNamespace
 
 from taskexecutor.backup import ResticBackup
 from taskexecutor.builtinservice import *
@@ -75,7 +75,7 @@ def get_opservice(service):
     global SERVICE_ID_TO_OPSERVICE_MAPPING
     opservice = SERVICE_ID_TO_OPSERVICE_MAPPING.get(service.id)
     if not opservice:
-        LOGGER.debug(f'service template name is {service.template.name}')
+        LOGGER.debug(f"service template name is '{service.template.name}'")
         t_name = service.template.__class__.__name__
         superv = service.template.supervisionType
         private = service.template.availableToAccounts
@@ -97,6 +97,7 @@ def get_opservice(service):
         service_name = service.name.lower().split('@')[0]
         if hasattr(service, 'accountId') and service.accountId:
             service_name += '-' + service.id
+        LOGGER.debug(f"service name will be '{service_name}'")
         opservice = OpService(service_name, service)
         if isinstance(opservice, DockerService):
             LOGGER.debug(f'{service_name} is dockerized service')
@@ -141,16 +142,13 @@ def get_all_opservices_by_res_type(resource_type):
               if s.template.resourceType == resource_type.upper()), None)
 
 
-def get_extra_services(res_processor):
-    if isinstance(res_processor, WebSiteProcessor):
-        ServiceContainer = collections.namedtuple('ServiceContainer', 'http_proxy old_app_server')
-        return ServiceContainer(http_proxy=get_http_proxy_service(),
-                                old_app_server=get_opservice_by_resource(res_processor.op_resource, 'website')
-                                if res_processor.op_resource else None)
-    if isinstance(res_processor, UnixAccountProcessor):
-        ServiceContainer = collections.namedtuple('ServiceContainer', 'mta cron')
-        return ServiceContainer(mta=get_mta_service(), cron=get_cron_service())
-    return list()
+def get_extra_services(worker):
+    if isinstance(worker, WebSiteProcessor):
+        return SimpleNamespace(http_proxy=get_http_proxy_service(),
+                               old_app_server=get_opservice_by_resource(worker.op_resource, 'website')
+                               if worker.op_resource else None)
+    elif isinstance(worker, (UnixAccountProcessor, UnixAccountCollector)):
+        return SimpleNamespace(mta=get_mta_service(), cron=get_cron_service())
 
 
 def get_resprocessor(resource_type, resource, params=None):
@@ -185,7 +183,9 @@ def get_rescollector(resource_type, resource):
                     'redirect': RedirectCollector}.get(resource_type)
     if not ResCollector: raise ClassSelectionError(f'Unknown resource type: {resource_type}')
     op_service = get_opservice_by_resource(resource, resource_type)
-    return ResCollector(resource, op_service)
+    collector = ResCollector(resource, op_service)
+    collector.extra_services = get_extra_services(collector)
+    return collector
 
 
 def get_datafetcher(src_uri, dst_uri, params=None):

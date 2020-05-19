@@ -11,9 +11,10 @@ from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 from taskexecutor.utils import synchronized, asdict
 from taskexecutor.watchdog import ProcessWatchdog
+from taskexecutor.builtinservice import LinuxUserManager
 
-__all__ = ["UnixAccountCollector", "DatabaseUserCollector", "DatabaseCollector", "MailboxCollector", "WebsiteCollector",
-           "SslCertificateCollector", "ServiceCollector", "ResourceArchiveCollector", "RedirectCollector"]
+__all__ = ['UnixAccountCollector', 'DatabaseUserCollector', 'DatabaseCollector', 'MailboxCollector', 'WebsiteCollector',
+           'SslCertificateCollector', 'ServiceCollector', 'ResourceArchiveCollector', 'RedirectCollector']
 
 
 class ResCollector(metaclass=abc.ABCMeta):
@@ -31,24 +32,27 @@ class ResCollector(metaclass=abc.ABCMeta):
         pass
 
     def get_cache_key(self, property_name, op_res_id):
-        return "{0}.{1}.{2}".format(self.__class__.__name__, op_res_id, property_name)
+        return f'{self.__class__.__name__}.{op_res_id}.{property_name}'
 
-    def check_cache(self, key, ttl):
-        LOGGER.debug("Cache size: {}".format(sys.getsizeof(ResCollector._cache)))
-        LOGGER.debug("Probing cache for key: {}".format(key))
-        LOGGER.debug("Cache record: {}".format(ResCollector._cache.get(key)))
-        cached = key in ResCollector._cache.keys() and ResCollector._cache[key]
+    @staticmethod
+    def check_cache(key, ttl):
+        LOGGER.debug(f'Cache size: {sys.getsizeof(ResCollector._cache)}')
+        LOGGER.debug(f'Probing cache for key: {key}')
+        LOGGER.debug(f'Cache record: {ResCollector._cache.get(key)}')
+        cached = ResCollector._cache.get(key)
         expired = False
         if cached:
-            expired = (ResCollector._cache[key]["timestamp"] + ttl) < time.time()
-        return cached, expired
+            expired = (cached['timestamp'] + ttl) < time.time()
+        return bool(cached), expired
 
-    def add_property_to_cache(self, key, value):
-        LOGGER.debug("Pushing to cache: {}={}".format(key, value))
-        ResCollector._cache[key] = {"value": value, "timestamp": time.time()}
+    @staticmethod
+    def add_property_to_cache(key, value):
+        LOGGER.debug(f'Pushing to cache: {key}={value}')
+        ResCollector._cache[key] = {'value': value, 'timestamp': time.time()}
 
-    def get_property_from_cache(self, key):
-        return ResCollector._cache[key]["value"]
+    @staticmethod
+    def get_property_from_cache(key):
+        return ResCollector._cache[key]['value']
 
     def ignore_property(self, property_name):
         self._ignored_properties.add(property_name)
@@ -62,10 +66,11 @@ class ResCollector(metaclass=abc.ABCMeta):
             op_resource[property_name] = self.get_property(property_name, cache_ttl=cache_ttl)
             cache_ttl += time.time() - start_collecting_time
         if not any(op_resource.values()):
-            LOGGER.warning("No resource available, ID: {0}, name: {1}".format(getattr(self.resource, "id", None),
-                                                                              self.resource.name))
+            LOGGER.warning(f"No resource available,"
+                           f"ID: {getattr(self.resource, 'id', None)},"
+                           f"name: {self.resource.name}")
             return
-        return collections.namedtuple("OpResource", op_resource.keys())(*op_resource.values())
+        return collections.namedtuple('OpResource', op_resource.keys())(*op_resource.values())
 
 
 class UnixAccountCollector(ResCollector):
@@ -77,33 +82,31 @@ class UnixAccountCollector(ResCollector):
         key = self.get_cache_key(property_name, self.resource.uid)
         cached, expired = self.check_cache(key, cache_ttl)
         if cached and not expired:
-            LOGGER.debug("Cache hit for property: {}".format(property_name))
+            LOGGER.debug(f'Cache hit for property: {property_name}')
             return self.get_property_from_cache(key)
-        etc_passwd = cnstr.get_conffile("lines", "/etc/passwd")
-        matched_lines = etc_passwd.get_lines("^{}:".format(self.resource.name))
-        if property_name == "quotaUsed":
+        if property_name == 'quotaUsed':
             uid_quota_used_mapping = self.service.get_quota()
             for uid, quota_used_bytes in uid_quota_used_mapping.items():
-                LOGGER.debug("UID: {0} quota used: {1} bytes".format(uid, quota_used_bytes))
+                LOGGER.debug(f'UID: {uid} quota used: {quota_used_bytes} bytes')
                 self.add_property_to_cache(self.get_cache_key(property_name, uid), quota_used_bytes)
             return uid_quota_used_mapping.get(self.resource.uid) or 0
-        elif property_name == "cpuUsed":
+        elif property_name == 'cpuUsed':
             now = time.time()
             cpu_nanosec = self.service.get_cpuacct(self.resource.name)
             cpu_used = dict(at=now, nanoseconds=cpu_nanosec, percents=0)
-            prev = self._cache.get(self.get_cache_key("cpuUsed", self.resource.uid))
+            prev = self._cache.get(self.get_cache_key('cpuUsed', self.resource.uid))
             if prev:
-                period = now - prev["timestamp"]
-                delta_seconds = (cpu_nanosec - prev["value"]["nanoseconds"]) / 1000000000
+                period = now - prev['timestamp']
+                delta_seconds = (cpu_nanosec - prev['value']['nanoseconds']) / 1000000000
                 percents = delta_seconds / period * 100
-                cpu_used["percents"] = percents
+                cpu_used['percents'] = percents
             self.add_property_to_cache(self.get_cache_key(property_name, self.resource.uid), cpu_used)
             return cpu_used
-        elif property_name == "infectedFiles":
+        elif property_name == 'infectedFiles':
             infected_files = list()
             if self.resource.infected and cached:
                 infected_files = self.get_property_from_cache(key)
-            elif self.get_property("cpuUsed")["percents"] > CONFIG.unix_account.malscan_cpu_threshold:
+            elif self.get_property('cpuUsed')['percents'] > CONFIG.unix_account.malscan_cpu_threshold:
                 for path in ProcessWatchdog.get_workdirs_by_uid(self.resource.uid):
                     files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
                     for file in files:
@@ -111,37 +114,35 @@ class UnixAccountCollector(ResCollector):
                                 os.stat(file).st_mode & 0o0777 > 0o0 and \
                                 os.stat(file).st_uid == self.resource.uid and \
                                 os.path.getsize(file) < CONFIG.clamd.stream_max_length:
-                            with open(file, "rb") as f:
+                            with open(file, 'rb') as f:
                                 try:
                                     scan_res = self._clamd.instream(f)
-                                    file = file.encode("utf-8", "replace").decode("utf-8")
-                                    LOGGER.debug("Malware scan result for {}: {}".format(file, scan_res))
-                                    if "stream" in scan_res.keys() and scan_res["stream"][0] == "FOUND":
+                                    file = file.encode('utf-8', 'replace').decode('utf-8')
+                                    LOGGER.debug(f'Malware scan result for {file}: {scan_res}')
+                                    if 'stream' in scan_res and scan_res['stream'][0] == 'FOUND':
                                         infected_files.append(file)
                                 except Exception as e:
-                                    LOGGER.warning("Failed to scan {}: {}".format(file, e))
+                                    LOGGER.warning(f'Failed to scan {file}: {e}')
                 self.add_property_to_cache(key, infected_files)
             return infected_files
-        elif property_name in ("name", "uid", "homeDir", "crontab"):
-            if len(matched_lines) != 1:
-                LOGGER.warning("Cannot determine user {0}, "
-                               "lines found in /etc/passwd: {1}".format(self.resource.name, matched_lines))
-                return
-            name, _, uid, _, _, home_dir, _ = matched_lines[0].split(":")
-            CronTask = collections.namedtuple("CronTask", "switchedOn execTimeDescription execTime command")
+        elif property_name == 'crontab':
+            CronTask = collections.namedtuple('CronTask', 'switchedOn execTimeDescription execTime command')
             crontab = [CronTask(switchedOn=True,
-                                execTimeDescription="",
-                                execTime=" ".join(s.split(" ")[:5]),
-                                command=" ".join(s.split(" ")[5:]))
-                       for s in self.service.get_crontab(name).split("\n") if s]
-            self.add_property_to_cache(self.get_cache_key("name", self.resource.uid), name)
-            self.add_property_to_cache(self.get_cache_key("uid", self.resource.uid), int(uid))
-            self.add_property_to_cache(self.get_cache_key("homeDir", self.resource.uid), home_dir)
-            self.add_property_to_cache(self.get_cache_key("crontab", self.resource.uid), crontab)
-            return {"name": name,
-                    "uid": int(uid),
-                    "homeDir": home_dir,
-                    "crontab": crontab}.get(property_name)
+                                execTimeDescription='',
+                                execTime=' '.join(s.split(' ')[:5]),
+                                command=' '.join(s.split(' ')[5:]))
+                       for s in self.extra_services.cron.get_crontab(self.resource.name).split('\n') if s]
+            self.add_property_to_cache(self.get_cache_key(property_name, self.resource.uid), crontab)
+            return crontab
+        elif property_name in ('name', 'uid', 'homeDir'):
+            user = self.service.get_user(self.resource.name)
+            if not user: return
+            self.add_property_to_cache(self.get_cache_key('name', self.resource.uid), user.name)
+            self.add_property_to_cache(self.get_cache_key('uid', self.resource.uid), user.uid)
+            self.add_property_to_cache(self.get_cache_key('homeDir', self.resource.uid), user.home)
+            return {'name': user.name,
+                    'uid': user.uid,
+                    'homeDir': user.home}.get(property_name)
 
 
 class MailboxCollector(ResCollector):
@@ -152,8 +153,8 @@ class MailboxCollector(ResCollector):
         cached, expired = self.check_cache(key, cache_ttl)
         if cached and not expired:
             return self.get_property_from_cache(key)
-        if property_name == "quotaUsed":
-            if os.path.exists(os.path.join(maildir_path, "maildirsize")):
+        if property_name == 'quotaUsed':
+            if os.path.exists(os.path.join(maildir_path, 'maildirsize')):
                 maildir_size = self.service.get_maildir_size(self.resource.mailSpool, self.resource.name)
             else:
                 maildir_size = self.service.get_real_maildir_size(self.resource.mailSpool, self.resource.name)
@@ -161,9 +162,9 @@ class MailboxCollector(ResCollector):
                                                      maildir_size, self.resource.uid)
             self.add_property_to_cache(key, maildir_size)
             return maildir_size or 0
-        elif property_name in ("name", "mailSpool") and os.path.exists(maildir_path) and os.path.isdir(maildir_path):
-            self.add_property_to_cache(self.get_cache_key("name", maildir_path), self.resource.name)
-            self.add_property_to_cache(self.get_cache_key("mailSpool", maildir_path),
+        elif property_name in ('name', 'mailSpool') and os.path.exists(maildir_path) and os.path.isdir(maildir_path):
+            self.add_property_to_cache(self.get_cache_key('name', maildir_path), self.resource.name)
+            self.add_property_to_cache(self.get_cache_key('mailSpool', maildir_path),
                                        self.service.normalize_spool(self.resource.mailSpool))
             return getattr(self.resource, property_name, None)
 
@@ -174,15 +175,15 @@ class DatabaseUserCollector(ResCollector):
         cached, expired = self.check_cache(key, cache_ttl)
         if cached and not expired:
             return self.get_property_from_cache(key) or 0
-        if property_name in ("name", "passwordHash", "allowedIPAddresses"):
+        if property_name in ('name', 'passwordHash', 'allowedIPAddresses'):
             name, password_hash, addrs = self.service.get_user(self.resource.name)
             if name:
-                self.add_property_to_cache(self.get_cache_key("name", self.resource.name), name)
-                self.add_property_to_cache(self.get_cache_key("passwordHash", self.resource.name), password_hash)
-                self.add_property_to_cache(self.get_cache_key("allowedIPAddresses", self.resource.name), addrs or [])
-                return {"name": name,
-                        "passwordHash": password_hash,
-                        "allowedIPAddresses": addrs or []}.get(property_name)
+                self.add_property_to_cache(self.get_cache_key('name', self.resource.name), name)
+                self.add_property_to_cache(self.get_cache_key('passwordHash', self.resource.name), password_hash)
+                self.add_property_to_cache(self.get_cache_key('allowedIPAddresses', self.resource.name), addrs or [])
+                return {'name': name,
+                        'passwordHash': password_hash,
+                        'allowedIPAddresses': addrs or []}.get(property_name)
 
 
 class DatabaseCollector(ResCollector):
@@ -192,43 +193,43 @@ class DatabaseCollector(ResCollector):
         cached, expired = self.check_cache(key, cache_ttl)
         if cached and not expired:
             return self.get_property_from_cache(key)
-        if property_name == "quotaUsed" and not cache_ttl:
+        if property_name == 'quotaUsed' and not cache_ttl:
             database_size = self.service.get_database_size(self.resource.name)
             if isinstance(database_size, None):
-                LOGGER.warning("No database found: {}".format(self.resource.name))
+                LOGGER.warning(f'No database found: {self.resource.name}')
                 return
             self.add_property_to_cache(key, database_size)
-        elif property_name == "quotaUsed":
+        elif property_name == 'quotaUsed':
             database_names = self.service.get_all_database_names()
             if self.resource.name not in database_names:
-                LOGGER.warning("No database found: {}".format(self.resource.name))
+                LOGGER.warning(f'No database found: {self.resource.name}')
                 return
             database_size_mapping = self.service.get_all_databases_size()
             for database_name in database_names:
                 size = database_size_mapping.get(database_name) or 0
-                LOGGER.debug("Database: {0} Size: {1} bytes".format(database_name, size))
+                LOGGER.debug(f'Database: {database_name} Size: {size} bytes')
                 self.add_property_to_cache(self.get_cache_key(property_name, database_name), size)
             return database_size_mapping.get(self.resource.name) or 0
-        elif property_name in ("name", "databaseUsers"):
+        elif property_name in ('name', 'databaseUsers'):
             db_users = list()
             name, users = self.service.get_database(self.resource.name)
             if name:
-                self.add_property_to_cache(self.get_cache_key("name", self.resource.name), name)
+                self.add_property_to_cache(self.get_cache_key('name', self.resource.name), name)
                 for user_name, password_hash, addrs in users:
-                    OpDatabaseUser = collections.namedtuple("OpDatabaseUser", "name passwordHash allowedIPAddresses")
+                    OpDatabaseUser = collections.namedtuple('OpDatabaseUser', 'name passwordHash allowedIPAddresses')
                     db_user = next((user for user in self.resource.databaseUsers if user.name == user_name),
                                    OpDatabaseUser(user_name, password_hash, addrs))
                     collected_db_user = DatabaseUserCollector(db_user, self.service).get()
                     if collected_db_user:
                         db_users.append(collected_db_user)
-                self.add_property_to_cache(self.get_cache_key("databaseUsers", self.resource.name), db_users)
-                return {"name": name,
-                        "databaseUsers": db_users}.get(property_name)
+                self.add_property_to_cache(self.get_cache_key('databaseUsers', self.resource.name), db_users)
+                return {'name': name,
+                        'databaseUsers': db_users}.get(property_name)
 
 
 class WebsiteCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
-        if property_name == "serviceId":
+        if property_name == 'serviceId':
             for service in cnstr.get_application_servers():
                 if len(service.get_website_configs(self.resource)) > 0:
                     return service.spec.id
@@ -236,9 +237,9 @@ class WebsiteCollector(ResCollector):
 
 class RedirectCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
-        if property_name == "serviceId":
+        if property_name == 'serviceId':
             http_server = cnstr.get_http_proxy_service()
-            if http_server and len(http_server.get_website_configs(self.resource.id)) > 0:
+            if http_server and len(http_server.get_website_configs(self.resource)) > 0:
                 return http_server.spec.id
 
 
@@ -249,8 +250,8 @@ class SslCertificateCollector(ResCollector):
 
 class ServiceCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
-        if property_name == "name" and self.service:
-            return "{0}@{1}".format(self.service.name, CONFIG.hostname)
+        if property_name == 'name' and self.service:
+            return f'{self.service.name}@{CONFIG.hostname}'
 
 
 class ResourceArchiveCollector(ResCollector):

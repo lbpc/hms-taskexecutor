@@ -87,6 +87,8 @@ class UnixAccountProcessor(ResProcessor):
             self.service.delete_user(self.resource.name)
             raise
         if len(self.resource.crontab) > 0:
+            if not self.extra_services.cron:
+                raise ResourceProcessingError(f'Cannot create crontab for user {self.resource.name}, no cron service')
             self.extra_services.cron.create_crontab(self.resource.name,
                                                     filter(lambda t: t.switchedOn, self.resource.crontab))
         if getattr(self.resource, 'keyPair', None):
@@ -111,6 +113,8 @@ class UnixAccountProcessor(ResProcessor):
                 self.service.change_uid(self.resource.name, self.resource.uid)
             self.service.set_shell(self.resource.name,
                                    {True: self.service.default_shell, False: None}[switched_on])
+            if not self.extra_services.mta:
+                raise ResourceProcessingError(f'Cannot update sendmail for user {self.resource.name}, no MTA service')
             if self.resource.sendmailAllowed:
                 self.extra_services.mta.enable_sendmail(self.resource.uid)
             else:
@@ -133,6 +137,8 @@ class UnixAccountProcessor(ResProcessor):
                 LOGGER.info('Creating authorized_keys for user {0.name}'.format(self.resource))
                 self.service.create_authorized_keys(self.resource.keyPair.publicKey,
                                                     self.resource.uid, self.resource.homeDir)
+            if not self.extra_services.cron:
+                raise ResourceProcessingError(f'Cannot process crontab for user {self.resource.name}, no cron service')
             if len(self.resource.crontab) > 0 and switched_on:
                 self.extra_services.cron.create_crontab(self.resource.name,
                                                         [task for task in self.resource.crontab if task.switchedOn])
@@ -209,8 +215,9 @@ class WebSiteProcessor(ResProcessor):
         services = [self.extra_services.http_proxy]
         if self.params.get('oldHttpProxyIp') != self.extra_services.http_proxy.socket.http.address:
             services.append(self.service)
+        LOGGER.debug('Configuring services: {}'.format(', '.join((s.name for s in services))))
         for service in services:
-            configs = service.get_website_configs(self.resource.id)
+            configs = service.get_website_configs(self.resource)
             for each in configs:
                 each.render_template(service=service, vhosts=vhosts_list, params=self.params)
                 each.write()
@@ -240,7 +247,7 @@ class WebSiteProcessor(ResProcessor):
     def update(self):
         if not self.resource.switchedOn:
             for service in (self.service, self.extra_services.http_proxy):
-                for each in service.get_website_configs(self.resource.id): each.delete()
+                for each in service.get_website_configs(self.resource): each.delete()
                 if not self._without_reload:
                     service.reload()
         else:
@@ -248,7 +255,7 @@ class WebSiteProcessor(ResProcessor):
             if self.extra_services.old_app_server and (self.extra_services.old_app_server.name != self.service.name or
                                                        type(self.extra_services.old_app_server) != type(self.service)):
                 LOGGER.info(f'Removing config from old application server {self.extra_services.old_app_server.name}')
-                for each in self.extra_services.old_app_server.get_website_configs(self.resource.id): each.delete()
+                for each in self.extra_services.old_app_server.get_website_configs(self.resource): each.delete()
                 if not self._without_reload:
                     self.extra_services.old_app_server.reload()
 
@@ -256,7 +263,7 @@ class WebSiteProcessor(ResProcessor):
     def delete(self):
         shutil.rmtree(os.path.join('/opcache', self.resource.id), ignore_errors=True)
         for service in (self.extra_services.http_proxy, self.service):
-            for each in service.get_website_configs(self.resource.id): each.delete()
+            for each in service.get_website_configs(self.resource): each.delete()
             service.reload()
 
 
@@ -539,7 +546,7 @@ class RedirectProcessor(ResProcessor):
         res_dict['domains'] = [res_dict.get('domain')]
         del res_dict['domain']
         vhost = collections.namedtuple('VHost', res_dict.keys())(*res_dict.values())
-        configs = self.service.get_website_configs(self.resource.id)
+        configs = self.service.get_website_configs(self.resource)
         for each in configs:
             each.render_template(service=self.service, vhosts=[vhost], params=self.params)
             each.write()
@@ -559,5 +566,5 @@ class RedirectProcessor(ResProcessor):
 
     @synchronized
     def delete(self):
-        for each in self.service.get_website_configs(self.resource.id): each.delete()
+        for each in self.service.get_website_configs(self.resource): each.delete()
         self.service.reload()

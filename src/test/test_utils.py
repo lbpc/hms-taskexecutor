@@ -192,6 +192,18 @@ class TestAttrsToEnv(unittest.TestCase):
              '${SPAM_BRANDY}': '3'}
         )
 
+    def test_inner_namedtuple(self):
+        o = SimpleNamespace(spam=namedtuple('Eggs', 'eggs')(1))
+        self.assertEqual(attrs_to_env(o),
+                         {'$spam_eggs': '1',
+                          '$spam_EGGS': '1',
+                          '$SPAM_eggs': '1',
+                          '$SPAM_EGGS': '1',
+                          '${spam_eggs}': '1',
+                          '${spam_EGGS}': '1',
+                          '${SPAM_eggs}': '1',
+                          '${SPAM_EGGS}': '1'})
+
     def test_string_o_number_iterables(self):
         o = SimpleNamespace(list=['a', 'b', 'c'],
                             tuple=('a', 1, 'c'),
@@ -233,25 +245,29 @@ class TestAttrsToEnv(unittest.TestCase):
         self.assertEqual(attrs_to_env(o),
                          {'$list_0_0': 'spam',
                           '$list_0_1': 'eggs',
-                          '$list_0_2': 'spam',
+                          '$list_0_2_eggs': 'spam',
+                          '$list_0_2_EGGS': 'spam',
                           '$list_1_sausage': 'bacon',
                           '$list_1_SAUSAGE': 'bacon',
                           '$list_2': 'brandy',
                           '$LIST_0_0': 'spam',
                           '$LIST_0_1': 'eggs',
-                          '$LIST_0_2': 'spam',
+                          '$LIST_0_2_eggs': 'spam',
+                          '$LIST_0_2_EGGS': 'spam',
                           '$LIST_1_sausage': 'bacon',
                           '$LIST_1_SAUSAGE': 'bacon',
                           '$LIST_2': 'brandy',
                           '${list_0_0}': 'spam',
                           '${list_0_1}': 'eggs',
-                          '${list_0_2}': 'spam',
+                          '${list_0_2_eggs}': 'spam',
+                          '${list_0_2_EGGS}': 'spam',
                           '${list_1_sausage}': 'bacon',
                           '${list_1_SAUSAGE}': 'bacon',
                           '${list_2}': 'brandy',
                           '${LIST_0_0}': 'spam',
                           '${LIST_0_1}': 'eggs',
-                          '${LIST_0_2}': 'spam',
+                          '${LIST_0_2_eggs}': 'spam',
+                          '${LIST_0_2_EGGS}': 'spam',
                           '${LIST_1_sausage}': 'bacon',
                           '${LIST_1_SAUSAGE}': 'bacon',
                           '${LIST_2}': 'brandy'})

@@ -9,6 +9,7 @@ import string
 import time
 from enum import Enum
 from functools import reduce
+from itertools import chain
 
 import docker
 import psutil
@@ -43,8 +44,14 @@ class ConfigConstructionError(Exception):
 
 class BaseService:
     def __init__(self, name, spec):
-        self.name = name
-        self.spec = spec
+        self._name = name
+        self._spec = spec
+
+    @property
+    def name(self): return self._name
+
+    @property
+    def spec(self): return self._spec
 
     def __str__(self):
         return "{0}(name='{1}', spec={2})".format(self.__class__.__name__, self.name, self.spec)
@@ -142,8 +149,8 @@ class ConfigurableService(BaseService):
         context = context or self
         context_type = self._context_name_of(context)
         if context_type == 'SERVICE':
-            for k, v in utils.asdict(self.spec).items(): setattr(context, k, v)
-            for k, v in utils.asdict(self.spec.instanceProps).items(): setattr(context, k, v)
+            for k, v in chain(utils.asdict(self.spec).items(), utils.asdict(self.spec.instanceProps).items()):
+                if not hasattr(context, k): setattr(context, k, v)
         path = self.resolve_path_template(path_template, context)
         file_link = self._tmpl_srcs[context_type].get(path_template)
         if not file_link:
@@ -152,6 +159,8 @@ class ConfigurableService(BaseService):
             file_link = path_resolved[context_type].get(path_template)
             LOGGER.debug(f"'Path-resolved' template sources map: {path_resolved}, "
                          f"search path: '{context_type}'.'{path_template}'")
+        # chroot all non-absolute paths to config_base_path
+        if not os.path.isabs(path): path = os.path.join(self.config_base_path, path)
         if file_link:
             config = cnstr.get_conffile(config_type, path)
             config.template = self.get_config_template(file_link)
@@ -175,12 +184,7 @@ class WebServer(ConfigurableService, NetworkingService):
         return getattr(self, "_sites_conf_path", None) or os.path.join(self.config_base_path, "sites")
 
     def get_website_configs(self, website):
-        configs = []
-        for each in self.get_configs_in_context(website):
-            if not os.path.isabs(each.file_path):
-                each.file_path = os.path.join(self.config_base_path, each.file_path)
-            configs.append(each)
-        return configs
+        return list(self.get_configs_in_context(website))
 
     def get_ssl_key_pair_files(self, basename):
         cert_file_path = os.path.join(self.ssl_certs_base_path, "{}.pem".format(basename))
@@ -583,7 +587,10 @@ class Cron(DockerService):
         crontab.save()
 
     def get_crontab(self, user_name):
-        return self._get_crontab_file(user_name).body
+        try:
+            return self._get_crontab_file(user_name).body
+        except ValueError:
+            return ''
 
     def delete_crontab(self, user_name):
         crontab = self._get_crontab_file(user_name)
@@ -593,9 +600,15 @@ class Cron(DockerService):
 
 class Postfix(DockerService):
     def enable_sendmail(self, uid):
+        if self.status() is not ServiceStatus.UP:
+            LOGGER.warning(f'{self.name} is down, trying to start it')
+            self.start()
         self.exec_defined_cmd("enable-uid-cmd", uid=uid)
 
     def disable_sendmail(self, uid):
+        if self.status() is not ServiceStatus.UP:
+            LOGGER.warning(f'{self.name} is down, trying to start it')
+            self.start()
         self.exec_defined_cmd("disable-uid-cmd", uid=uid)
 
 

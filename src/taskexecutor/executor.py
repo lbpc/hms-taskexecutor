@@ -334,9 +334,7 @@ class Executor:
                     'waiting for workers'.format({True: '', False: 'not '}[self._shutdown_wait]))
         for pool in (self._command_task_pool, self._long_command_task_pool,
                      self._query_task_pool, self._backup_files_task_pool, self._backup_dbs_task_pool):
-            tasks = [pair[1] for pair in pool.dump_work_queue(
-                lambda i: i[1].origin is not AMQPListener
-            )]
+            tasks = [pair[1] for pair in pool.dump_work_queue(lambda i: i[1].origin is not AMQPListener)]
             if tasks:
                 filename = self.pool_dump_template.format(pool.name)
                 LOGGER.info(f'Dumping {len(tasks)} tasks from {pool.name} to disk: {filename}')
