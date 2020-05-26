@@ -216,7 +216,7 @@ class GitDataFetcher(DataFetcher):
     def __init__(self, src_uri, dst_uri, params):
         super().__init__(src_uri, dst_uri, params)
         self._params = params
-        self.src_uri = self.src_uri.lstrip('git+')
+        self.src_uri = self.src_uri.lstrip('git+').strip()
         src_uri_parsed = urllib.parse.urlparse(src_uri)
         self.src_uri_scheme = src_uri_parsed.scheme
         self.dst_path = urllib.parse.urlparse(dst_uri).path
@@ -231,7 +231,7 @@ class GitDataFetcher(DataFetcher):
         url = exec_command("git -C {} ls-remote --get-url".format(repo_path))
         if not urllib.parse.urlparse(url).scheme:
             url = "ssh://" + url
-        return url
+        return url.strip()
 
     @property
     def supported_dst_uri_schemes(self):
@@ -243,9 +243,9 @@ class GitDataFetcher(DataFetcher):
         if self.is_git_repo(self.dst_path):
             url = self.get_git_url(self.dst_path)
             if url != self.src_uri:
-                raise DataFetchingError("Git repository URL mismatch."
+                raise DataFetchingError("Git repository URL mismatch. "
                                         "Requested: {} Actual: {}".format(self.src_uri, url))
             exec_command("git -C {} checkout {}".format(self.dst_path, branch))
             exec_command("git -C {} pull".format(self.dst_path))
         else:
-            exec_command("git -b {} clone {}".format(branch, self.dst_path))
+            exec_command("git clone -b {} {} {}".format(branch, self.src_uri, self.dst_path))

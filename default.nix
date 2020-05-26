@@ -64,7 +64,7 @@ in buildLayeredImage rec {
   name = "docker-registry.intr/hms/taskexecutor";
   tag = if gitAbbrev != "" then gitAbbrev else "latest";
   maxLayers = 50;
-  contents = [ te nss-certs bash coreutils findutils quota killall mariadb.client gitMinimal restic rsync gzip ];
+  contents = [ te nss-certs bash coreutils findutils quota killall mariadb.client gitMinimal restic rsync gzip gnutar ];
   topLayer = te;
   config = {
     Entrypoint = [ "${python37mj}/bin/python" "-m" ];

@@ -53,6 +53,8 @@ class ResProcessor(metaclass=abc.ABCMeta):
         data_postprocessor_args = self.params.get('dataPostprocessorArgs', {})
         if data_postprocessor_type:
             data_postprocessor_args.update(extra_postproc_args)
+            LOGGER.debug(f"Processing {self.resource.name} data with '{data_postprocessor_type}', "
+                         f"arguments: {data_postprocessor_args}")
             postprocessor = cnstr.get_datapostprocessor(data_postprocessor_type, data_postprocessor_args)
             postprocessor.process()
 
