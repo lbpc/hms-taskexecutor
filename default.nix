@@ -48,6 +48,11 @@ let
         source = "/opcache";
         target = "/opcache";
       })
+      ({
+        type = "bind";
+        source = "/sys/fs/cgroup";
+        target = "/sys/fs/cgroup";
+      })
       # TODO: remove /etc bind mount as soon as possible
       ({
         type = "bind";
