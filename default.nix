@@ -22,6 +22,7 @@ let
     network = "host";
     pid = "host";
     hostname = "$(hostname -s)";
+    devices = [ "$(grep '/home ' /proc/mounts | cut -d' ' -f1)" ];
     volumes = [
       ({
         type = "bind";
