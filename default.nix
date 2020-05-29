@@ -64,6 +64,10 @@ let
         type = "tmpfs";
         target = "/var/tmp";
       })
+      ({
+        type = "tmpfs";
+        target = "/tmp";
+      })
     ];
   };
 in buildLayeredImage rec {
@@ -81,6 +85,10 @@ in buildLayeredImage rec {
       "CONFIG_PROFILE=dev"
       "APIGW_HOST=api-dev.intr"
       "APIGW_PASSWORD=ab0LyS4zY2XI"
+      "TZ=Europe/Moscow"
+      "TZDIR=${tzdata}/share/zoneinfo"
+      "LOCALE_ARCHIVE_2_27=${locale}/lib/locale/locale-archive"
+      "LOCALE_ARCHIVE=${locale}/lib/locale/locale-archive"
     ];
     Labels = { "ru.majordomo.docker.cmd" = dockerRunCmd dockerArgHints "${name}:${tag}"; };
   };
