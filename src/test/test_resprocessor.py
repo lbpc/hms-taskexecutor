@@ -15,6 +15,7 @@ class TestDatabaseProcessor(unittest.TestCase):
     @patch('taskexecutor.resprocessor.ResProcessor._process_data')
     def test_create(self, mock_process_data):
         CONFIG.hostname = 'web99'
+        CONFIG.database.default_allowed_networks = ['127.0.0.1']
         mock_service = Mock(spec=DatabaseServer)
         mock_service.normalize_addrs.return_value = ['user@127.0.0.1/255.255.255.255']
         db = Mock()
@@ -28,8 +29,8 @@ class TestDatabaseProcessor(unittest.TestCase):
         db.databaseUsers = [user1, user2]
         DatabaseProcessor(db, mock_service, {}).create()
         mock_service.create_database.assert_called_once_with('b12345')
-        self.assertTrue(call(['172.16.100.1', '10.10.0.1']) in mock_service.normalize_addrs.call_args_list)
-        self.assertTrue(call(['192.168.0.1']) in mock_service.normalize_addrs.call_args_list)
+        self.assertTrue(call(['172.16.100.1', '10.10.0.1', '127.0.0.1']) in mock_service.normalize_addrs.call_args_list)
+        self.assertTrue(call(['192.168.0.1', '127.0.0.1']) in mock_service.normalize_addrs.call_args_list)
         self.assertEqual(mock_service.normalize_addrs.call_count, 2)
         self.assertTrue(call('b12345', 'u12345', ['user@127.0.0.1/255.255.255.255'])
                         in mock_service.allow_database_access.call_args_list)

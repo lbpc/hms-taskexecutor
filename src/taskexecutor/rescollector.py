@@ -11,7 +11,6 @@ from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 from taskexecutor.utils import synchronized, asdict
 from taskexecutor.watchdog import ProcessWatchdog
-#from taskexecutor.builtinservice import LinuxUserManager
 
 __all__ = ['UnixAccountCollector', 'DatabaseUserCollector', 'DatabaseCollector', 'MailboxCollector', 'WebsiteCollector',
            'SslCertificateCollector', 'ServiceCollector', 'ResourceArchiveCollector', 'RedirectCollector']

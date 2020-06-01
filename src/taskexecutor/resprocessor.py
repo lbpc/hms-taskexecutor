@@ -371,8 +371,9 @@ class DatabaseProcessor(ResProcessor):
         if not self.op_resource:
             LOGGER.info(f'Creating {db_type} database {self.resource.name}')
             self.service.create_database(self.resource.name)
+            always_allowed_addrs = rgetattr(CONFIG, 'database.default_allowed_networks', [])
             for user in self.resource.databaseUsers:
-                addrs_set = set(self.service.normalize_addrs(user.allowedIPAddresses))
+                addrs_set = set(self.service.normalize_addrs(user.allowedIPAddresses + always_allowed_addrs))
                 LOGGER.info(f'Granting access on {db_type} database {self.resource.name} to '
                             f'user {user.name} with addresses {addrs_set}')
                 self.service.allow_database_access(self.resource.name, user.name, list(addrs_set))
