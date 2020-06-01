@@ -130,10 +130,10 @@ class UnixAccountProcessor(ResProcessor):
                 self.service.set_quota(self.resource.uid, self.resource.quota)
             if not 'dataSourceParams' in self.params.keys():
                 self.params['dataSourceParams'] = {}
-            self.params['dataSourceParams']['ownerUid'] = self.params['dataSourceParams'].get(
-                'ownerUid') or self.resource.uid
+            self.params['dataSourceParams']['ownerUid'] = self.params['dataSourceParams'].get('ownerUid',
+                                                                                              self.resource.uid)
             data_dest_uri = self.params.get('datadestinationUri', 'file://{}'.format(self.resource.homeDir))
-            data_source_uri = self.params.get('datasourceUri') or data_dest_uri
+            data_source_uri = self.params.get('datasourceUri', data_dest_uri)
             self._process_data(data_source_uri, data_dest_uri, {'dataType': 'directory', 'path': self.resource.homeDir})
             if hasattr(self.resource, 'keyPair') and self.resource.keyPair:
                 LOGGER.info('Creating authorized_keys for user {0.name}'.format(self.resource))
@@ -371,20 +371,8 @@ class DatabaseProcessor(ResProcessor):
         if not self.op_resource:
             LOGGER.info(f'Creating {db_type} database {self.resource.name}')
             self.service.create_database(self.resource.name)
-            always_allowed_addrs = rgetattr(CONFIG, 'database.default_allowed_networks', [])
-            for user in self.resource.databaseUsers:
-                addrs_set = set(self.service.normalize_addrs(user.allowedIPAddresses + always_allowed_addrs))
-                LOGGER.info(f'Granting access on {db_type} database {self.resource.name} to '
-                            f'user {user.name} with addresses {addrs_set}')
-                self.service.allow_database_access(self.resource.name, user.name, list(addrs_set))
-            data_dest_uri = self.params.get('datadestinationUri', f'mysql://{CONFIG.hostname}/{self.resource.name}')
-            data_source_uri = self.params.get('datasourceUri', data_dest_uri)
-            self._process_data(data_source_uri, data_dest_uri, dict(name=self.resource.name,
-                                                                    dataType='database',
-                                                                    dbServer=self.service))
-        else:
-            LOGGER.warning(f'{db_type} database {self.resource.name} already exists, updating')
-            self.update()
+            self.op_resource = cnstr.get_rescollector('database', self.resource).get()
+        self.update()
 
     def update(self):
         db_type = self.service.__class__.__name__
@@ -455,7 +443,7 @@ class DatabaseProcessor(ResProcessor):
                     addrs = set(self.service.normalize_addrs(user.allowedIPAddresses + always_allowed_addrs))
                     self.service.deny_database_access(self.resource.name, user.name, list(addrs))
             data_dest_uri = self.params.get('datadestinationUri', f'mysql://{CONFIG.hostname}/{self.resource.name}')
-            data_source_uri = self.params.get('datasourceUri') or data_dest_uri
+            data_source_uri = self.params.get('datasourceUri', data_dest_uri)
             self._process_data(data_source_uri, data_dest_uri, dict(name=self.resource.name,
                                                                     dataType='database',
                                                                     dbServer=self.service))
