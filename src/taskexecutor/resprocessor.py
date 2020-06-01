@@ -324,7 +324,8 @@ class DatabaseUserProcessor(ResProcessor):
     def create(self):
         db_type = self.service.__class__.__name__
         if not self.op_resource:
-            addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
+            always_allowed_addrs = rgetattr(CONFIG, 'database.default_allowed_networks', [])
+            addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses + always_allowed_addrs))
             LOGGER.info(f'Creating {db_type} user {self.resource.name} with addresses {addrs_set}')
             self.service.create_user(self.resource.name, self.resource.passwordHash, list(addrs_set))
             self.service.set_initial_permissions(self.resource.name, list(addrs_set))
@@ -341,8 +342,10 @@ class DatabaseUserProcessor(ResProcessor):
             self.delete()
             return
         if self.op_resource:
+            always_allowed_addrs = rgetattr(CONFIG, 'database.default_allowed_networks', [])
             current_addrs_set = set(self.service.normalize_addrs(self.op_resource.allowedIPAddresses))
-            staging_addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
+            staging_addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses +
+                                                                 always_allowed_addrs))
             LOGGER.info(f'Updating {db_type} user {self.resource.name}')
             self.service.drop_user(self.resource.name, list(current_addrs_set.difference(staging_addrs_set)))
             self.service.create_user(self.resource.name, self.resource.passwordHash,
@@ -371,7 +374,9 @@ class DatabaseProcessor(ResProcessor):
         if not self.op_resource:
             LOGGER.info(f'Creating {db_type} database {self.resource.name}')
             self.service.create_database(self.resource.name)
-            self.op_resource = cnstr.get_rescollector('database', self.resource).get()
+            collector = cnstr.get_rescollector('database', self.resource)
+            collector.ignore_property('quotaUsed')
+            self.op_resource = collector.get()
         self.update()
 
     def update(self):
