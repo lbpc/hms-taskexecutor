@@ -214,9 +214,10 @@ class WebSiteProcessor(ResProcessor):
             else:
                 LOGGER.warning(f'{directory} does not exist')
         os.chown(opcache_root, self.resource.unixAccount.uid, self.resource.unixAccount.uid)
-        services = [self.extra_services.http_proxy]
+        services = []
         if self.params.get('oldHttpProxyIp') != self.extra_services.http_proxy.socket.http.address:
             services.append(self.service)
+        services.append(self.extra_services.http_proxy)
         LOGGER.debug('Configuring services: {}'.format(', '.join((s.name for s in services))))
         for service in services:
             configs = service.get_website_configs(self.resource)
