@@ -1,13 +1,15 @@
-{ ref ? "master" }:
+{ nixpkgs ? (import <nixpkgs> { }).fetchgit {
+  url = "https://github.com/NixOS/nixpkgs.git";
+  rev = "ce9f1aaa39ee2a5b76a9c9580c859a74de65ead5";
+  sha256 = "1s2b9rvpyamiagvpl5cggdb2nmx4f7lpylipd397wz8f0wngygpi";
+}, overlayUrl ? "git@gitlab.intr:_ci/nixpkgs.git", overlayRef ? "master" }:
 
-with import <nixpkgs> {
+with import nixpkgs {
   overlays = [
-    (import (builtins.fetchGit {
-      url = "git@gitlab.intr:_ci/nixpkgs.git";
-      inherit ref;
-    }))
+    (import (builtins.fetchGit { url = overlayUrl; ref = overlayRef; }))
   ];
 };
+
 let inherit (python37mj.pkgs) buildPythonPackage fetchPypi;
 in {
   PyMySQL = buildPythonPackage rec {
