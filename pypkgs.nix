@@ -1,27 +1,21 @@
-{ nixpkgs ? (import <nixpkgs> { }).fetchgit {
-  url = "https://github.com/NixOS/nixpkgs.git";
-  rev = "ce9f1aaa39ee2a5b76a9c9580c859a74de65ead5";
-  sha256 = "1s2b9rvpyamiagvpl5cggdb2nmx4f7lpylipd397wz8f0wngygpi";
-}, overlayUrl ? "git@gitlab.intr:_ci/nixpkgs.git", overlayRef ? "master" }:
+{ ref ? "master" }:
 
-with import nixpkgs {
+with import (builtins.fetchGit {
+  name = "nixpkgs-19.09-2020-02-27";
+  url = "https://github.com/nixos/nixpkgs-channels";
+  rev = "ce9f1aaa39ee2a5b76a9c9580c859a74de65ead5";
+  ref = "refs/heads/nixos-19.09";
+}) {
   overlays = [
-    (import (builtins.fetchGit { url = overlayUrl; ref = overlayRef; }))
+    (import (builtins.fetchGit {
+      url = "git@gitlab.intr:_ci/nixpkgs.git";
+      inherit ref;
+    }))
   ];
 };
 
-let inherit (python37mj.pkgs) buildPythonPackage fetchPypi;
+let inherit (python37mj.pkgs) buildPythonPackage fetchPypi pbr pytest setuptools;
 in {
-  PyMySQL = buildPythonPackage rec {
-    name = "${pname}-${version}";
-    pname = "PyMySQL";
-    version = "0.9.3";
-    src = fetchPypi {
-      inherit pname version;
-      sha256 = "1ry8lxgdc1p3k7gbw20r405jqi5lvhi5wk83kxdbiv8xv3f5kh6q";
-    };
-    doCheck = false;
-  };
 
   clamd = buildPythonPackage rec {
     name = "${pname}-${version}";
@@ -32,6 +26,18 @@ in {
       sha256 = "0q4myb07gn55v9mkyq83jkgfpj395vxxmshznfhkajk82kc2yanq";
     };
     doCheck = false;
+  };
+
+  giturlparse = buildPythonPackage rec {
+    name = "${pname}-${version}";
+    pname = "git-url-parse";
+    version = "1.2.2";
+    src = fetchPypi {
+      inherit pname version;
+      sha256 = "05zi8n2aj3fsy1cyailf5rn21xv3q15bv8v7xvz3ls8xxcx4wpvv";
+    };
+    propagatedBuildInputs = [ pbr setuptools ];
+    checkInputs = [ pytest ];
   };
 
   pyfakefs = buildPythonPackage rec {
@@ -48,4 +54,16 @@ in {
       substituteInPlace pyfakefs/tests/test_issue.py --replace "import flask_restx" ""
     '';
   };
+
+  PyMySQL = buildPythonPackage rec {
+    name = "${pname}-${version}";
+    pname = "PyMySQL";
+    version = "0.9.3";
+    src = fetchPypi {
+      inherit pname version;
+      sha256 = "1ry8lxgdc1p3k7gbw20r405jqi5lvhi5wk83kxdbiv8xv3f5kh6q";
+    };
+    doCheck = false;
+  };
+
 }

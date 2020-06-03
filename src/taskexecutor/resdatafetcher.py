@@ -5,6 +5,7 @@ import shutil
 import urllib.parse
 import requests
 import json
+import giturlparse
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER

@@ -70,7 +70,7 @@ class AMQPReporter(Reporter):
         with Connection(url, heartbeat=CONFIG.amqp.heartbeat_interval) as conn:
             producer = conn.Producer()
             producer.publish(json.dumps(self._report),
-                             content_type='json',
+                             content_type='application/json',
                              retry=True,
                              exchange=queue.exchange,
                              routing_key=queue.routing_key,
