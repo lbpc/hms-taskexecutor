@@ -487,12 +487,13 @@ class ServiceProcessor(ResProcessor):
             each.render_template(service=self.service, params=self.params)
             each.write()
         try:
-            if self.resource.switchedOn and self.service.status() is ServiceStatus.UP:
+            status = self.service.status()
+            if self.resource.switchedOn and status is ServiceStatus.UP:
                 self.service.reload()
             elif self.resource.switchedOn:
                 LOGGER.warning(f'{self.service.name} is down, starting it')
                 self.service.start()
-            else:
+            elif status is ServiceStatus.UP:
                 self.service.stop()
         except:
             for each in configs: each.revert()
