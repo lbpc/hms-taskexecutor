@@ -224,6 +224,7 @@ class GitDataFetcher(DataFetcher):
             self.key.body = params['key']
             self.key.save()
         self.password = params.get('password')
+        self.owner_uid = params.get('ownerUid', 0)
         self.src_uri = self.normalize_git_url(src_uri, params.get('username'))
         self.dst_path = urllib.parse.urlparse(dst_uri).path
 
@@ -270,6 +271,7 @@ class GitDataFetcher(DataFetcher):
                 exec_command(f'git -C {self.dst_path} pull', env=env)
             else:
                 exec_command(f'git clone -b {self.branch} {self.src_uri} {self.dst_path}', env=env)
+            exec_command(f'chown -R {self.owner_uid}:{self.owner_uid} {self.dst_path}')
         except Exception:
             self.key.delete()
             raise
