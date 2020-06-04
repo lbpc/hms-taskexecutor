@@ -655,8 +655,9 @@ class TestLinuxUserManager(TestCase):
         self.assertRaises(OSError, self.fs.get_object, '/home/user4')
         self.assertRaises(OSError, self.fs.get_object, '/home/user5')
 
+    @patch('os.environ', autospec=True)
     @patch('subprocess.Popen')
-    def test_set_quota(self, mock_popen):
+    def test_set_quota(self, mock_popen, mock_env):
         mock_popen.return_value.returncode = 0
         mock_popen.return_value.communicate.return_value = (b'', b'')
         bs.LinuxUserManager().set_quota(2000, 10485760)
@@ -665,7 +666,8 @@ class TestLinuxUserManager(TestCase):
                                            shell=True,
                                            stderr=-1,
                                            stdin=-1,
-                                           stdout=-1)
+                                           stdout=-1,
+                                           env={})
 
     @patch('subprocess.Popen')
     def test_get_quota(self, mock_popen):
@@ -712,8 +714,9 @@ class TestLinuxUserManager(TestCase):
             ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDCt2QOfR8hS3/7aH0iWs7YYcdkwpZvUfdr1LpZWTcP9vZ+PCAi3ZWOPYJzUpUF+1yMBGSuB1nnpCD69XFfqGOpX3odIFcxvCien3EHZPGYS3jDqmRXLMI/uhJQVjlWoILeTFWJMtENsYxGoUr2V6+k0cyzPbt1fDpTrx+GbCUAjD+dBEfTBeMTnxaS9GKl7ZucbcoSYJDoKP3ladOH7giXZzZFpgLfUGfNwpjBfz/PFumx9r1IUnGXEQGYIswLr8sB/cEm1uJnCcPCC1DHPaPoQuXf8YjhpulUYFesBDO+AIFABrdIjV+MZL4zE3HktKahBHSD1EwzXg5/9UYNAY7Z
         """).lstrip())
 
+    @patch('os.environ', autospec=True)
     @patch('subprocess.Popen')
-    def test_kill_user_processes(self, mock_popen):
+    def test_kill_user_processes(self, mock_popen, mock_env):
         mock_popen.return_value.returncode = 0
         mock_popen.return_value.communicate.return_value = (b'', b'')
         mgr = bs.LinuxUserManager()
@@ -723,7 +726,8 @@ class TestLinuxUserManager(TestCase):
                                            shell=True,
                                            stderr=-1,
                                            stdin=-1,
-                                           stdout=-1)
+                                           stdout=-1,
+                                           env={})
         mock_popen.return_value.returncode = 1
         mock_popen.return_value.communicate.return_value = (b'', b'Cannot find user fdsfgs')
         mgr.kill_user_processes('fdsfgs')
@@ -752,8 +756,9 @@ class TestLinuxUserManager(TestCase):
                 u223135:x:80742:80742:Hosting account,,,:/home/u223135:/bin/bash
         """).lstrip())
 
+    @patch('os.environ', autospec=True)
     @patch('subprocess.Popen')
-    def test_change_uid(self, mock_popen):
+    def test_change_uid(self, mock_popen, mock_env):
         mock_popen.return_value.returncode = 0
         mock_popen.return_value.communicate.return_value = (b'', b'')
         self.fs.create_file('/nowhere/etc/passwd', contents=dedent("""
@@ -787,5 +792,6 @@ class TestLinuxUserManager(TestCase):
                                            shell=True,
                                            stderr=-1,
                                            stdin=-1,
-                                           stdout=-1)
+                                           stdout=-1,
+                                           env={})
         self.assertRaises(bs.IdConflict, mgr.change_uid, 'u223136', 2000)
