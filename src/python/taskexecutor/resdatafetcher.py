@@ -218,9 +218,12 @@ class GitDataFetcher(DataFetcher):
         super().__init__(src_uri, dst_uri, params)
         self._params = params
         self.src_uri = self.src_uri.lstrip('git+').strip()
-        src_uri_parsed = urllib.parse.urlparse(src_uri)
-        self.src_uri_scheme = src_uri_parsed.scheme
+        src_uri_parsed = giturlparse.parse(self.src_uri)
         self.dst_path = urllib.parse.urlparse(dst_uri).path
+
+    @staticmethod
+    def normalize_git_url(url, user=None):
+        ...
 
     @staticmethod
     def is_git_repo(path):

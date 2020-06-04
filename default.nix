@@ -19,6 +19,7 @@ let
   inherit (lib) firstNChars mkPythonPath dockerRunCmd;
   inherit (builtins) getEnv;
   te = callPackage ./te.nix { inherit ref; };
+  gitaskpass = stdenv.mkDerivation { name = "gitaskpass"; src = ./src/c/gitaskpass; };
   gitAbbrev = firstNChars 8 (getEnv "GIT_COMMIT");
   dockerArgHints = {
     name = "taskexecutor";
@@ -79,7 +80,7 @@ in buildLayeredImage rec {
   name = "docker-registry.intr/hms/taskexecutor";
   tag = if gitAbbrev != "" then gitAbbrev else "latest";
   maxLayers = 50;
-  contents = [ te nss-certs bash coreutils findutils quota killall mariadb.client gitMinimal restic rsync gzip gnutar ];
+  contents = [ te nss-certs bash coreutils findutils quota killall mariadb.client gitMinimal restic rsync gzip gnutar gitaskpass ];
   topLayer = te;
   config = {
     Entrypoint = [ "${python37mj}/bin/python" "-m" ];

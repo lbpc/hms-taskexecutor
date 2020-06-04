@@ -65,8 +65,8 @@ class ResCollector(metaclass=abc.ABCMeta):
             op_resource[property_name] = self.get_property(property_name, cache_ttl=cache_ttl)
             cache_ttl += time.time() - start_collecting_time
         if not any(op_resource.values()):
-            LOGGER.warning(f"No resource available,"
-                           f"ID: {getattr(self.resource, 'id', None)},"
+            LOGGER.warning(f"No resource available, "
+                           f"ID: {getattr(self.resource, 'id', None)}, "
                            f"name: {self.resource.name}")
             return
         return collections.namedtuple('OpResource', op_resource.keys())(*op_resource.values())
