@@ -3,6 +3,7 @@ import copy
 import hashlib
 import queue
 import re
+import os
 import subprocess
 import threading
 import time
@@ -68,13 +69,14 @@ def rgetattr(obj, path, *default):
         raise
 
 
-def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_streams=False, raise_exc=True):
+def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_streams=False, raise_exc=True, env=None):
     LOGGER.debug("Running shell command: {}".format(command))
+    env = {**os.environ, **(env or {})}
     stdin = subprocess.PIPE
     if hasattr(pass_to_stdin, "read"):
         stdin = pass_to_stdin
     proc = subprocess.Popen(command, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            shell=True, executable=shell)
+                            shell=True, executable=shell, env=env)
     if return_raw_streams:
         return proc.stdout, proc.stderr
     if hasattr(pass_to_stdin, "encode"):
@@ -113,15 +115,15 @@ def repquota(args, shell="/bin/bash"):
             ]
             quota[normalized_line[0]] = {
                 "block_limit": {
-                    "used": normalized_line[1],
-                    "soft": normalized_line[2],
-                    "hard": normalized_line[3],
+                    "used":  normalized_line[1],
+                    "soft":  normalized_line[2],
+                    "hard":  normalized_line[3],
                     "grace": normalized_line[4]
                 },
-                "file_limit": {
-                    "used": normalized_line[5],
-                    "soft": normalized_line[6],
-                    "hard": normalized_line[7],
+                "file_limit":  {
+                    "used":  normalized_line[5],
+                    "soft":  normalized_line[6],
+                    "hard":  normalized_line[7],
                     "grace": normalized_line[8]
                 }
             }
@@ -135,22 +137,22 @@ def set_thread_name(name):
 
 def to_camel_case(name):
     return re.sub(
-        r"([^A-Za-z0-9])*", "",
-        (re.sub(r"([A-Za-z0-9])+", lambda m: m.group(0).capitalize(), name))
+            r"([^A-Za-z0-9])*", "",
+            (re.sub(r"([A-Za-z0-9])+", lambda m: m.group(0).capitalize(), name))
     )
 
 
 def to_lower_dashed(name):
     return re.sub(
-        "([a-z0-9])([A-Z])", r"\1-\2",
-        re.sub("(.)([A-Z][a-z]+)", r"\1-\2", name)
+            "([a-z0-9])([A-Z])", r"\1-\2",
+            re.sub("(.)([A-Z][a-z]+)", r"\1-\2", name)
     ).lower().replace("_", "-")
 
 
 def to_snake_case(name):
     return re.sub(
-        "([a-z0-9])([A-Z])", r"\1_\2",
-        re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
+            "([a-z0-9])([A-Z])", r"\1_\2",
+            re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
     ).lower()
 
 
@@ -172,9 +174,9 @@ def timed(f):
         start = time.time()
         f(self, *args, **kwargs)
         duration = time.time() - start
-        logger = {duration < 2: LOGGER.debug,
+        logger = {duration < 2:      LOGGER.debug,
                   2 <= duration < 3: LOGGER.info,
-                  3 <= duration: LOGGER.warn}[True]
+                  3 <= duration:     LOGGER.warn}[True]
         logger("{} execution took {} seconds".format(f, duration))
 
     return wrapper
@@ -194,7 +196,7 @@ def cleanup_types_mapping():
 def namedtuple_from_mapping(mapping, type_name="Something"):
     cleanup_types_mapping()
     class_key = hashlib.sha1(
-        (mapping.get("@type", "") + " ".join([str(k) for k in mapping.keys()])).encode()
+            (mapping.get("@type", "") + " ".join([str(k) for k in mapping.keys()])).encode()
     ).hexdigest() + str(int(time.time()) // 3600 * 3600)
     if "@type" in mapping.keys():
         type_name = mapping.pop("@type")
@@ -280,7 +282,7 @@ def object_hook(dct, extra, overwrite, expand, comma, numcast):
 def is_namedtuple(obj):
     return (isinstance(obj, tuple) and
             callable(getattr(obj, '_asdict', None)) and
-                     getattr(obj, '_fields', None) is not None)
+            getattr(obj, '_fields', None) is not None)
 
 
 def name_variations(name):
@@ -325,8 +327,8 @@ def attrs_to_env(obj, sigils=True, brackets=True, exclude_names=('env',), exclud
                     elements = (attrs_to_env({i: e}, sigils=False, brackets=False, exclude_attrs=exc).items() for i, e
                                 in enumerate(filter(None, attr)))
                     result.update(
-                        {t.format(f'{n}_{k}'): v
-                         for t, n, (k, v) in product(templates, name_variations(name), chain(*elements))}
+                            {t.format(f'{n}_{k}'): v
+                             for t, n, (k, v) in product(templates, name_variations(name), chain(*elements))}
                     )
             else:
                 result.update({t.format(f'{n}_{k}'): v for t, n, (k, v)

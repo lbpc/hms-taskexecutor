@@ -6,7 +6,9 @@ import urllib.parse
 import requests
 import json
 import giturlparse
+import tempfile
 
+import taskexecutor.constructor as cnstr
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
 from taskexecutor.utils import exec_command
@@ -216,40 +218,58 @@ class HttpDataFetcher(DataFetcher):
 class GitDataFetcher(DataFetcher):
     def __init__(self, src_uri, dst_uri, params):
         super().__init__(src_uri, dst_uri, params)
-        self._params = params
-        self.src_uri = self.src_uri.lstrip('git+').strip()
-        src_uri_parsed = giturlparse.parse(self.src_uri)
+        self.branch = params.get('branch', 'master')
+        if 'key' in params and giturlparse.parse(src_uri).protocvol == 'ssh':
+            self.key = cnstr.get_conffile('basic', os.path.join(tempfile.mkstemp()), owner_uid=0, mode=0o400)
+            self.key.body = params['key']
+            self.key.save()
+        self.password = params.get('password')
+        self.src_uri = self.normalize_git_url(src_uri, params.get('username'))
         self.dst_path = urllib.parse.urlparse(dst_uri).path
 
     @staticmethod
-    def normalize_git_url(url, user=None):
-        ...
-
-    @staticmethod
     def is_git_repo(path):
-        r, _, __ = exec_command("git -C {} rev-parse --git-dir".format(path), raise_exc=False)
+        r, _, _ = exec_command(f'git -C {path} rev-parse --git-dir', raise_exc=False)
         return r == 0
 
     @staticmethod
     def get_git_url(repo_path):
-        url = exec_command("git -C {} ls-remote --get-url".format(repo_path))
+        url = exec_command(f'git -C {repo_path} ls-remote --get-url')
         if not urllib.parse.urlparse(url).scheme:
-            url = "ssh://" + url
+            url = 'ssh://' + url
         return url.strip()
+
+    @staticmethod
+    def get_git_user(repo_path):
+        r, _, _ = exec_command(f'git -C {repo_path} config user.name')
+        return r.strip() or None
+
+    @staticmethod
+    def normalize_git_url(url, user=None):
+        parsed = giturlparse.parse(url)
+        user = parsed.user or user
+        netloc = parsed.resource
+        if parsed.port: netloc += f':{parsed.port}'
+        if user: netloc = f'{user}@' + netloc
+        return urllib.parse.urlunparse((parsed.protocol, netloc, parsed.pathname, '', '', ''))
 
     @property
     def supported_dst_uri_schemes(self):
-        return ["file"]
-
+        return ['file']
 
     def fetch(self):
-        branch = self._params.get("branch", "master")
-        if self.is_git_repo(self.dst_path):
-            url = self.get_git_url(self.dst_path)
-            if url != self.src_uri:
-                raise DataFetchingError("Git repository URL mismatch. "
-                                        "Requested: {} Actual: {}".format(self.src_uri, url))
-            exec_command("git -C {} checkout {}".format(self.dst_path, branch))
-            exec_command("git -C {} pull".format(self.dst_path))
-        else:
-            exec_command("git clone -b {} {} {}".format(branch, self.src_uri, self.dst_path))
+        env = {'GIT_ASKPASS': 'gitaskpass', 'GIT_PASSWORD': self.password}
+        if hasattr(self, 'key'):
+            env['GIT_SSH_COMMAND'] = f'ssh -o "StrictHostKeyChecking=no" -i "{self.key.file_path}"'
+        try:
+            if self.is_git_repo(self.dst_path):
+                url = self.normalize_git_url(self.get_git_url(self.dst_path), self.get_git_user(self.dst_path))
+                if url != self.src_uri:
+                    raise DataFetchingError(f'Git repository URL mismatch. Requested: {self.src_uri} Actual: {url}')
+                exec_command(f'git -C {self.dst_path} checkout {self.branch}')
+                exec_command(f'git -C {self.dst_path} pull', env=env)
+            else:
+                exec_command(f'git clone -b {self.branch} {self.src_uri} {self.dst_path}', env=env)
+        except Exception:
+            self.key.delete()
+            raise

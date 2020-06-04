@@ -233,6 +233,8 @@ class WebSiteProcessor(ResProcessor):
             for each in configs: each.confirm()
         data_dest_uri = self.params.get('datadestinationUri', f'file://{document_root_abs}')
         data_source_uri = self.params.get('datasourceUri') or data_dest_uri
+        self.params['dataSourceParams']['ownerUid'] = self.params.get('dataSourceParams',
+                                                                      {}).get('ownerUid', self.resource.unixAccount.uid)
         given_postproc_args = self.params.get('dataPostprocessorArgs') or {}
         env = given_postproc_args.get('env') or {}
         env['DOCUMENT_ROOT'] = document_root_abs
