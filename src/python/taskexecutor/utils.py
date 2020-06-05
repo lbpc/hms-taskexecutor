@@ -69,27 +69,29 @@ def rgetattr(obj, path, *default):
         raise
 
 
-def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_streams=False, raise_exc=True, env=None):
-    LOGGER.debug("Running shell command: {}".format(command))
-    env = {**os.environ, **(env or {})}
+def exec_command(command, shell='/bin/bash', pass_to_stdin=None, return_raw_streams=False, raise_exc=True, env=None):
+    env = env or {}
+    env['PATH'] = os.environ.get('PATH', '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin')
+    env['SSL_CERT_FILE'] = os.environ.get('SSL_CERT_FILE', '')
+    LOGGER.debug(f'Running shell command: {command}; env: {env}')
     stdin = subprocess.PIPE
-    if hasattr(pass_to_stdin, "read"):
+    if hasattr(pass_to_stdin, 'read'):
         stdin = pass_to_stdin
     proc = subprocess.Popen(command, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             shell=True, executable=shell, env=env)
     if return_raw_streams:
         return proc.stdout, proc.stderr
-    if hasattr(pass_to_stdin, "encode"):
+    if hasattr(pass_to_stdin, 'encode'):
         stdin = pass_to_stdin.encode()
         stdout, stderr = proc.communicate(input=stdin)
     else:
         stdout, stderr = proc.communicate()
     ret_code = proc.returncode
     if ret_code != 0 and raise_exc:
-        raise CommandExecutionError("Failed to execute command '{}'\n"
-                                    "CODE: {}\n"
-                                    "STDOUT: {}"
-                                    "STDERR: {}".format(command, ret_code, stdout.decode(), stderr.decode()))
+        raise CommandExecutionError(f"Failed to execute command '{command}'\n"
+                                    f"CODE: {ret_code}\n"
+                                    f"STDOUT: {stdout.decode()}\n"
+                                    f"STDERR: {stderr.decode()}")
     if not raise_exc:
         return ret_code, stdout.decode(), stderr.decode()
     return stdout.decode()

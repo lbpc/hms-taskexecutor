@@ -658,6 +658,7 @@ class TestLinuxUserManager(TestCase):
     @patch('os.environ', autospec=True)
     @patch('subprocess.Popen')
     def test_set_quota(self, mock_popen, mock_env):
+        mock_env.get.return_value = None
         mock_popen.return_value.returncode = 0
         mock_popen.return_value.communicate.return_value = (b'', b'')
         bs.LinuxUserManager().set_quota(2000, 10485760)
@@ -667,7 +668,7 @@ class TestLinuxUserManager(TestCase):
                                            stderr=-1,
                                            stdin=-1,
                                            stdout=-1,
-                                           env={})
+                                           env={'PATH': None, 'SSL_CERT_FILE': None})
 
     @patch('subprocess.Popen')
     def test_get_quota(self, mock_popen):
@@ -717,6 +718,7 @@ class TestLinuxUserManager(TestCase):
     @patch('os.environ', autospec=True)
     @patch('subprocess.Popen')
     def test_kill_user_processes(self, mock_popen, mock_env):
+        mock_env.get.return_value = None
         mock_popen.return_value.returncode = 0
         mock_popen.return_value.communicate.return_value = (b'', b'')
         mgr = bs.LinuxUserManager()
@@ -727,7 +729,7 @@ class TestLinuxUserManager(TestCase):
                                            stderr=-1,
                                            stdin=-1,
                                            stdout=-1,
-                                           env={})
+                                           env={'PATH': None, 'SSL_CERT_FILE': None})
         mock_popen.return_value.returncode = 1
         mock_popen.return_value.communicate.return_value = (b'', b'Cannot find user fdsfgs')
         mgr.kill_user_processes('fdsfgs')
@@ -759,6 +761,7 @@ class TestLinuxUserManager(TestCase):
     @patch('os.environ', autospec=True)
     @patch('subprocess.Popen')
     def test_change_uid(self, mock_popen, mock_env):
+        mock_env.get.return_value = None
         mock_popen.return_value.returncode = 0
         mock_popen.return_value.communicate.return_value = (b'', b'')
         self.fs.create_file('/nowhere/etc/passwd', contents=dedent("""
@@ -793,5 +796,5 @@ class TestLinuxUserManager(TestCase):
                                            stderr=-1,
                                            stdin=-1,
                                            stdout=-1,
-                                           env={})
+                                           env={'PATH': None, 'SSL_CERT_FILE': None})
         self.assertRaises(bs.IdConflict, mgr.change_uid, 'u223136', 2000)

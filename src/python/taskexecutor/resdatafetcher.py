@@ -219,8 +219,8 @@ class GitDataFetcher(DataFetcher):
     def __init__(self, src_uri, dst_uri, params):
         super().__init__(src_uri, dst_uri, params)
         self.branch = params.get('branch', 'master')
-        if 'key' in params and giturlparse.parse(src_uri).protocvol == 'ssh':
-            self.key = cnstr.get_conffile('basic', os.path.join(tempfile.mkstemp()), owner_uid=0, mode=0o400)
+        if 'key' in params and giturlparse.parse(src_uri).protocol == 'ssh':
+            self.key = cnstr.get_conffile('basic', tempfile.mkstemp()[1], owner_uid=0, mode=0o400)
             self.key.body = params['key']
             self.key.save()
         self.password = params.get('password')
@@ -242,7 +242,7 @@ class GitDataFetcher(DataFetcher):
 
     @staticmethod
     def get_git_user(repo_path):
-        r, _, _ = exec_command(f'git -C {repo_path} config user.name')
+        _, r, _ = exec_command(f'git -C {repo_path} config user.name', raise_exc=False)
         return r.strip() or None
 
     @staticmethod
@@ -259,9 +259,14 @@ class GitDataFetcher(DataFetcher):
         return ['file']
 
     def fetch(self):
-        env = {'GIT_ASKPASS': 'gitaskpass', 'GIT_PASSWORD': self.password}
+        env = {'GIT_ASKPASS': 'gitaskpass'}
+        if self.password: env['GIT_PASSWORD'] = self.password
         if hasattr(self, 'key'):
-            env['GIT_SSH_COMMAND'] = f'ssh -o "StrictHostKeyChecking=no" -i "{self.key.file_path}"'
+            env['GIT_SSH_COMMAND'] = (f'ssh'
+                                      f' -o StrictHostKeyChecking=no'
+                                      f' -o UserKnownHostsFile=/dev/null'
+                                      f' -o PubkeyAcceptedKeyTypes=+ssh-dss'
+                                      f' -i {self.key.file_path}')
         try:
             if self.is_git_repo(self.dst_path):
                 url = self.normalize_git_url(self.get_git_url(self.dst_path), self.get_git_user(self.dst_path))
@@ -273,5 +278,5 @@ class GitDataFetcher(DataFetcher):
                 exec_command(f'git clone -b {self.branch} {self.src_uri} {self.dst_path}', env=env)
             exec_command(f'chown -R {self.owner_uid}:{self.owner_uid} {self.dst_path}')
         except Exception:
-            self.key.delete()
+            if hasattr(self, 'key'): self.key.delete()
             raise
