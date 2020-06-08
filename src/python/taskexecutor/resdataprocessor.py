@@ -3,6 +3,7 @@ import os
 import shutil
 
 import docker
+from docker.errors import ContainerError
 
 from taskexecutor.opservice import DatabaseServer
 from taskexecutor.config import CONFIG
@@ -13,6 +14,10 @@ __all__ = ["DockerDataPostprocessor", "StringReplaceDataProcessor", "DataEraser"
 
 
 class PostprocessorArgumentError(Exception):
+    pass
+
+
+class CommandExecutionError(Exception):
     pass
 
 
@@ -27,18 +32,22 @@ class DataPostprocessor(metaclass=abc.ABCMeta):
 
 class DockerDataPostprocessor(DataPostprocessor):
     def process(self):
-        image = self.args.get("image")
-        env = self.args.get("env")
-        volumes = {self.args.get("cwd"): {"bind": "/workdir", "mode": "rw"}}
-        hosts = self.args.get("hosts")
-        user = "{0}:{0}".format(self.args.get("uid", 65534))
         docker_client = docker.from_env()
         docker_client.login(**asdict(CONFIG.docker_registry))
-        docker_client.images.pull(image)
-        LOGGER.info("Runnig Docker container from {} with dns=127.0.0.1, net=host, "
-                    "volumes={} user={}, env={} hosts={}".format(image, volumes, user, env, hosts))
-        docker_client.containers.run(image, remove=True, dns=["127.0.0.1"], network_mode="host",
-                                     volumes=volumes, user=user, environment=env, extra_hosts=hosts)
+        image = docker_client.images.pull(self.args['image'])
+        env = self.args.get('env', {})
+        volumes = {self.args.get('cwd'): {'bind': '/workdir', 'mode': 'rw'}}
+        hosts = self.args.get('hosts')
+        user = '{0}:{0}'.format(self.args.get('uid', 65534))
+        command = self.args.get('command')
+        LOGGER.info(f'Runnig Docker container from {image} with dns=127.0.0.1, net=host, volumes={volumes} '
+                    f'user={user}, env={env} hosts={hosts}' + f", command={command}" if command else '')
+        try:
+            return docker_client.containers.run(image, remove=True, dns=['127.0.0.1'], network_mode='host',
+                                                volumes=volumes, user=user, environment=env, extra_hosts=hosts,
+                                                command=command).decode()
+        except ContainerError as e:
+            raise CommandExecutionError(e.stderr.decode())
 
 
 class StringReplaceDataProcessor(DataPostprocessor):

@@ -141,13 +141,18 @@ class Executor:
     @classmethod
     def _get_task_failcount(cls, task):
         if task.actid in cls.__failed_tasks.keys():
-            return cls.__failed_tasks[task.actid].get('failcount') or 0
+            return cls.__failed_tasks[task.actid].get('failcount', 0)
         return 0
 
     @classmethod
-    def _remember_failed_task(cls, task):
+    def _save_failed_task(cls, task):
         failcount = cls._get_task_failcount(task) + 1
         cls.__failed_tasks[task.actid] = {'task': task, 'failcount': failcount}
+
+    @classmethod
+    def _load_failed_task(cls, action_identity):
+        if action_identity in cls.__failed_tasks.keys():
+            return cls.__failed_tasks[action_identity].get('task')
 
     @classmethod
     def _forget_failed_task(cls, task):
@@ -201,14 +206,14 @@ class Executor:
         in_queue.put(task)
 
     def build_processing_sequence(self, res_type, resource, action, params):
-        sequence = list()
+        sequence = []
+        processor = cnstr.get_resprocessor(res_type, resource, params)
+        res_builder = ResourceBuilder(res_type)
         if not params.get('isolated'):
-            res_builder = ResourceBuilder(res_type)
             for req_r_type, req_resource in res_builder.get_required_resources(resource):
                 req_r_params = {'required_for': (res_type, resource)}
                 req_r_params.update(params.get('paramsForRequiredResources', {}))
                 sequence.extend(self.build_processing_sequence(req_r_type, req_resource, 'update', req_r_params))
-        processor = cnstr.get_resprocessor(res_type, resource, params)
         sequence.append((processor, getattr(processor, action)))
         if not params.get('isolated'):
             causer_resource = resource if 'required_for' not in params.keys() else params['required_for'][1]
@@ -308,6 +313,7 @@ class Executor:
             try:
                 task = in_queue.get(timeout=.2)
                 pool = self.select_pool(task)
+                task.params = {**task.params, **getattr(self._load_failed_task(task.actid), 'params', {})}
                 task.params['failcount'] = self._get_task_failcount(task)
                 task.state = TaskState.PROCESSING
                 future = pool.submit(self.process_task, task)
@@ -322,7 +328,7 @@ class Executor:
                         if exc:
                             task.state = TaskState.FAILED
                             task.params['last_exception'] = {'message': str(exc), 'class': exc.__class__.__name__}
-                            self._remember_failed_task(task)
+                            self._save_failed_task(task)
                         elif self._get_task_failcount(task) > 0:
                             self._forget_failed_task(task)
                         if task.tag:

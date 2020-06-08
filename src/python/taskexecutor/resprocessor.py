@@ -56,7 +56,7 @@ class ResProcessor(metaclass=abc.ABCMeta):
             LOGGER.debug(f"Processing {self.resource.name} data with '{data_postprocessor_type}', "
                          f"arguments: {data_postprocessor_args}")
             postprocessor = cnstr.get_datapostprocessor(data_postprocessor_type, data_postprocessor_args)
-            postprocessor.process()
+            self.params['dataPostprocessorOutput'] = postprocessor.process()
 
     def __str__(self):
         return '{0}(resource=(name={1.name}, id={1.id}))'.format(self.__class__.__name__, self.resource)
@@ -236,17 +236,21 @@ class WebSiteProcessor(ResProcessor):
         if 'dataSourceParams' not in self.params: self.params['dataSourceParams'] = {}
         self.params['dataSourceParams']['ownerUid'] = self.params['dataSourceParams'].get('ownerUid',
                                                                                           self.resource.unixAccount.uid)
-        given_postproc_args = self.params.get('dataPostprocessorArgs') or {}
-        env = given_postproc_args.get('env') or {}
+        given_postproc_args = self.params.get('dataPostprocessorArgs', {})
+        cwd = given_postproc_args.get('cwd', document_root_abs)
+        if self.params.get('extendedAction') in ('SHELL', 'INSTALL'): cwd = self.resource.unixAccount.homeDir   # XXX
+        env = given_postproc_args.get('env', {})
+        command = given_postproc_args.get('command')
         env['DOCUMENT_ROOT'] = document_root_abs
         domain = next((d for d in self.resource.domains if d.name == env.get('DOMAIN_NAME')), self.resource.domains[0])
         env['DOMAIN_NAME'] = domain.name.encode('idna').decode()
         env['PROTOCOL'] = 'https' if domain.sslCertificate and domain.sslCertificate.switchedOn else 'http'
-        postproc_args = dict(cwd=given_postproc_args.get('cwd') or document_root_abs,
+        postproc_args = dict(cwd=cwd,
                              hosts={env['DOMAIN_NAME']: self.extra_services.http_proxy.socket.http.address},
                              uid=self.resource.unixAccount.uid,
                              dataType='directory',
-                             env=env)
+                             env=env,
+                             command=command)
         self._process_data(data_source_uri, data_dest_uri, postproc_args)
 
     @synchronized

@@ -113,7 +113,8 @@ class AlertaReporter(Reporter):
                           opid=task.opid,
                           actid=task.actid,
                           res_type=task.res_type,
-                          action=task.action)
+                          action=task.action,
+                          hostname=CONFIG.hostname)
         try:
             resource = task.params.pop('resource')
             task.params['hmsResource'] = asdict(resource)
