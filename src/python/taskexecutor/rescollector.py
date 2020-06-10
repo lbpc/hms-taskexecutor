@@ -70,7 +70,7 @@ class ResCollector(metaclass=abc.ABCMeta):
         for property_name in properties_set:
             op_resource[property_name] = self.get_property(property_name, cache_ttl=cache_ttl)
             cache_ttl += time.time() - start_collecting_time
-        if not any(filter(lambda i: i[0] in self.necessary_properties, op_resource.items())):
+        if not any(filter(lambda i: i[0] in self.necessary_properties and i[1] is not None, op_resource.items())):
             LOGGER.warning(f"No resource available, "
                            f"ID: {getattr(self.resource, 'id', None)}, "
                            f"name: {self.resource.name}")
