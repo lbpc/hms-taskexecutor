@@ -81,21 +81,22 @@ in buildLayeredImage rec {
   tag = if gitAbbrev != "" then gitAbbrev else "latest";
   maxLayers = 50;
   contents = [
-    te
-    nss-certs
     bash
     coreutils
+    curl
     findutils
-    quota
+    gitMinimal
+    gitaskpass
+    gnutar
+    gzip
     killall
     mariadb.client
-    gitMinimal
+    nss-certs
+    openssh
+    quota
     restic
     rsync
-    gzip
-    gnutar
-    openssh
-    gitaskpass
+    te
   ];
   topLayer = te;
   config = {
