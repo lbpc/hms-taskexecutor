@@ -42,7 +42,7 @@ def get_conffile(config_type, abs_path, owner_uid=None, mode=None):
 
 def get_services():
     now = time.time()
-    if now - SERVICES_CACHE['timestamp'] < 60:
+    if now - SERVICES_CACHE['timestamp'] > 60:
         with ApiClient(**CONFIG.apigw) as api:
             SERVICES_CACHE['timestamp'] = now
             SERVICES_CACHE['data'] = api.server(CONFIG.localserver.id).get().services
