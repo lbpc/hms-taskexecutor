@@ -389,10 +389,11 @@ class DatabaseProcessor(ResProcessor):
 
     def update(self):
         db_type = self.service.__class__.__name__
-        if 'dataSourceParams' in self.params and self.params['dataSourceParams'].get('deleteExtraneous', False):
+        if self.params.get('dataSourceParams', {}).get('deleteExtraneous', False):
             LOGGER.info(f'Data cleanup requested, dropping {db_type} database {self.resource.name}')
             self.service.drop_database(self.resource.name)
             self.op_resource = None
+            del self.params['dataSourceParams']['deleteExtraneous']
             self.create()
             return
         if self.op_resource:
