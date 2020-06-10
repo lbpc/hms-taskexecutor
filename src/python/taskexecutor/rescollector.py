@@ -7,9 +7,9 @@ import time
 import clamd
 
 import taskexecutor.constructor as cnstr
+import taskexecutor.builtinservice as bs
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-from taskexecutor.builtinservice import InconsistentData
 from taskexecutor.utils import synchronized, asdict
 from taskexecutor.watchdog import ProcessWatchdog
 
@@ -138,7 +138,7 @@ class UnixAccountCollector(ResCollector):
             user = None
             try:
                 user = self.service.get_user(self.resource.name)
-            except InconsistentData as e:
+            except bs.InconsistentData as e:
                 LOGGER.warning(e)
             if not user: return
             self.add_property_to_cache(self.get_cache_key('name', self.resource.uid), user.name)
