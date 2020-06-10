@@ -576,6 +576,22 @@ class TestLinuxUserManager(TestCase):
         self.assertRaises(bs.InconsistentUserData,
                           bs.LinuxUserManager().create_user, '', 1, 'rest', 'does', 'not', 'matter')
 
+    @patch('time.time')
+    def test_create_user_without_password(self, mock_time):
+        mock_time.return_value = 1585905284.8418486
+        mgr = bs.LinuxUserManager()
+        mgr.create_user('u223135', 80742, '/home/u223135', None, '/bin/bash', 'account')
+        mgr.create_user('u223136', 80743, '/home/u223136', '', '/bin/bash', 'account')
+        self.assertEqual(self.fs.get_object('/nowhere/etc/passwd').contents, dedent("""
+            u223135:x:80742:80742:account:/home/u223135:/bin/bash
+            u223136:x:80743:80743:account:/home/u223136:/bin/bash
+        """).lstrip())
+        self.assertEqual(self.fs.get_object('/nowhere/etc/shadow').contents, dedent("""
+            u223135:*:18355:0:99999:7:::
+            u223136:*:18355:0:99999:7:::
+        """).lstrip())
+
+
     def test_delete_user(self):
         self.fs.create_dir('/home/user0')
         self.fs.create_dir('/home/user1')

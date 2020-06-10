@@ -185,6 +185,7 @@ class LinuxUserManager:
             user = self.get_user(name)
             if not user:
                 days = int(time.time() / 3600 / 24)
+                pass_hash = pass_hash or '*'
                 passwd_line = f'{name}:x:{uid}:{uid}:{gecos}:{home_dir}:{shell}'
                 shadow_line = f'{name}:{pass_hash}:{days}:0:99999:7:::'
                 self._etc_passwd.add_line(passwd_line)
