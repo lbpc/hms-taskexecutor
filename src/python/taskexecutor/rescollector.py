@@ -34,6 +34,11 @@ class ResCollector(metaclass=abc.ABCMeta):
     def get_cache_key(self, property_name, op_res_id):
         return f'{self.__class__.__name__}.{op_res_id}.{property_name}'
 
+    @property
+    @abc.abstractmethod
+    def necessary_properties(self):
+        pass
+
     @staticmethod
     def check_cache(key, ttl):
         LOGGER.debug(f'Cache size: {sys.getsizeof(ResCollector._cache)}')
@@ -65,7 +70,7 @@ class ResCollector(metaclass=abc.ABCMeta):
         for property_name in properties_set:
             op_resource[property_name] = self.get_property(property_name, cache_ttl=cache_ttl)
             cache_ttl += time.time() - start_collecting_time
-        if not any(op_resource.values()):
+        if not any(filter(lambda i: i[0] in self.necessary_properties, op_resource.items())):
             LOGGER.warning(f"No resource available, "
                            f"ID: {getattr(self.resource, 'id', None)}, "
                            f"name: {self.resource.name}")
@@ -77,6 +82,10 @@ class UnixAccountCollector(ResCollector):
     def __init__(self, resource, service):
         super().__init__(resource, service)
         self._clamd = clamd.ClamdNetworkSocket(CONFIG.clamd.host, CONFIG.clamd.port)
+
+    @property
+    def necessary_properties(self):
+        return ('name', 'uid')
 
     def get_property(self, property_name, cache_ttl=0):
         key = self.get_cache_key(property_name, self.resource.uid)
@@ -150,6 +159,10 @@ class UnixAccountCollector(ResCollector):
 
 
 class MailboxCollector(ResCollector):
+    @property
+    def necessary_properties(self):
+        return ('name', 'mailSpool')
+
     def get_property(self, property_name, cache_ttl=0):
         maildir_path = self.service.get_maildir_path(self.resource.mailSpool, self.resource.name)
         maildir_size = None
@@ -174,6 +187,10 @@ class MailboxCollector(ResCollector):
 
 
 class DatabaseUserCollector(ResCollector):
+    @property
+    def necessary_properties(self):
+        return ('name',)
+
     def get_property(self, property_name, cache_ttl=0):
         key = self.get_cache_key(property_name, self.resource.name)
         cached, expired = self.check_cache(key, cache_ttl)
@@ -191,6 +208,10 @@ class DatabaseUserCollector(ResCollector):
 
 
 class DatabaseCollector(ResCollector):
+    @property
+    def necessary_properties(self):
+        return ('name',)
+
     @synchronized
     def get_property(self, property_name, cache_ttl=0):
         key = self.get_cache_key(property_name, self.resource.name)
@@ -232,6 +253,10 @@ class DatabaseCollector(ResCollector):
 
 
 class WebsiteCollector(ResCollector):
+    @property
+    def necessary_properties(self):
+        return ('serviceId',)
+
     def get_property(self, property_name, cache_ttl=0):
         if property_name == 'serviceId':
             for service in cnstr.get_application_servers():
@@ -240,6 +265,10 @@ class WebsiteCollector(ResCollector):
 
 
 class RedirectCollector(ResCollector):
+    @property
+    def necessary_properties(self):
+        return ('serviceId',)
+
     def get_property(self, property_name, cache_ttl=0):
         if property_name == 'serviceId':
             http_server = cnstr.get_http_proxy_service()
@@ -248,16 +277,28 @@ class RedirectCollector(ResCollector):
 
 
 class SslCertificateCollector(ResCollector):
+    @property
+    def necessary_properties(self):
+        return ()
+
     def get_property(self, property_name, cache_ttl=0):
         return
 
 
 class ServiceCollector(ResCollector):
+    @property
+    def necessary_properties(self):
+        return ('name',)
+
     def get_property(self, property_name, cache_ttl=0):
         if property_name == 'name' and self.service:
             return f'{self.service.name}@{CONFIG.hostname}'
 
 
 class ResourceArchiveCollector(ResCollector):
+    @property
+    def necessary_properties(self):
+        return ()
+
     def get_property(self, property_name, cache_ttl=0):
         return
