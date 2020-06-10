@@ -205,7 +205,7 @@ class LinuxUserManager:
             os.chown(home_dir, uid, uid)
             os.chmod(home_dir, 0o700)
         except InconsistentUserData as e:
-            LOGGER.warning(f'{e} removing all entries starting with {name}')
+            LOGGER.warning(f'{e}, removing all entries starting with {name}')
             for each in self._etc_passwd.get_lines(f'^{name}:.+'): self._etc_passwd.remove_line(each)
             for each in self._etc_shadow.get_lines(f'^{name}:.+'): self._etc_shadow.remove_line(each)
             self.create_user(name, uid, home_dir, pass_hash, shell, gecos, extra_groups)

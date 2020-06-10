@@ -51,12 +51,10 @@ class ResourceBuilder:
                 elif self._res_type in ('unix-account', 'mailbox'):
                     self._resources.extend(api.resource(self._res_type).filter(serverId=CONFIG.localserver.id).get())
                 elif self._res_type == 'service':
-                    self._resources.extend(api.server(CONFIG.localserver.id).get().services)
+                    self._resources.extend(cnstr.get_services())
                 else:
-                    service_type_resource = to_camel_case(self._res_type).upper()
-                    for each in api.server(CONFIG.localserver.id).get().services:
-                        if each.template.resourceType == service_type_resource:
-                            self._resources.extend(api.resource(self._res_type).filter(serviceId=each.id).get())
+                    for each in cnstr.get_services_by_res_type(to_camel_case(self._res_type).upper()):
+                        self._resources.extend(api.resource(self._res_type).filter(serviceId=each.id).get())
         return self._resources
 
     def get_required_resources(self, resource=None):
@@ -76,9 +74,8 @@ class ResourceBuilder:
                 with ApiClient(**CONFIG.apigw) as api:
                     if resource.template.__class__.__name__ == 'HttpServer':
                         LOGGER.debug(f'{resource.name} service depends on application servers')
-                        for each in api.server(CONFIG.localserver.id).get().services:
-                            if each.template.__class__.__name__ == 'ApplicationServer':
-                                required_resources.append(('service', each))
+                        for each in cnstr.get_services_by_template_type('ApplicationServer'):
+                            required_resources.append(('service', each))
                     else:
                         LOGGER.debug(f'{resource.name} service depends on {req_r_type}')
                         required_resources.extend([(req_r_type, r) for r in

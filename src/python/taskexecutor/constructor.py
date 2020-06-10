@@ -1,4 +1,6 @@
+import time
 import urllib.parse
+from collections import defaultdict
 from types import SimpleNamespace
 
 from taskexecutor.backup import ResticBackup
@@ -26,7 +28,8 @@ class OpServiceNotFound(Exception):
     pass
 
 
-SERVICE_ID_TO_OPSERVICE_MAPPING = dict()
+SERVICE_ID_TO_OPSERVICE_MAPPING = {}
+SERVICES_CACHE = {'timestamp': 0, 'data': ()}
 
 
 def get_conffile(config_type, abs_path, owner_uid=None, mode=None):
@@ -37,38 +40,57 @@ def get_conffile(config_type, abs_path, owner_uid=None, mode=None):
     return Conffile(abs_path, owner_uid, mode)
 
 
+def get_services():
+    now = time.time()
+    if now - SERVICES_CACHE['timestamp'] < 60:
+        with ApiClient(**CONFIG.apigw) as api:
+            SERVICES_CACHE['timestamp'] = now
+            SERVICES_CACHE['data'] = api.server(CONFIG.localserver.id).get().services
+    return SERVICES_CACHE['data']
+
+
+def get_services_by_res_type(res_type):
+    return filter(lambda s: s.template.resourceType == res_type, get_services())
+
+
+def get_services_by_template_type(template_type):
+    return filter(lambda s: s.template.__class__.__name__ == template_type, get_services())
+
+
 def get_services_of_type(type_name):
-    with ApiClient(**CONFIG.apigw) as api:
-        return (get_opservice(s) for s in api.server(CONFIG.localserver.id).get().services
-                if s.template.__class__.__name__ == type_name)
+    return filter(lambda s: s.template.__class__.__name__ == type_name, get_services())
+
+
+def get_opservices_of_type(type_name):
+    return map(get_opservice, get_services_of_type(type_name))
 
 
 def get_http_proxy_service():
-    return next(get_services_of_type('HttpServer'), None)
+    return next(get_opservices_of_type('HttpServer'), None)
 
 
 def get_application_servers():
-    return get_services_of_type('ApplicationServer')
+    return get_opservices_of_type('ApplicationServer')
 
 
 def get_database_server():
-    return next(get_services_of_type('DatabaseServer'), None)
+    return next(get_opservices_of_type('DatabaseServer'), None)
 
 
 def get_mta_service():
-    return next(get_services_of_type('Postfix'), None)
+    return next(get_opservices_of_type('Postfix'), None)
 
 
 def get_cron_service():
-    return next(get_services_of_type('CronD'), None)
+    return next(get_opservices_of_type('CronD'), None)
 
 
 def get_ssh_service():
-    return next(get_services_of_type('SshD'), None)
+    return next(get_opservices_of_type('SshD'), None)
 
 
 def get_ftp_service():
-    return next(get_services_of_type('FtpD'), None)
+    return next(get_opservices_of_type('FtpD'), None)
 
 
 def get_opservice(service):
@@ -134,12 +156,6 @@ def get_opservice_by_resource(resource, resource_type):
     else:
         raise OpServiceNotFound(f"Cannot find operational service for given '{resource_type}' resource: {resource}")
     return service
-
-
-def get_all_opservices_by_res_type(resource_type):
-    with ApiClient(**CONFIG.apigw) as api:
-        next((get_opservice(s) for s in api.server(CONFIG.localserver.id).get().services
-              if s.template.resourceType == resource_type.upper()), None)
 
 
 def get_extra_services(worker):
