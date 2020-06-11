@@ -19,7 +19,10 @@ let
   inherit (lib) firstNChars mkPythonPath dockerRunCmd;
   inherit (builtins) getEnv;
   te = callPackage ./te.nix { inherit ref; };
-  gitaskpass = stdenv.mkDerivation { name = "gitaskpass"; src = ./src/c/gitaskpass; };
+  gitaskpass = stdenv.mkDerivation {
+    name = "gitaskpass";
+    src = (builtins.fetchGit ./.).outPath + "/src/c/gitaskpass";
+  };
   gitAbbrev = firstNChars 8 (getEnv "GIT_COMMIT");
   dockerArgHints = {
     name = "taskexecutor";
