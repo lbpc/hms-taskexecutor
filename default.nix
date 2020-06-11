@@ -84,7 +84,8 @@ in buildLayeredImage rec {
   tag = if gitAbbrev != "" then gitAbbrev else "latest";
   maxLayers = 50;
   contents = [
-    bash
+    bashInteractive # for normal shell in debug
+    procps # for ps aux
     coreutils
     curl
     findutils
