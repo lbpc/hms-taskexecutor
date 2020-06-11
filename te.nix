@@ -18,7 +18,7 @@ with callPackage ./pypkgs.nix { inherit ref; };
 
 python37mj.pkgs.buildPythonPackage rec {
   name = "taskexecutor";
-  src = ./src/python;
+  src = (builtins.fetchGit ./.).outPath + "/src/python";
   propagatedBuildInputs = with python37mj.pkgs; [
     kombu
     clamd
