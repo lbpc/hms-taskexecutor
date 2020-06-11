@@ -412,9 +412,9 @@ class DatabaseProcessor(ResProcessor):
                 for user in spare_users:
                     current_user = next(filter(lambda u: u.name == user.name, self.op_resource.databaseUsers))
                     current_addrs = set(current_user.allowedIPAddresses)
-                    staging_addrs = set(user.allowedIPAddresses)
-                    new_addrs = self.service.normalize_addrs(list(staging_addrs.difference(current_addrs)) +
-                                                             always_allowed_addrs)
+                    staging_addrs = set(self.service.normalize_addrs(user.allowedIPAddresses + always_allowed_addrs))
+                    new_addrs = self.service.normalize_addrs(list(staging_addrs.difference(current_addrs)
+                                                                  )) + list(current_addrs.intersection(staging_addrs))
                     old_addrs = list(current_addrs.difference(staging_addrs))
                     if new_addrs:
                         LOGGER.info(f'Granting access on {db_type} database {self.resource.name} '

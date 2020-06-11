@@ -70,11 +70,9 @@ class TestDatabaseProcessor(unittest.TestCase):
         processor = DatabaseProcessor(db, mock_service, {})
         processor.op_resource = actual_db
         processor.update()
-        self.assertTrue(call('b12345', 'u12345', ['172.16.100.1', '127.0.0.1'])
-                        in mock_service.allow_database_access.call_args_list
-                        or
-                        call('b12345', 'u12345', ['127.0.0.1', '172.16.100.1'])
-                        in mock_service.allow_database_access.call_args_list)
+        self.assertTrue(filter(lambda c: c in mock_service.allow_database_access.call_args_list,
+                               map(partial(call, 'b12345', 'u12345'),
+                                   map(list, permutations(['172.16.0.1', '10.10.0.1', '127.0.0.1'])))))
         self.assertTrue(call('b12345', 'u23456', ['127.0.0.1', '192.168.0.1'])
                         in mock_service.allow_database_access.call_args_list
                         or
@@ -138,6 +136,34 @@ class TestDatabaseProcessor(unittest.TestCase):
                         in mock_service.deny_database_access.call_args_list)
         self.assertTrue(call('b12345', 'u34567', ['127.0.0.1']) in mock_service.deny_database_access.call_args_list)
         self.assertEqual(mock_service.deny_database_access.call_count, 3)
+
+
+    def test_update_no_difference(self):
+        CONFIG.hostname = 'web99'
+        CONFIG.database.default_allowed_networks = ['127.0.0.1']
+        mock_service = Mock(spec=DatabaseServer)
+        mock_service.normalize_addrs = lambda x: x
+        user = Mock()
+        user.name = 'u12345'
+        user.allowedIPAddresses = ['192.168.0.1']
+        db = Mock()
+        db.name = 'b12345'
+        db.databaseUsers = [user]
+        actual_db = Mock()
+        actual_db.name = 'b12345'
+        actual_db.databaseUsers = [user]
+        processor = DatabaseProcessor(db, mock_service, {})
+        processor.op_resource = actual_db
+        processor.update()
+        print(mock_service.allow_database_access.call_args_list)
+        self.assertTrue(call('b12345', 'u12345', ['127.0.0.1', '192.168.0.1'])
+                        in mock_service.allow_database_access.call_args_list
+                        or
+                        call('b12345', 'u12345', ['192.168.0.1', '127.0.0.1'])
+                        in mock_service.allow_database_access.call_args_list)
+        self.assertEqual(mock_service.allow_database_access.call_count, 1)
+        mock_service.deny_database_access.assert_not_called()
+
 
 
     @patch('taskexecutor.resprocessor.DatabaseProcessor.create')
