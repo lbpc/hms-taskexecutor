@@ -21,7 +21,7 @@ let
   te = callPackage ./te.nix { inherit ref; };
   gitaskpass = stdenv.mkDerivation {
     name = "gitaskpass";
-    src = (builtins.fetchGit ./.).outPath + "/src/c/gitaskpass";
+    src = ./src/c/gitaskpass;
   };
   gitAbbrev = firstNChars 8 (getEnv "GIT_COMMIT");
   dockerArgHints = {
