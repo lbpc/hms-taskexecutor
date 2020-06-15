@@ -117,7 +117,9 @@ class ConfigurableService(BaseService):
 
     def _context_name_of(self, context_obj):
         if context_obj is self:
-            return "SERVICE"
+            return 'SERVICE'
+        elif context_obj.__class__.__name__.upper() == 'REDIRECT':
+            return 'WEBSITE'
         else:
             return context_obj.__class__.__name__.upper()
 
