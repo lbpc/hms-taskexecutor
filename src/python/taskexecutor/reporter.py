@@ -66,7 +66,9 @@ class AMQPReporter(Reporter):
         provider = self._task.params['provider'] if self._report_to_next_te else 'te'
         LOGGER.info(f'Publishing to {exchange} exchange with {routing_key} routing key, '
                     f'headers: provider={provider}, payload: {self._report}')
-        queue = Queue(exchange=Exchange(exchange, type='topic'), routing_key=routing_key)
+        queue = Queue(name=f'te.{CONFIG.hostname}.{exchange}.report',
+                      exchange=Exchange(exchange, type='topic'),
+                      routing_key=routing_key)
         with Connection(url, heartbeat=CONFIG.amqp.heartbeat_interval) as conn:
             producer = conn.Producer()
             producer.publish(json.dumps(self._report),
