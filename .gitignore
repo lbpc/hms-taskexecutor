@@ -1,8 +1,7 @@
 *.iml
 .idea
+.env
 __pycache__
-pants
-dist
 .cache
-.pants.d
-.pants.workdir.file_lock
+*.egg-info
+result

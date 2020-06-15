@@ -1,31 +1,33 @@
 import abc
-import docker
-import json
-import re
-import os
-import psutil
-import string
-import sys
-import time
+import collections
 import ipaddress
+import json
+import os
+import pickle
+import re
+import string
+import time
+from enum import Enum
 from functools import reduce
+from itertools import chain
 
+import docker
+import psutil
+
+import taskexecutor.constructor as cnstr
+import taskexecutor.utils as utils
 from taskexecutor.config import CONFIG
+from taskexecutor.dbclient import MySQLClient, PostgreSQLClient
+from taskexecutor.httpsclient import ApiClient, GitLabClient
 from taskexecutor.logger import LOGGER
-import taskexecutor.constructor
-import taskexecutor.baseservice
-import taskexecutor.dbclient
-import taskexecutor.httpsclient
-import taskexecutor.utils
 
-__all__ = ["Builder"]
-
-UP = True
-DOWN = False
+__all__ = ["SomethingInDocker", "Cron", "Postfix", "HttpServer", "Apache", "SharedAppServer", "PersonalAppServer",
+           "MySQL", "PostgreSQL"]
 
 
-class BuilderTypeError(Exception):
-    pass
+class ServiceStatus(Enum):
+    UP = True
+    DOWN = False
 
 
 class ServiceReloadError(Exception):
@@ -36,74 +38,276 @@ class ConfigValidationError(Exception):
     pass
 
 
-class OpService(metaclass=abc.ABCMeta):
-    def __init__(self, name, declaration):
-        self.name = name
-        self._log_base_path = "/var/log"
-        self._run_base_path = "/var/run"
-        self._lock_base_path = "/var/lock"
-        self._init_base_path = str()
+class ConfigConstructionError(Exception):
+    pass
+
+
+class BaseService:
+    def __init__(self, name, spec):
+        self._name = name
+        self._spec = spec
 
     @property
-    def name(self):
-        return self._name
-
-    @name.setter
-    def name(self, value):
-        self._name = value
-
-    @name.deleter
-    def name(self):
-        del self._name
+    def name(self): return self._name
 
     @property
-    def log_base_path(self):
-        return self._log_base_path
+    def spec(self): return self._spec
 
-    @log_base_path.setter
-    def log_base_path(self, value):
-        self._log_base_path = value
+    def __str__(self):
+        return "{0}(name='{1}', spec={2})".format(self.__class__.__name__, self.name, self.spec)
 
-    @log_base_path.deleter
-    def log_base_path(self):
-        del self._log_base_path
 
-    @property
-    def run_base_path(self):
-        return self._run_base_path
-
-    @run_base_path.setter
-    def run_base_path(self, value):
-        self._run_base_path = value
-
-    @run_base_path.deleter
-    def run_base_path(self):
-        del self._run_base_path
+class NetworkingService(BaseService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._sockets_map = dict()
 
     @property
-    def lock_base_path(self):
-        return self._lock_base_path
+    def socket(self):
+        return collections.namedtuple("Socket", self._sockets_map.keys())(**self._sockets_map)
 
-    @lock_base_path.setter
-    def lock_base_path(self, value):
-        self._lock_base_path = value
+    def get_socket(self, protocol):
+        return self._sockets_map[protocol]
 
-    @lock_base_path.deleter
-    def lock_base_path(self):
-        del self._lock_base_path
+    def set_socket(self, protocol, socket_obj):
+        self._sockets_map[protocol] = socket_obj
+
+
+class ConfigurableService(BaseService):
+    _cache = dict()
+    _cache_path = os.path.join(utils.rgetattr(CONFIG, 'opservice.config_templates_cache', 'var/cache/te'),
+                               'config_templates.pkl')
+
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._tmpl_srcs = collections.defaultdict(dict)
+
+    @classmethod
+    def _dump_cache(cls):
+        dirpath = os.path.dirname(cls._cache_path)
+        if not os.path.exists(dirpath):
+            os.makedirs(dirpath)
+        with open(cls._cache_path, "wb") as f:
+            pickle.dump(cls._cache, f)
+        LOGGER.debug("Config templates cache dumped to {}".format(cls._cache_path))
+
+    @classmethod
+    def _load_cache(cls):
+        try:
+            with open(cls._cache_path, "rb") as f:
+                cls._cache.update(pickle.load(f))
+                LOGGER.debug("Config templates cache updated from {}".format(cls._cache_path))
+        except Exception as e:
+            LOGGER.warning("Failed to load config templates cache, ERROR: {}".format(e))
+            if cls._cache:
+                LOGGER.info("In-memory config templates cache is not empty, dumping to disk")
+                cls._dump_cache()
+
+    @staticmethod
+    def resolve_path_template(path_pattern, context_obj):
+        subst_vars = [var.strip("{}") for var in re.findall(r"{[^{}]+}", path_pattern)]
+        for subst_var in subst_vars:
+            path_pattern = re.sub(r"{{{}}}".format(subst_var), "{}", path_pattern)
+        subst_attrs = [reduce(getattr, subst_var.split("."), context_obj) for subst_var in subst_vars]
+        return path_pattern.format(*subst_attrs)
 
     @property
-    def init_base_path(self):
-        return self._init_base_path
+    def config_base_path(self):
+        return getattr(self, "_config_base_path", None) or os.path.join("/opt", self.name, "conf")
 
-    @init_base_path.setter
-    def init_base_path(self, value):
-        self._init_base_path = value
+    def _context_name_of(self, context_obj):
+        if context_obj is self:
+            return "SERVICE"
+        else:
+            return context_obj.__class__.__name__.upper()
 
-    @init_base_path.deleter
-    def init_base_path(self):
-        del self._init_base_path
+    def get_config_template(self, template_source):
+        if ConfigurableService._cache.get(template_source) \
+                and ConfigurableService._cache[template_source]["timestamp"] + 10 > time.time():
+            return ConfigurableService._cache[template_source]["value"]
+        try:
+            with GitLabClient(**utils.asdict(CONFIG.gitlab)) as gitlab:
+                template = gitlab.get(template_source)
+                ConfigurableService._cache[template_source] = {"timestamp": time.time(), "value": template}
+                ConfigurableService._dump_cache()
+                return template
+        except Exception as e:
+            LOGGER.warning("Failed to fetch config template from GitLab, ERROR: {}".format(e))
+            LOGGER.warning("Probing local cache")
+            ConfigurableService._load_cache()
+            template = None
+            if ConfigurableService._cache.get(template_source):
+                template = ConfigurableService._cache[template_source].get("value")
+            if not template:
+                raise e
+            return template
 
+    def set_config(self, path_template, file_link, context_type="SERVICE"):
+        self._tmpl_srcs[context_type][path_template] = file_link
+
+    def get_config(self, path_template, context=None, config_type='templated'):
+        context = context or self
+        context_type = self._context_name_of(context)
+        if context_type == 'SERVICE':
+            for k, v in chain(utils.asdict(self.spec).items(), utils.asdict(self.spec.instanceProps).items()):
+                if not hasattr(context, k): setattr(context, k, v)
+        path = self.resolve_path_template(path_template, context)
+        file_link = self._tmpl_srcs[context_type].get(path_template)
+        if not file_link:
+            path_resolved = {ctx: {self.resolve_path_template(k, context): v for k, v in mapp.items()}
+                             for ctx, mapp in self._tmpl_srcs.items()}
+            file_link = path_resolved[context_type].get(path_template)
+            LOGGER.debug(f"'Path-resolved' template sources map: {path_resolved}, "
+                         f"search path: '{context_type}'.'{path_template}'")
+        # chroot all non-absolute paths to config_base_path
+        if not os.path.isabs(path): path = os.path.join(self.config_base_path, path)
+        if file_link:
+            config = cnstr.get_conffile(config_type, path)
+            config.template = self.get_config_template(file_link)
+            return config
+        LOGGER.debug(f"Template sources map: {self._tmpl_srcs}, "
+                     f"search path: '{context_type}'.'{path_template}'")
+        raise ConfigConstructionError(f"No '{path}' config defined for service {self.spec.name} "
+                                      f"in '{context_type}' context")
+
+    def get_configs_in_context(self, context):
+        return (self.get_config(t, context) for t in self._tmpl_srcs[self._context_name_of(context)].keys())
+
+
+class WebServer(ConfigurableService, NetworkingService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self.ssl_certs_base_path = "/opt/ssl"
+
+    @property
+    def sites_conf_path(self):
+        return getattr(self, "_sites_conf_path", None) or os.path.join(self.config_base_path, "sites")
+
+    def get_website_configs(self, website):
+        return list(self.get_configs_in_context(website))
+
+    def get_ssl_key_pair_files(self, basename):
+        cert_file_path = os.path.join(self.ssl_certs_base_path, "{}.pem".format(basename))
+        key_file_path = os.path.join(self.ssl_certs_base_path, "{}.key".format(basename))
+        cert_file = cnstr.get_conffile('basic', cert_file_path)
+        key_file = cnstr.get_conffile('basic', key_file_path)
+        return cert_file, key_file
+
+
+class ArchivableService(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def get_archive_stream(self, source, params=None):
+        pass
+
+
+class ApplicationServer(BaseService, ArchivableService):
+    @property
+    def interpreter(self):
+        name = (getattr(self.spec.template, "language", "")).lower() or None
+        version = getattr(self.spec.template, "version", "").split(".")
+        version_major = next(iter(version[0:1]), None) or None
+        version_minor = next(iter(version[1:2]), None)
+        suffix = getattr(self.spec.instanceProps, "security_level", None)
+        Interpreter = collections.namedtuple("Interpreter", "name version_major version_minor suffix")
+        if any((name, version_major, version_minor, suffix)):
+            return Interpreter(name, version_major, version_minor, suffix)
+
+    def get_archive_stream(self, source, params=None):
+        basedir = (params or {}).get('basedir')
+        stdout, stderr = utils.exec_command(f'nice -n 19 '
+                                            f'tar'
+                                            f' --ignore-command-error'
+                                            f' --ignore-failed-read'
+                                            f' --warning=no-file-changed'
+                                            f' -czf -'
+                                            f' -C {basedir} {source}', return_raw_streams=True)
+        return stdout, stderr
+
+
+class DatabaseServer(ConfigurableService, NetworkingService, ArchivableService, metaclass=abc.ABCMeta):
+    @staticmethod
+    @abc.abstractmethod
+    def normalize_addrs(addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def get_user(self, name):
+        pass
+
+    @abc.abstractmethod
+    def get_all_database_names(self):
+        pass
+
+    @abc.abstractmethod
+    def get_database(self, name):
+        pass
+
+    @abc.abstractmethod
+    def create_user(self, name, password_hash, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def set_password(self, user_name, password_hash, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def drop_user(self, name, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def create_database(self, name):
+        pass
+
+    @abc.abstractmethod
+    def drop_database(self, name):
+        pass
+
+    @abc.abstractmethod
+    def allow_database_access(self, database_name, user_name, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def deny_database_access(self, database_name, user_name, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def allow_database_writes(self, database_name, user_name, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def deny_database_writes(self, database_name, user_name, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def allow_database_reads(self, database_name, user_name, addrs_list):
+        pass
+
+    @abc.abstractmethod
+    def get_database_size(self, database_name):
+        pass
+
+    @abc.abstractmethod
+    def get_all_databases_size(self):
+        pass
+
+    @abc.abstractmethod
+    def restrict_user_cpu(self, name, time):
+        pass
+
+    @abc.abstractmethod
+    def unrestrict_user_cpu(self, name):
+        pass
+
+    @abc.abstractmethod
+    def preset_user_session_vars(self, user_name, addrs_list, vars_map):
+        pass
+
+    @abc.abstractmethod
+    def set_initial_permissions(self, user_name, addrs_list):
+        pass
+
+
+class OpService(BaseService, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def start(self):
         pass
@@ -123,78 +327,32 @@ class OpService(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def status(self):
         pass
-
-    def __repr__(self):
-        return "{0}(name={1}, " \
-               "log_base_path={2}, " \
-               "run_base_path={3}, " \
-               "lock_base_path={4}, " \
-               "init_base_path={5}))".format(self.__class__.__name__,
-                                             self.name,
-                                             self.log_base_path,
-                                             self.run_base_path,
-                                             self.lock_base_path,
-                                             self.init_base_path)
 
 
 class UpstartService(OpService):
-    def __init__(self, name, declaration):
-        super().__init__(name, declaration)
-        self.init_base_path = "/etc/init"
-
     def start(self):
-        LOGGER.info("starting {} service via Upstart".format(self.name))
-        taskexecutor.utils.exec_command("start {}".format(self.name))
+        LOGGER.info(f'starting {self.name} service via Upstart')
+        utils.exec_command(f'start {self.name}')
 
     def stop(self):
-        LOGGER.info("stopping {} service via Upstart".format(self.name))
-        taskexecutor.utils.exec_command("stop {}".format(self.name))
+        LOGGER.info(f'stopping {self.name} service via Upstart')
+        utils.exec_command(f'stop {self.name}')
 
     def restart(self):
-        LOGGER.info("restarting {} service via Upstart".format(self.name))
-        taskexecutor.utils.exec_command("restart {}".format(self.name))
+        LOGGER.info(f'restarting {self.name} service via Upstart')
+        utils.exec_command(f'restart {self.name}')
 
     def reload(self):
-        LOGGER.info("reloading {} service via Upstart".format(self.name))
-        taskexecutor.utils.exec_command("reload {}".format(self.name))
+        LOGGER.info(f'reloading {self.name} service via Upstart')
+        utils.exec_command(f'reload {self.name}')
 
     def status(self):
-        status = DOWN
+        status = ServiceStatus.DOWN
         try:
-            status = UP if "running" in taskexecutor.utils.exec_command("status {}".format(self.name)) else DOWN
-        except taskexecutor.utils.CommandExecutionError:
+            status = ServiceStatus.UP if 'running' in utils.exec_command(f'status {self.name}') else ServiceStatus.DOWN
+        except utils.CommandExecutionError:
             pass
         return status
-
-
-class SysVService(OpService):
-    def __init__(self, name, declaration):
-        super().__init__(name, declaration)
-        self.init_base_path = "/etc/init.d"
-
-    def start(self):
-        LOGGER.info("starting {} service via init script".format(self.name))
-        taskexecutor.utils.exec_command("invoke-rc.d {} start".format(self.name))
-
-    def stop(self):
-        LOGGER.info("stopping {} service via init script".format(self.name))
-        taskexecutor.utils.exec_command("invoke-rc.d {} stop".format(self.name))
-
-    def restart(self):
-        LOGGER.info("restarting {} service via init script".format(self.name))
-        taskexecutor.utils.exec_command("invoke-rc.d {} restart".format(self.name))
-
-    def reload(self):
-        LOGGER.info("reloading {} service via init script".format(self.name))
-        taskexecutor.utils.exec_command("invoke-rc.d {} reload".format(self.name))
-
-    def status(self):
-        try:
-            taskexecutor.utils.exec_command("invoke-rc.d {} status".format(self.name))
-            return UP
-        except Exception as e:
-            LOGGER.warn(e)
-            return DOWN
 
 
 class DockerService(OpService):
@@ -230,14 +388,6 @@ class DockerService(OpService):
         return args
 
     @property
-    def image(self):
-        return self._image
-
-    @image.setter
-    def image(self, value):
-        self._image = value
-
-    @property
     def container(self):
         return next(iter(
             self._docker_client.containers.list(filters={"name": "^/" + self._container_name + "$"}, all=True)
@@ -258,16 +408,11 @@ class DockerService(OpService):
                 for k, v in image.labels.items()
                 if k.startswith("ru.majordomo.docker.exec.")}
 
-    def __init__(self, name, declaration):
-        super().__init__(name, declaration)
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
         self._docker_client = docker.from_env()
-        self._docker_client.login(**CONFIG.docker_registry._asdict())
-        if hasattr(declaration, "template") and declaration.template and declaration.template.sourceUri:
-            self._image = declaration.template.sourceUri.replace("docker://", "")
-        elif hasattr(declaration, "template"):
-            self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, declaration.template.name)
-        else:
-            self._image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, self.name)
+        self._docker_client.login(**utils.asdict(CONFIG.docker_registry))
+        self.image = spec.template.sourceUri.replace("docker://", "")
         self._container_name = getattr(self, "_container_name", self.name)
         self._default_run_args = {"name": self._container_name,
                                   "detach": True,
@@ -276,7 +421,7 @@ class DockerService(OpService):
                                   "restart_policy": {"Name": "always"},
                                   "network": "host"}
 
-    @taskexecutor.utils.synchronized
+    @utils.synchronized
     def _pull_image(self):
         LOGGER.info("Pulling {} docker image".format(self.image))
         self._docker_client.images.pull(self.image)
@@ -285,7 +430,7 @@ class DockerService(OpService):
     def _setup_env(self):
         self._env = {"${}".format(k): v for k, v in os.environ.items()}
         self._env.update({"${{{}}}".format(k): v for k, v in os.environ.items()})
-        self._env.update(taskexecutor.utils.attrs_to_env(self))
+        self._env.update(utils.attrs_to_env(self))
 
     def _subst_env_vars(self, to_subst):
         if isinstance(to_subst, str):
@@ -305,7 +450,7 @@ class DockerService(OpService):
         cmd = self.defined_commands.get(cmd_name)
         if not cmd:
             raise ValueError("{} is not defined for {}, see Docker image labels".format(cmd_name, self.name))
-        if self.status() != UP:
+        if self.status() != ServiceStatus.UP:
             raise RuntimeError("{} is not running".format(self._container_name))
         cmd = cmd.safe_substitute(**kwargs)
         self.container.reload()
@@ -317,7 +462,7 @@ class DockerService(OpService):
 
     def start(self):
         image = self._pull_image()
-        arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json"), "{}")
+        arg_hints = json.loads(image.labels.get("ru.majordomo.docker.arg-hints-json", "{}"))
         if arg_hints:
             LOGGER.info("Docker image {} has run arguments hints: {}".format(self.image, arg_hints))
         run_args = self._default_run_args.copy()
@@ -341,11 +486,11 @@ class DockerService(OpService):
         self.container.remove()
 
     def restart(self):
-       if self.container.attrs["NetworkSettings"]["Ports"]:
-           self._pull_image()
-           self.stop()
-           self.start()
-       else:
+        if self.container.attrs["NetworkSettings"]["Ports"]:
+            self._pull_image()
+            self.stop()
+            self.start()
+        else:
             timestamp = str(int(time.time()))
             old_container = None
             if self.container:
@@ -356,7 +501,8 @@ class DockerService(OpService):
                 self.start()
             except Exception:
                 if old_container:
-                    LOGGER.warn("Failed to start new container {0}, renaming {0}_{1} back".format(self._container_name, timestamp))
+                    LOGGER.warn("Failed to start new container {0}, renaming {0}_{1} back".format(self._container_name,
+                                                                                                  timestamp))
                     old_container.rename(self._container_name)
                 raise
             if old_container:
@@ -365,7 +511,7 @@ class DockerService(OpService):
                 old_container.remove()
 
     def reload(self):
-        if self.status() == DOWN:
+        if self.status() == ServiceStatus.DOWN:
             LOGGER.warn("{} is down, starting it".format(self._container_name))
             self.start()
             return
@@ -391,57 +537,36 @@ class DockerService(OpService):
         if self.container:
             self.container.reload()
             if self.container.status == "running":
-                return UP
-        return DOWN
+                return ServiceStatus.UP
+        return ServiceStatus.DOWN
 
 
-class SomethingInDocker(taskexecutor.baseservice.ConfigurableService,
-                        taskexecutor.baseservice.NetworkingService, DockerService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.ConfigurableService.__init__(self)
-        taskexecutor.baseservice.NetworkingService.__init__(self)
-        DockerService.__init__(self, name, declaration)
-        self.config_base_path = os.path.join("/opt", self.name)
+class SomethingInDocker(ConfigurableService, NetworkingService, DockerService):
+    pass
 
 
-class NginxInDocker(taskexecutor.baseservice.WebServer, DockerService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.WebServer.__init__(self)
-        DockerService.__init__(self, name, declaration)
-        self.config_base_path = "/opt/nginx/conf"
-        self.site_template_name = "@NginxServerDocker"
+class HttpServer(WebServer, DockerService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
         self.ssl_certs_base_path = CONFIG.nginx.ssl_certs_path
 
-    def get_website_config(self, site_id):
-        config = self.get_abstract_config(self.site_template_name,
-                                          os.path.join("/etc/nginx/sites-available", site_id + ".conf"),
-                                          config_type="website")
-        config.enabled_path = os.path.join("/etc/nginx/sites-enabled/{}.conf".format(site_id))
-        return config
+
+class SharedAppServer(WebServer, ApplicationServer, DockerService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._config_base_path = os.path.join("/etc", self.name)
+        self._sites_conf_path = os.path.join(self._config_base_path, "sites-available")
+        self.security_level = getattr(getattr(self.spec, "instanceProps", None), "security_level", "default")
 
 
-class ApacheInDocker(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.WebServer.__init__(self)
-        taskexecutor.baseservice.ApplicationServer.__init__(self)
-        DockerService.__init__(self, name, declaration)
-        short_name = "apache2-{0.name}{0.version_major}{0.version_minor}".format(self.interpreter)
-        self.image = "{}/webservices/{}:master".format(CONFIG.docker_registry.registry, short_name)
-        self.sites_conf_path = "/etc/{}/sites-available".format(self.name)
-        self.security_level = "-".join([e for e in self.name.split("-")
-                                        if e != "apache2" and not e.startswith(self.interpreter.name)]) or None
-        self.site_template_name = "@ApacheVHost"
-        self.config_base_path = os.path.join("/etc", self.name)
-
-
-class CronInDocker(DockerService):
-    def __init__(self, name, declaration):
-        super().__init__(name, declaration)
+class Cron(DockerService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
         self.passwd_root = "/opt"
         self.spool = "/opt/cron/tabs"
 
     def _get_uid(self, user_name):
-        passwd = taskexecutor.constructor.get_conffile('lines', os.path.join(self.passwd_root, "etc/passwd"))
+        passwd = cnstr.get_conffile('lines', os.path.join(self.passwd_root, 'etc/passwd'))
         matched = passwd.get_lines("^{}:".format(user_name))
         if len(matched) != 1:
             raise ValueError("Cannot determine user {0},"
@@ -449,8 +574,8 @@ class CronInDocker(DockerService):
         return int(matched[0].split(":")[2])
 
     def _get_crontab_file(self, user_name):
-        return taskexecutor.constructor.get_conffile("lines", os.path.join(self.spool, user_name),
-                                                     owner_uid=self._get_uid(user_name), mode=0o600)
+        return cnstr.get_conffile('lines', os.path.join(self.spool, user_name),
+                                  owner_uid=self._get_uid(user_name), mode=0o600)
 
     def create_crontab(self, user_name, cron_tasks_list):
         crontab = self._get_crontab_file(user_name)
@@ -462,7 +587,10 @@ class CronInDocker(DockerService):
         crontab.save()
 
     def get_crontab(self, user_name):
-        return self._get_crontab_file(user_name).body
+        try:
+            return self._get_crontab_file(user_name).body
+        except ValueError:
+            return ''
 
     def delete_crontab(self, user_name):
         crontab = self._get_crontab_file(user_name)
@@ -470,34 +598,30 @@ class CronInDocker(DockerService):
             self._get_crontab_file(user_name).delete()
 
 
-class PostfixInDocker(DockerService):
+class Postfix(DockerService):
     def enable_sendmail(self, uid):
+        if self.status() is not ServiceStatus.UP:
+            LOGGER.warning(f'{self.name} is down, trying to start it')
+            self.start()
         self.exec_defined_cmd("enable-uid-cmd", uid=uid)
 
     def disable_sendmail(self, uid):
+        if self.status() is not ServiceStatus.UP:
+            LOGGER.warning(f'{self.name} is down, trying to start it')
+            self.start()
         self.exec_defined_cmd("disable-uid-cmd", uid=uid)
 
 
-class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, DockerService):
-    def __init__(self, name, declaration):
-        self._account_id = declaration.accountId
+class PersonalAppServer(WebServer, ApplicationServer, DockerService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._account_id = spec.accountId
         self._unix_account = None
-        taskexecutor.baseservice.WebServer.__init__(self)
-        taskexecutor.baseservice.ApplicationServer.__init__(self)
-        DockerService.__init__(self, name, declaration)
-        self.config_base_path = os.path.join("/opt", self.name, "conf")
-        self.sites_conf_path = os.path.join("/opt", self.name, "conf", "sites")
-
-    def get_website_config(self, site_id):
-        config = self.get_abstract_config(self.site_template_name,
-                                          os.path.join(self.sites_conf_path, site_id + ".conf"),
-                                          config_type="website")
-        config.enabled_path = os.path.join("/tmp", site_id + ".conf")
 
     @property
     def unix_account(self):
         if not self._unix_account:
-            with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+            with ApiClient(**CONFIG.apigw) as api:
                 try:
                     self._unix_account = api.unixAccount().filter(accountId=self._account_id).get()[0]
                 except IndexError:
@@ -505,101 +629,28 @@ class PersonalAppServer(taskexecutor.baseservice.WebServer, taskexecutor.baseser
         return self._unix_account
 
 
-class Nginx(taskexecutor.baseservice.WebServer, SysVService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.WebServer.__init__(self)
-        SysVService.__init__(self, name, declaration)
-        self.site_template_name = "@NginxServer"
-        self.config_base_path = "/etc/nginx"
+class Apache(WebServer, ApplicationServer, UpstartService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._config_base_path = os.path.join("/etc", self.name)
         self.static_base_path = CONFIG.nginx.static_base_path
-        self.ssl_certs_base_path = CONFIG.nginx.ssl_certs_path
+        self.log_base_path = os.path.join("/var/log", self.name)
+        self.run_base_path = os.path.join("/var/run", self.name)
+        self.lock_base_path = os.path.join("/var/lock", self.name)
+        self.init_base_path = os.path.join("/etc/init", self.name)
 
     def reload(self):
-        taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/nginx")
-        LOGGER.info("Testing nginx config")
-        taskexecutor.utils.exec_command("nginx -t",)
-        super().reload()
-        taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/nginx")
-
-
-class Apache(taskexecutor.baseservice.WebServer, taskexecutor.baseservice.ApplicationServer, UpstartService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.WebServer.__init__(self)
-        taskexecutor.baseservice.ApplicationServer.__init__(self)
-        UpstartService.__init__(self, name, declaration)
-        self.site_template_name = "@ApacheVHost"
-        self.config_base_path = os.path.join("/etc", self.name)
-        self.static_base_path = CONFIG.nginx.static_base_path
-
-    def reload(self):
-        taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/apache2")
+        utils.set_apparmor_mode("enforce", "/usr/sbin/apache2")
         LOGGER.info("Testing apache2 config in {}".format(self.config_base_path))
-        taskexecutor.utils.exec_command("apache2ctl -d {} -t".format(self.config_base_path))
+        utils.exec_command("apache2ctl -d {} -t".format(self.config_base_path))
         super().reload()
-        taskexecutor.utils.set_apparmor_mode("enforce", "/usr/sbin/apache2")
+        utils.set_apparmor_mode("enforce", "/usr/sbin/apache2")
 
 
-# HACK: the two 'Unmanaged' classes below are responsible for reloading services at baton.intr only
-# would be removed when this server is gone
-class UnmanagedNginx(taskexecutor.baseservice.WebServer, OpService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.WebServer.__init__(self)
-        OpService.__init__(self, name, declaration)
-        self.site_template_name = "@BatonNginxServer"
-        self.config_base_path = "/usr/local/nginx/conf"
-
-    def start(self):
-        raise NotImplementedError
-
-    def stop(self):
-        raise NotImplementedError
-
-    def restart(self):
-        raise NotImplementedError
-
-    def reload(self):
-        LOGGER.info("Testing nginx config")
-        taskexecutor.utils.exec_command("/usr/local/nginx/sbin/nginx -t", shell="/usr/local/bin/bash")
-        LOGGER.info("Reloading nginx")
-        taskexecutor.utils.exec_command("/usr/local/nginx/sbin/nginx -s reload", shell="/usr/local/bin/bash")
-
-
-class UnmanagedApache(taskexecutor.baseservice.WebServer, OpService):
-    def __init__(self, name, declaration):
-        apache_name_mangle = {"apache2-php4": "apache",
-                              "apache2-php52": "apache5",
-                              "apache2-php53": "apache53"}
-        taskexecutor.baseservice.WebServer.__init__(self)
-        OpService.__init__(self, apache_name_mangle[name], declaration)
-        self.site_template_name = "@BatonApacheVHost"
-        LOGGER.info("Apache name rewrited to '{}'".format(self.name))
-        self.config_base_path = os.path.join("/usr/local", self.name, "conf")
-
-    def start(self):
-        raise NotImplementedError
-
-    def stop(self):
-        raise NotImplementedError
-
-    def restart(self):
-        raise NotImplementedError
-
-    def reload(self):
-        LOGGER.info("Testing apache config: {}/conf/httpd.conf".format(self.config_base_path))
-        taskexecutor.utils.exec_command("/usr/sbin/jail "
-                                        "/usr/jail t 127.0.0.1 "
-                                        "{0}/bin/httpd -T -f {0}/conf/httpd.conf".format(self.config_base_path),
-                                        shell="/usr/local/bin/bash")
-        LOGGER.info("Reloading apache")
-        taskexecutor.utils.exec_command("{}/bin/apachectl2 graceful".format(self.config_base_path),
-                                        shell="/usr/local/bin/bash")
-
-
-class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.DatabaseServer.__init__(self)
-        SysVService.__init__(self, name, declaration)
-        self.config_base_path = "/etc/mysql"
+class MySQL(DatabaseServer, OpService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._config_base_path = "/etc/mysql"
         self._dbclient = None
         self._full_privileges = CONFIG.mysql.common_privileges + CONFIG.mysql.write_privileges
         self._ignored_config_variables = CONFIG.mysql.ignored_config_variables
@@ -607,23 +658,21 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     @property
     def dbclient(self):
         if not self._dbclient:
-            return taskexecutor.dbclient.MySQLClient(host=self.socket.mysql.address,
-                                                     port=self.socket.mysql.port,
-                                                     user=CONFIG.mysql.user,
-                                                     password=CONFIG.mysql.password,
-                                                     database="mysql")
+            return MySQLClient(host=self.socket.mysql.address,
+                               port=self.socket.mysql.port,
+                               user=CONFIG.mysql.user,
+                               password=CONFIG.mysql.password,
+                               database="mysql")
         else:
             return self._dbclient
 
     @staticmethod
     def normalize_addrs(addrs_list):
-        networks = ipaddress.collapse_addresses(ipaddress.IPv4Network(net)
-                                                for net in CONFIG.database.default_allowed_networks + addrs_list)
-        return [net.with_netmask for net in networks]
+        return [net.with_netmask for net in ipaddress.collapse_addresses(ipaddress.IPv4Network(n) for n in addrs_list)]
 
     def reload(self):
         LOGGER.info("Applying variables from config")
-        config = self.get_concrete_config(os.path.join(self.config_base_path, "my.cnf"))
+        config = self.get_config(os.path.join(self.config_base_path, "my.cnf"))
         config_vars = dict()
         mysqld_section_started = False
         for line in config.body.split("\n"):
@@ -658,14 +707,23 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
     def status(self):
         try:
             if self.dbclient.execute_query("SELECT 1", ())[0][0] == 1:
-                return UP
+                return ServiceStatus.UP
         except Exception as e:
             LOGGER.warn(e)
-            return DOWN
+            return ServiceStatus.DOWN
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def restart(self):
+        pass
 
     def get_user(self, name):
         name, password_hash, comma_separated_addrs = self.dbclient.execute_query(
-                "SELECT User, Password, GROUP_CONCAT(Host) FROM mysql.user WHERE User = %s", (name,))[0]
+            "SELECT User, Password, GROUP_CONCAT(Host) FROM mysql.user WHERE User = %s", (name,))[0]
         if not name:
             return "", "", []
         addrs = [] if not comma_separated_addrs else comma_separated_addrs.split(",")
@@ -739,21 +797,22 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         )[0][0])
 
     def get_all_databases_size(self):
-        stdout = taskexecutor.utils.exec_command('cd /mysql/DB/ && find ./* -maxdepth 0 -type d -printf "%f\n" | xargs -n1 du -sb')
+        stdout = utils.exec_command('cd /mysql/DB/ && find ./* -maxdepth 0 -type d -printf "%f\n" | xargs -n1 du -sb')
         return dict(
             line.split('\t')[::-1] for line in stdout[0:-1].split('\n')
         )
 
-    def get_archive_stream(self, source, params={}):
-        stdout, stderr = taskexecutor.utils.exec_command(
-                "mysqldump -h{0.address} -P{0.port} "
-                "-u{1.user} -p{1.password} {2} | nice -n 19 gzip -9c".format(self.socket.mysql, CONFIG.mysql, source),
-                return_raw_streams=True
+    def get_archive_stream(self, source, params=None):
+        stdout, stderr = utils.exec_command(
+            "mysqldump -h{0.address} -P{0.port} "
+            "-u{1.user} -p{1.password} {2} | nice -n 19 gzip -9c".format(self.socket.mysql, CONFIG.mysql, source),
+            return_raw_streams=True
         )
         return stdout, stderr
 
     def restrict_user_cpu(self, name, time):
-        self.dbclient.execute_query("REPLACE INTO mysql_restrict.CPU_RESTRICT (USER, MAX_CPU) VALUES (%s, %s)", (name, time))
+        self.dbclient.execute_query("REPLACE INTO mysql_restrict.CPU_RESTRICT (USER, MAX_CPU) VALUES (%s, %s)",
+                                    (name, time))
 
     def unrestrict_user_cpu(self, name):
         self.dbclient.execute_query("DELETE FROM mysql_restrict.CPU_RESTRICT WHERE USER = %s", (name,))
@@ -782,32 +841,28 @@ class MySQL(taskexecutor.baseservice.DatabaseServer, SysVService):
             self.dbclient.execute_query("GRANT SELECT ON mysql_custom.session_vars TO %s@%s", (user_name, address))
 
 
-class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
-    def __init__(self, name, declaration):
-        taskexecutor.baseservice.DatabaseServer.__init__(self)
-        SysVService.__init__(self, name, declaration)
-        self.config_base_path = "/etc/postgresql/9.3/main"
+class PostgreSQL(DatabaseServer, OpService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._config_base_path = "/etc/postgresql/9.3/main"
         self._dbclient = None
-        self._hba_conf = taskexecutor.constructor.get_conffile("lines",
-                                                               os.path.join(self.config_base_path, "pg_hba.conf"))
+        self._hba_conf = cnstr.get_conffile('lines', os.path.join(self.config_base_path, 'pg_hba.conf'))
         self._full_privileges = CONFIG.postgresql.common_privileges + CONFIG.postgresql.write_privileges
 
     @property
     def dbclient(self):
         if not self._dbclient:
-            return taskexecutor.dbclient.PostgreSQLClient(host=self.socket.postgresql.address,
-                                                          port=self.socket.postgresql.port,
-                                                          user=CONFIG.postgresql.user,
-                                                          password=CONFIG.postgresql.password,
-                                                          database="postgres")
+            return PostgreSQLClient(host=self.socket.postgresql.address,
+                                    port=self.socket.postgresql.port,
+                                    user=CONFIG.postgresql.user,
+                                    password=CONFIG.postgresql.password,
+                                    database="postgres")
         else:
             return self._dbclient
 
     @staticmethod
     def normalize_addrs(addrs_list):
-        networks = ipaddress.collapse_addresses(ipaddress.IPv4Network(net)
-                                                for net in CONFIG.database.default_allowed_networks + addrs_list)
-        return networks
+        return ipaddress.collapse_addresses(ipaddress.IPv4Network(net) for net in addrs_list)
 
     @staticmethod
     def _validate_hba_conf(config_body):
@@ -857,7 +912,7 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                                             "line {1}: {2}".format(conn_type, lineno, line))
 
     def _update_hba_conf(self, database_name, users_list):
-        hba_conf = self.get_concrete_config("pg_hba.conf")
+        hba_conf = self.get_config("pg_hba.conf")
         for user in users_list:
             networks_list = ipaddress.collapse_addresses([ipaddress.IPv4Network(addr)
                                                           for addr in user.allowedIPAddresses])
@@ -930,7 +985,7 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
         related_lines = list()
         for address in addrs_list:
             related_lines.extend(
-                    self._hba_conf.get_lines(r"host\s{0}\{1}\s{2}\smd5".format(database_name, user_name, address))
+                self._hba_conf.get_lines(r"host\s{0}\{1}\s{2}\smd5".format(database_name, user_name, address))
             )
         for line in related_lines:
             self._hba_conf.remove_line(line)
@@ -958,10 +1013,10 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
                      self.dbclient.execute_query("SELECT datname FROM pg_database WHERE datistemplate=false", ())]
         return {database: self.get_database_size(database) for database in databases}
 
-    def get_archive_stream(self, source, params={}):
-        stdout, stderr = taskexecutor.utils.exec_command(
-                "pg_dump --host {0.address} --port {0.port} --user {1.user} --password {1.password} "
-                "{2} | gzip -9c".format(self.socket.psql, CONFIG.postgresql, source), return_raw_streams=True
+    def get_archive_stream(self, source, params=None):
+        stdout, stderr = utils.exec_command(
+            "pg_dump --host {0.address} --port {0.port} --user {1.user} --password {1.password} "
+            "{2} | gzip -9c".format(self.socket.psql, CONFIG.postgresql, source), return_raw_streams=True
         )
         return stdout, stderr
 
@@ -976,18 +1031,3 @@ class PostgreSQL(taskexecutor.baseservice.DatabaseServer, SysVService):
 
     def set_initial_permissions(self, user_name, addrs_list):
         return
-
-
-class Builder:
-    def __new__(cls, service_type, docker=False, personal=False):
-        OpServiceClass = {docker:                                           SomethingInDocker,
-                          service_type.endswith("CRON"):                    CronInDocker,
-                          service_type.endswith("POSTFIX"):                 PostfixInDocker,
-                          service_type == "STAFF_NGINX":                    Nginx if not docker else NginxInDocker,
-                          service_type.startswith("WEBSITE_"):              Apache if not docker else ApacheInDocker,
-                          service_type.startswith("WEBSITE_") and personal: PersonalAppServer,
-                          service_type == "DATABASE_MYSQL":                 MySQL,
-                          service_type == "DATABASE_POSTGRES":              PostgreSQL}.get(True)
-        if not OpServiceClass:
-            raise BuilderTypeError("Unknown OpService type: {}".format(service_type))
-        return OpServiceClass

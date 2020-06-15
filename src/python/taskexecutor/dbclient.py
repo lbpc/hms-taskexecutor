@@ -44,6 +44,9 @@ class MySQLClient(DBClient):
             code, message = e.args
             if code in (1290, 1238):
                 LOGGER.warning("{}, MySQL restart needed".format(message))
+            elif code == 1193:
+                version = self.execute_query('SELECT VERSION()', ())[0][0]
+                LOGGER.warning(f'{message} for version {version}')
             else:
                 raise
 

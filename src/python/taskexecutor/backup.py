@@ -2,20 +2,17 @@ import abc
 import hashlib
 import os
 import re
-import requests
 import shlex
+import shutil
 import time
+
 from psutil import pid_exists, Process
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-import taskexecutor.utils
+from taskexecutor.utils import exec_command, rgetattr
 
-__all__ = ["Builder"]
-
-
-class BuilderTypeError(Exception):
-    pass
+__all__ = ["ResticBackup"]
 
 
 class BackupError(Exception):
@@ -47,7 +44,7 @@ class ResticBackup(Backuper):
         code = 1
         stdout = stderr = ""
         while code > 0:
-            code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + cmd, raise_exc=False)
+            code, stdout, stderr = exec_command(base_cmd + cmd, raise_exc=False)
             matched = re.match(r".*locked.*by PID (\d+) on ([^.]+)", stderr or "")
             if code > 0 and not matched:
                 break
@@ -59,7 +56,7 @@ class ResticBackup(Backuper):
                     # it's safe to unlock now
                     LOGGER.warn("repo is locked by PID {} from {} which is no longer running, "
                                 "unlocking".format(pid, host))
-                    taskexecutor.utils.exec_command(base_cmd + " unlock")
+                    exec_command(base_cmd + " unlock")
                 else:
                     LOGGER.warn("repo is locked by PID {} at {}, waiting for 5s".format(pid, host))
                     time.sleep(5)
@@ -79,15 +76,16 @@ class ResticBackup(Backuper):
             repo = "{}@{}".format(self._resource.name, self._resource.domain.name)
         repo = os.path.join("slice", hashlib.sha1(repo.encode()).hexdigest()[:2], repo)
         exclude = exclude or self.default_excludes
+        restic = CONFIG.restic.binary_path if os.path.exists(rgetattr(CONFIG, 'restic.binary_path', '')) else shutil.which('restic')
         base_cmd = ("RESTIC_PASSWORD={0.password} "
-               "{0.binary.path} -r rest:http://restic:{0.password}@{0.host}:{0.port}/{1} ".format(CONFIG.restic, repo))
+                    "{1} -r rest:http://restic:{0.password}@{0.host}:{0.port}/{2} ".format(CONFIG.restic, restic, repo))
         backup_cmd = "backup {0} {1}".format("".join((" -e {}".format(shlex.quote(e)) for e in exclude)), dir)
-        code, stdout, stderr = taskexecutor.utils.exec_command(base_cmd + "init", raise_exc=False)
+        code, stdout, stderr = exec_command(base_cmd + "init", raise_exc=False)
         if code > 0 and not stderr.rstrip().endswith("already exists"):
-            raise BackupError("Resic error: {}".format(stderr.strip()))
+            raise BackupError("Restic error: {}".format(stderr.strip()))
         code, stdout, stderr = self._run_expecting_restic_lock(base_cmd, backup_cmd)
         if code > 0:
-            raise BackupError("Resic error: {}".format(stderr))
+            raise BackupError("Restic error: {}".format(stderr))
         try:
             snapshot_id = stdout.split("\n")[-1].split()[1]
             LOGGER.info("{} saved in {} repo".format(snapshot_id, repo))
@@ -103,12 +101,3 @@ class ResticBackup(Backuper):
         #     requests.get("http://{}/_snapshot/{}".format(CONFIG.backup.server.names[0], os.path.basename(repo)))
         # except Exception as e:
         #     LOGGER.warn("Failed to list snapshots on backup server: {}".format(e))
-
-
-class Builder:
-    def __new__(cls, res_type):
-        BackuperClass = {"unix-account": ResticBackup,
-                         "website": ResticBackup}.get(res_type)
-        if not BackuperClass:
-            raise BuilderTypeError("Unknown resource type: {}".format(res_type))
-        return BackuperClass

@@ -1,10 +1,11 @@
-import psutil
-import time
-import queue
 import os
+import queue
+import time
+
+import psutil
 
 from taskexecutor.logger import LOGGER
-import taskexecutor.utils
+from taskexecutor.utils import set_thread_name
 
 
 class ProcessWatchdog:
@@ -14,15 +15,11 @@ class ProcessWatchdog:
         self._stopping = False
         self.interval = interval
         self.max_lifetime = max_lifetime
-        self._restricted_uids = set()
+        self.restricted_uids = set()
 
     @classmethod
     def get_uids_queue(cls):
         return cls.__uids_queue
-
-    @property
-    def restricted_uids(self):
-        return self._restricted_uids
 
     @staticmethod
     def _get_processes(uids):
@@ -90,7 +87,7 @@ class ProcessWatchdog:
                 pass
 
     def run(self):
-        taskexecutor.utils.set_thread_name("ProcessWatchdog")
+        set_thread_name("ProcessWatchdog")
         uids_queue = self.get_uids_queue()
         while not self._stopping:
             timestamp = time.time()

@@ -1,90 +1,109 @@
+import logging
 import os
 import socket
-import logging
+import time
 
-import taskexecutor.httpsclient
+from taskexecutor.httpsclient import ConfigServerClient, ApiClient
 from taskexecutor.logger import LOGGER
+from taskexecutor.utils import asdict
 
 
 class PropertyValidationError(Exception):
     pass
 
 
+_REMOTE_CONFIG_TIMESTAMP = 0
+_REMOTE_CONFIG_STALE = False
+_REMOTE_CONFIG_TTL = os.environ.get('REMOTE_CONFIG_TTL') or 60
+
+
 class __Config:
-    def __init__(self):
-        log_level = os.environ.get("LOG_LEVEL") or "INFO"
+    @classmethod
+    def __init__(cls):
+        log_level = os.environ.get('LOG_LEVEL') or 'INFO'
         log_level = getattr(logging, log_level.upper())
         LOGGER.setLevel(log_level)
-        LOGGER.info("Initializing config")
-        self.hostname = socket.gethostname().split('.')[0]
-        self.profile = os.environ.get("SPRING_PROFILES_ACTIVE") or "dev"
-        self.apigw = dict(host=os.environ.get("APIGW_HOST") or "api.intr",
-                          port=int(os.environ.get("APIGW_PORT") or 443),
-                          user=os.environ.get("APIGW_USER") or "service",
-                          password=os.environ.get("APIGW_PASSWORD") or "Efu0ahs6")
-        self._amqp = dict(host=os.environ.get("SPRING_RABBITMQ_HOST"),
-                          port=os.environ.get("SPRING_RABBITMQ_PORT") or 5672,
-                          user=os.environ.get("SPRING_RABBITMQ_USERNAME"),
-                          password=os.environ.get("SPRING_RABBITMQ_PASSWORD"))
-        self._fetch_remote_properties()
-        self._obtain_local_server_props()
-        self._declare_enabled_resources()
-        LOGGER.info("Effective configuration:{}".format(self))
+        LOGGER.debug('Initializing config')
+        cls.hostname = socket.gethostname().split('.')[0]
+        cls.profile = os.environ.get('CONFIG_PROFILE', 'dev')
+        cls.apigw = dict(host=os.environ.get('APIGW_HOST', 'api-dev.intr'),
+                         port=int(os.environ.get('APIGW_PORT', 443)),
+                         user=os.environ.get('APIGW_USER', 'service'),
+                         password=os.environ.get('APIGW_PASSWORD'))
+        LOGGER.debug('Effective configuration:{}'.format(cls))
 
-    def _fetch_remote_properties(self):
-        LOGGER.info("Fetching properties from config server")
-        with taskexecutor.httpsclient.ConfigServerClient(**self.apigw) as cfg_srv:
-            extra_attrs = ["amqp.{0}={1}".format(k, v) for k, v in self._amqp.items() if v]
-            extra_attrs.append("amqp.consumer_routing_key=te.{}".format(self.hostname))
+    @classmethod
+    def _fetch_remote_properties(cls):
+        LOGGER.info('Fetching properties from config server')
+        with ConfigServerClient(**cls.apigw) as cfg_srv:
+            extra_attrs = ['amqp.host=rabbit.intr',
+                           'amqp.port=5672',
+                           f'amqp.consumer_routing_key=te.{cls.hostname}']
             for k, v in os.environ.items():
-                if k.startswith("TE_"):
-                    k = k[3:].lower().replace("_", ".").replace("-", "_")
-                    extra_attrs.append("{0}={1}".format(k, v))
+                if k.startswith('TE_'):
+                    k = k[3:].lower().replace('_', '.').replace('-', '_')
+                    extra_attrs.append(f'{k}={v}')
             cfg_srv.extra_attrs = extra_attrs
-            props = cfg_srv.te(self.profile).get().propertySources[0].source
-            for attr, value in props._asdict().items():
-                if not attr.startswith("_"):
-                    setattr(self, attr, value)
-
-    def _obtain_local_server_props(self):
-        with taskexecutor.httpsclient.ApiClient(**self.apigw) as api:
-            result = api.Server(query={"name": self.hostname}).get()
+            props = cfg_srv.te(cls.profile).get().propertySources[0].source
+            for attr, value in asdict(props).items():
+                if not attr.startswith('_'):
+                    setattr(cls, attr, value)
+        with ApiClient(**cls.apigw) as api:
+            result = api.Server(query={'name': cls.hostname}).get()
             if len(result) > 1:
-                raise PropertyValidationError("There is more than one server with name {0}: "
-                                              "{1}".format(self.hostname, result))
+                raise PropertyValidationError(f'There is more than one server with name {cls.hostname}: {result}')
             elif len(result) == 0:
-                raise PropertyValidationError("No {} server found".format(self.hostname))
-            self.localserver = result[0]
-
-    def _declare_enabled_resources(self):
-        if not hasattr(self, "role"):
-            raise PropertyValidationError("No role descriptions found")
+                raise PropertyValidationError(f'No {cls.hostname} server found')
+            cls.localserver = result[0]
+        global _REMOTE_CONFIG_TIMESTAMP
+        _REMOTE_CONFIG_TIMESTAMP = time.time()
+        global _REMOTE_CONFIG_STALE
+        _REMOTE_CONFIG_STALE = False
+        if not hasattr(cls, 'role'): raise PropertyValidationError('No role descriptions found')
         enabled_resources = list()
-        for server_role in self.localserver.serverRoles:
-            server_role_attr = server_role.name.replace("-", "_")
-            if hasattr(self.role, server_role_attr):
-                config_role = getattr(self.role, server_role_attr)
+        for server_role in cls.localserver.serverRoles:
+            server_role_attr = server_role.name.replace('-', '_')
+            if hasattr(cls.role, server_role_attr):
+                config_role = getattr(cls.role, server_role_attr)
                 if isinstance(config_role.resources, list):
                     enabled_resources.extend(config_role.resources)
                 else:
                     enabled_resources.append(config_role.resources)
-        self.enabled_resources = set(enabled_resources)
-        LOGGER.info("Server roles: {0}, "
-                    "manageable resources: {1}".format(self.localserver.serverRoles, enabled_resources))
+        cls.enabled_resources = set(enabled_resources)
+        LOGGER.info('Server roles: {}, manageable '
+                    'resources: {}'.format([r.name for r in cls.localserver.serverRoles], enabled_resources))
 
     @classmethod
-    def __setattr__(self, name, value):
-        if hasattr(self, name) and not name.startswith("_"):
-            raise AttributeError("{} is a read-only attribute".format(name))
-        setattr(self, name, value)
+    def __getattr__(cls, item):
+        value = getattr(cls, item, None)
+        global _REMOTE_CONFIG_STALE
+        if not value or _REMOTE_CONFIG_STALE:
+            if not _REMOTE_CONFIG_STALE: LOGGER.warning(f'{item} not found in config')
+            cls._fetch_remote_properties()
+            LOGGER.debug(f'Effective configuration:{cls}')
+            value = getattr(cls, item)
+        return value
 
     @classmethod
+    def __setattr__(cls, name, value):
+        if hasattr(cls, name) and not name.startswith('_'): raise AttributeError(f'{name} is a read-only attribute')
+        setattr(cls, name, value)
+
+    def __getattribute__(self, item):
+        global _REMOTE_CONFIG_STALE
+        global _REMOTE_CONFIG_TIMESTAMP
+        global _REMOTE_CONFIG_TTL
+        if not item.startswith('_') and time.time() - _REMOTE_CONFIG_TIMESTAMP > _REMOTE_CONFIG_TTL:
+            _REMOTE_CONFIG_STALE = True
+            raise AttributeError
+        return super().__getattribute__(item)
+
     def __str__(self):
         attr_list = list()
         for attr, value in vars(self).items():
-            if not attr.startswith("_") and not callable(getattr(self, attr)):
-                attr_list.append("{0}={1}".format(attr, value))
-        return "CONFIG({})".format(", ".join(attr_list))
+            if not attr.startswith('_') and not callable(getattr(self, attr)):
+                attr_list.append(f'{attr}={value}')
+        return 'CONFIG({})'.format(', '.join(attr_list))
 
 
 CONFIG = __Config()
