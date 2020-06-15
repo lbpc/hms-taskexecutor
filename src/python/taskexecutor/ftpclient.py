@@ -5,18 +5,14 @@ import os
 
 class FTPClient:
     def __init__(self, host, user, password):
-        self._host = host
+        self.host = host
         self._user = user
         self._password = password
         self._server = None
         self._connect()
 
-    @property
-    def host(self):
-        return self._host
-
     def _connect(self):
-        self._server = ftplib.FTP(self._host)
+        self._server = ftplib.FTP(self.host)
         self._server.login(self._user, self._password)
         self._server.encoding = 'utf-8'
 

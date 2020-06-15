@@ -1,12 +1,12 @@
 import abc
+import base64
 import http.client
 import json
 import time
-import base64
 import urllib.parse
 
 from taskexecutor.logger import LOGGER
-import taskexecutor.utils
+from taskexecutor.utils import to_lower_dashed, cast_to_numeric_recursively, object_hook
 
 __all__ = ["ApiClient", "ConfigServerClient", "GitLabClient"]
 
@@ -25,7 +25,7 @@ class HttpsClient(metaclass=abc.ABCMeta):
         self._port = port
         self._user = user
         self._password = password
-        self._uri_path = None
+        self.uri_path = ""
 
     def __enter__(self):
         LOGGER.debug("Connecting to {0}:{1}".format(self._host, self._port))
@@ -35,18 +35,6 @@ class HttpsClient(metaclass=abc.ABCMeta):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._connection.close()
-
-    @property
-    def uri_path(self):
-        return self._uri_path or ""
-
-    @uri_path.setter
-    def uri_path(self, value):
-        self._uri_path = value
-
-    @uri_path.deleter
-    def uri_path(self):
-        del self._uri_path
 
     @staticmethod
     def decode_response(resp_bytes):
@@ -106,7 +94,7 @@ class ApiClient(HttpsClient):
         self._connection.request("POST", uri_path, body=body, headers=headers)
         LOGGER.debug("Performing POST request by URI path {0} with following data: '{1}'".format(uri_path, body))
         response = self._connection.getresponse()
-        self.uri_path = None
+        self.uri_path = ""
         if response.status // 100 != 2:
             LOGGER.error("POST failed, API gateway returned "
                          "{0.status} {0.reason} {1}".format(response, response.read()))
@@ -119,7 +107,7 @@ class ApiClient(HttpsClient):
         LOGGER.debug("Performing GET request by URI path {}".format(uri_path))
         self._connection.request("GET", uri_path, headers=headers)
         response = self._connection.getresponse()
-        self.uri_path = None
+        self.uri_path = ""
         if response.status == 404:
             LOGGER.warning("API gateway returned {0.status} {0.reason} {1}".format(response, response.read()))
             return
@@ -150,7 +138,7 @@ class ApiClient(HttpsClient):
         return self
 
     def __getattr__(self, name):
-        name = taskexecutor.utils.to_lower_dashed(name)
+        name = to_lower_dashed(name)
 
         def constructor(res_id=None, query=None):
             if res_id:
@@ -167,7 +155,7 @@ class ApiClient(HttpsClient):
 class ConfigServerClient(ApiClient):
     def __init__(self, host, port, user, password):
         super().__init__(host, port, user, password)
-        self._extra_attrs = dict()
+        self._extra_attrs = {}
 
     @property
     def extra_attrs(self):
@@ -187,7 +175,7 @@ class ConfigServerClient(ApiClient):
 
     @extra_attrs.deleter
     def extra_attrs(self):
-        del self._extra_attrs
+        self._extra_attrs = {}
 
     def get(self, uri_path=None, headers=None):
         if uri_path:
@@ -244,7 +232,7 @@ class GitLabClient(HttpsClient):
         response = self._connection.getresponse()
         if response.status != 200:
             raise RequestError("GET failed, GitLab returned {0.status} {0.reason} "
-                               "{1}".format(response, response.read()))
+                               "{1}, URI: {2}".format(response, response.read(), uri_path))
         json_str = self.decode_response(response.read())
         if len(json_str) == 0:
             raise RequestError("GET failed, Gitlab returned empty response")
@@ -270,10 +258,10 @@ class ApiObjectMapper:
     def as_object(self, extra_attrs=None, overwrite=False,
                   expand_dot_separated=False, comma_separated_to_list=False, force_numeric=False):
         return json.loads(
-                self._json_string,
-                object_hook=lambda d: taskexecutor.utils.object_hook(d, extra_attrs, overwrite, expand_dot_separated,
-                                                                     comma_separated_to_list, force_numeric)
+            self._json_string,
+            object_hook=lambda d: object_hook(d, extra_attrs, overwrite, expand_dot_separated,
+                                              comma_separated_to_list, force_numeric)
         )
 
     def as_dict(self):
-        return taskexecutor.utils.cast_to_numeric_recursively(json.loads(self._json_string))
+        return cast_to_numeric_recursively(json.loads(self._json_string))

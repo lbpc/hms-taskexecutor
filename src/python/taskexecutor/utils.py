@@ -1,14 +1,17 @@
 import concurrent.futures
-import collections
 import copy
 import hashlib
+import queue
+import re
+import os
+import subprocess
+import threading
 import time
 import traceback
-import re
-import subprocess
-import functools
-import threading
-import queue
+from collections import namedtuple
+from collections.abc import Iterable, Iterator, Mapping
+from functools import partial, reduce, wraps
+from itertools import product, chain
 from numbers import Number
 
 from taskexecutor.logger import LOGGER
@@ -53,29 +56,42 @@ class ThreadPoolExecutorStackTraced(concurrent.futures.ThreadPoolExecutor):
                 break
 
     def dump_work_queue(self, filter_fn):
-        return (i.args for i in self._get_workqueue_items() if filter_fn(i.args))
+        return (i.args for i in self._get_workqueue_items() if i and filter_fn(i.args))
 
 
-def exec_command(command, shell="/bin/bash", pass_to_stdin=None, return_raw_streams=False, raise_exc=True):
-    LOGGER.debug("Running shell command: {}".format(command))
-    proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            shell=True, executable=shell)
+def rgetattr(obj, path, *default):
+    attrs = path.split('.')
+    try:
+        return reduce(getattr, attrs, obj)
+    except AttributeError:
+        if default:
+            return default[0]
+        raise
+
+
+def exec_command(command, shell='/bin/bash', pass_to_stdin=None, return_raw_streams=False, raise_exc=True, env=None):
+    env = env or {}
+    env['PATH'] = os.environ.get('PATH', '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin')
+    env['SSL_CERT_FILE'] = os.environ.get('SSL_CERT_FILE', '')
+    LOGGER.debug(f'Running shell command: {command}; env: {env}')
+    stdin = subprocess.PIPE
+    if hasattr(pass_to_stdin, 'read'):
+        stdin = pass_to_stdin
+    proc = subprocess.Popen(command, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            shell=True, executable=shell, env=env)
     if return_raw_streams:
         return proc.stdout, proc.stderr
-    if pass_to_stdin:
-        stdin = pass_to_stdin
-        for method in ("read", "encode"):
-            if hasattr(stdin, method):
-                stdin = getattr(stdin, method)()
+    if hasattr(pass_to_stdin, 'encode'):
+        stdin = pass_to_stdin.encode()
         stdout, stderr = proc.communicate(input=stdin)
     else:
         stdout, stderr = proc.communicate()
     ret_code = proc.returncode
     if ret_code != 0 and raise_exc:
-        raise CommandExecutionError("Failed to execute command '{}'\n"
-                                    "CODE: {}\n"
-                                    "STDOUT: {}"
-                                    "STDERR: {}".format(command, ret_code, stdout.decode(), stderr.decode()))
+        raise CommandExecutionError(f"Failed to execute command '{command}'\n"
+                                    f"CODE: {ret_code}\n"
+                                    f"STDOUT: {stdout.decode()}\n"
+                                    f"STDERR: {stderr.decode()}")
     if not raise_exc:
         return ret_code, stdout.decode(), stderr.decode()
     return stdout.decode()
@@ -91,7 +107,7 @@ def repquota(args, shell="/bin/bash"):
     stdout = exec_command("repquota -{}".format(args), shell=shell)
     for line in stdout.split("\n"):
         parsed_line = list(filter(None, line.replace("\t", " ").split(" ")))
-        if len(parsed_line) == 10 and  \
+        if len(parsed_line) == 10 and \
                 parsed_line[1] in ("--", "+-", "-+", "++"):
             parsed_line.pop(1)
             normalized_line = [
@@ -101,15 +117,15 @@ def repquota(args, shell="/bin/bash"):
             ]
             quota[normalized_line[0]] = {
                 "block_limit": {
-                    "used": normalized_line[1],
-                    "soft": normalized_line[2],
-                    "hard": normalized_line[3],
+                    "used":  normalized_line[1],
+                    "soft":  normalized_line[2],
+                    "hard":  normalized_line[3],
                     "grace": normalized_line[4]
                 },
-                "file_limit": {
-                    "used": normalized_line[5],
-                    "soft": normalized_line[6],
-                    "hard": normalized_line[7],
+                "file_limit":  {
+                    "used":  normalized_line[5],
+                    "soft":  normalized_line[6],
+                    "hard":  normalized_line[7],
                     "grace": normalized_line[8]
                 }
             }
@@ -143,7 +159,7 @@ def to_snake_case(name):
 
 
 def synchronized(f):
-    @functools.wraps(f)
+    @wraps(f)
     def wrapper(self, *args, **kwargs):
         global LOCKS
         if f not in LOCKS.keys():
@@ -155,14 +171,14 @@ def synchronized(f):
 
 
 def timed(f):
-    @functools.wraps(f)
+    @wraps(f)
     def wrapper(self, *args, **kwargs):
         start = time.time()
         f(self, *args, **kwargs)
         duration = time.time() - start
-        logger = {duration < 2: LOGGER.debug,
+        logger = {duration < 2:      LOGGER.debug,
                   2 <= duration < 3: LOGGER.info,
-                  3 <= duration: LOGGER.warn}[True]
+                  3 <= duration:     LOGGER.warn}[True]
         logger("{} execution took {} seconds".format(f, duration))
 
     return wrapper
@@ -192,7 +208,7 @@ def namedtuple_from_mapping(mapping, type_name="Something"):
             del mapping[k]
     ApiObject = TYPES_MAPPING.get(class_key)
     if not ApiObject:
-        ApiObject = collections.namedtuple(type_name, mapping.keys())
+        ApiObject = namedtuple(type_name, mapping.keys())
         ApiObject.__reduce__ = namedtuple_reduce
         TYPES_MAPPING[class_key] = ApiObject
     return ApiObject(**mapping)
@@ -218,7 +234,7 @@ def dict_merge(target, *args, overwrite=False):
 
 
 def to_namedtuple(maybe_mapping):
-    if isinstance(maybe_mapping, collections.Mapping):
+    if isinstance(maybe_mapping, Mapping):
         for k, v in maybe_mapping.items():
             maybe_mapping[k] = to_namedtuple(v)
         return namedtuple_from_mapping(maybe_mapping)
@@ -241,7 +257,7 @@ def comma_separated_to_list(dct):
         if isinstance(v, dict):
             comma_separated_to_list(v)
         elif isinstance(v, str) and "," in v:
-            dct[k] = [e.strip() for e in v.split(",")]
+            dct[k] = [e.strip() for e in v.split(",") if e]
     return dct
 
 
@@ -254,7 +270,7 @@ def object_hook(dct, extra, overwrite, expand, comma, numcast):
     if expand:
         new_dct = dict()
         for key in dct.keys():
-            dict_merge(new_dct, functools.reduce(lambda x, y: {y: x}, reversed(key.split(".")), dct[key]),
+            dict_merge(new_dct, reduce(lambda x, y: {y: x}, reversed(key.split(".")), dct[key]),
                        overwrite=overwrite)
         if extra and all(k in new_dct.keys() for k in extra.keys()):
             dict_merge(new_dct, extra, overwrite=overwrite)
@@ -265,24 +281,72 @@ def object_hook(dct, extra, overwrite, expand, comma, numcast):
         return namedtuple_from_mapping(dct)
 
 
-def attrs_to_env(obj):
-    res = {}
-    for name in dir(obj):
-        possible_names = (name,
-                          name.upper(),
-                          to_snake_case(name),
-                          to_snake_case(name).upper(),
-                          to_lower_dashed(name),
-                          to_lower_dashed(name).upper())
-        attr = getattr(obj, name)
-        if not name.startswith("_") and not callable(attr) and name != "env":
-            for n in possible_names:
-                res["${}".format(n)] = str(attr)
-                res["${{{}}}".format(n)] = str(attr)
-                if not isinstance(attr, Number):
-                    for k, v in attrs_to_env(attr).items():
-                        k = k.lstrip("$").strip("{}")
-                        for n in possible_names:
-                            res["${}_{}".format(n, k)] = str(v)
-                            res["${{{}_{}}}".format(n, k)] = str(v)
-    return res
+def is_namedtuple(obj):
+    return (isinstance(obj, tuple) and
+            callable(getattr(obj, '_asdict', None)) and
+            getattr(obj, '_fields', None) is not None)
+
+
+def name_variations(name):
+    name = str(name)
+    snake = to_snake_case(name)
+    dash = to_lower_dashed(name)
+    return {name, name.upper(), snake, snake.upper(), dash, dash.upper()}
+
+
+def attrs_to_env(obj, sigils=True, brackets=True, exclude_names=('env',), exclude_attrs=()):
+    result = {}
+    templates = ['${}' if sigils else '{}']
+    if brackets and sigils:
+        templates.append('${{{}}}')
+    elif brackets:
+        templates.append('{{{}}}')
+    get_value = partial(getattr, obj)
+    if isinstance(obj, dict):
+        names = obj.keys()
+        get_value = lambda n: obj.get(n)
+    elif isinstance(obj, (str, Number)):
+        names = ()
+    else:
+        names = filter(lambda n: n not in exclude_names and not n.startswith('_'), dir(obj))
+    exc = exclude_attrs + (obj,)
+    for name in names:
+        try:
+            attr = get_value(name)
+            if callable(attr) or attr in exclude_attrs: continue
+            if isinstance(attr, (str, Number)):
+                value = str(attr)
+                result.update({t.format(n): value
+                               for t, n in product(templates, name_variations(name))})
+            elif isinstance(attr, (Iterable, Iterator)) and not isinstance(attr, dict) and not is_namedtuple(attr):
+                if isinstance(attr, set): attr = sorted(attr)
+                attr = tuple(attr)
+                if not attr: continue
+                if all((isinstance(e, (str, Number)) for e in attr)):
+                    result.update({t.format(n): ','.join(map(str, attr))
+                                   for t, n in product(templates, name_variations(name))})
+                else:
+                    elements = (attrs_to_env({i: e}, sigils=False, brackets=False, exclude_attrs=exc).items() for i, e
+                                in enumerate(filter(None, attr)))
+                    result.update(
+                            {t.format(f'{n}_{k}'): v
+                             for t, n, (k, v) in product(templates, name_variations(name), chain(*elements))}
+                    )
+            else:
+                result.update({t.format(f'{n}_{k}'): v for t, n, (k, v)
+                               in product(templates,
+                                          name_variations(name),
+                                          attrs_to_env(attr, sigils=False, brackets=False, exclude_attrs=exc).items())})
+                continue
+        except Exception as e:
+            LOGGER.warning(f'Failed to convert {obj}.{name} to env variable: {e}')
+    return result
+
+
+def asdict(obj):
+    if hasattr(obj, '_asdict') and callable(obj._asdict):
+        return obj._asdict()
+    elif isinstance(obj, dict):
+        return obj
+    else:
+        return vars(obj)

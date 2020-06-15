@@ -1,185 +1,249 @@
-import collections
-import sys
+import time
 import urllib.parse
+from collections import defaultdict
+from types import SimpleNamespace
 
+from taskexecutor.backup import ResticBackup
+from taskexecutor.builtinservice import *
+from taskexecutor.conffile import ConfigFile, TemplatedConfigFile, LineBasedConfigFile
 from taskexecutor.config import CONFIG
+from taskexecutor.executor import Executor
+from taskexecutor.httpsclient import ApiClient
+from taskexecutor.listener import *
 from taskexecutor.logger import LOGGER
-import taskexecutor.conffile
-import taskexecutor.baseservice
-import taskexecutor.executor
-import taskexecutor.opservice
-import taskexecutor.resdatafetcher
-import taskexecutor.resdataprocessor
-import taskexecutor.rescollector
-import taskexecutor.resprocessor
-import taskexecutor.sysservice
-import taskexecutor.listener
-import taskexecutor.reporter
-import taskexecutor.backup
-import taskexecutor.httpsclient
-import taskexecutor.utils
+from taskexecutor.opservice import *
+from taskexecutor.opservice import DockerService, NetworkingService, ConfigurableService
+from taskexecutor.reporter import *
+from taskexecutor.rescollector import *
+from taskexecutor.resdatafetcher import *
+from taskexecutor.resdataprocessor import *
+from taskexecutor.resprocessor import *
+
+
+class ClassSelectionError(Exception):
+    pass
 
 
 class OpServiceNotFound(Exception):
     pass
 
 
-SERVICE_ID_TO_OPSERVICE_MAPPING = dict()
+SERVICE_ID_TO_OPSERVICE_MAPPING = {}
+SERVICES_CACHE = {'timestamp': 0, 'data': ()}
 
 
 def get_conffile(config_type, abs_path, owner_uid=None, mode=None):
-    ConfigFile = taskexecutor.conffile.Builder(config_type)
-    return ConfigFile(abs_path, owner_uid, mode)
+    Conffile = {'templated': TemplatedConfigFile,
+                'lines': LineBasedConfigFile,
+                'basic': ConfigFile}.get(config_type)
+    if not Conffile: raise ClassSelectionError(f'Unknown config type: {config_type}')
+    return Conffile(abs_path, owner_uid, mode)
+
+
+def get_services():
+    now = time.time()
+    if now - SERVICES_CACHE['timestamp'] > 60:
+        with ApiClient(**CONFIG.apigw) as api:
+            SERVICES_CACHE['timestamp'] = now
+            SERVICES_CACHE['data'] = api.server(CONFIG.localserver.id).get().services
+    return SERVICES_CACHE['data']
+
+
+def get_services_by_res_type(res_type):
+    return filter(lambda s: s.template.resourceType == res_type, get_services())
+
+
+def get_services_by_template_type(template_type):
+    return filter(lambda s: s.template.__class__.__name__ == template_type, get_services())
+
+
+def get_services_of_type(type_name):
+    return filter(lambda s: s.template.__class__.__name__ == type_name, get_services())
+
+
+def get_opservices_of_type(type_name):
+    return map(get_opservice, get_services_of_type(type_name))
 
 
 def get_http_proxy_service():
-    return next((get_opservice(s) for s in CONFIG.localserver.services
-                 if (hasattr(s, "serviceTemplate") and
-                     s.serviceTemplate and
-                     s.serviceTemplate.serviceType.name == "STAFF_NGINX") or
-                 (hasattr(s, "template") and s.template and s.template.__class__.__name__ == "HttpServer")), None)
+    return next(get_opservices_of_type('HttpServer'), None)
+
+
+def get_application_servers():
+    return get_opservices_of_type('ApplicationServer')
+
+
+def get_database_server():
+    return next(get_opservices_of_type('DatabaseServer'), None)
 
 
 def get_mta_service():
-    return next((get_opservice(s) for s in CONFIG.localserver.services
-                 if hasattr(s, "template") and s.template and s.template.__class__.__name__ == "Postfix"), None)
+    return next(get_opservices_of_type('Postfix'), None)
 
 
 def get_cron_service():
-    return next((get_opservice(s) for s in CONFIG.localserver.services
-                 if hasattr(s, "template") and s.template and s.template.__class__.__name__ == "CronD"), None)
+    return next(get_opservices_of_type('CronD'), None)
 
 
-def get_opservice(service_api_obj):
+def get_ssh_service():
+    return next(get_opservices_of_type('SshD'), None)
+
+
+def get_ftp_service():
+    return next(get_opservices_of_type('FtpD'), None)
+
+
+def get_opservice(service):
     global SERVICE_ID_TO_OPSERVICE_MAPPING
-    service = SERVICE_ID_TO_OPSERVICE_MAPPING.get(service_api_obj.id)
-    oldschool_service = hasattr(service_api_obj, "serviceTemplate") and service_api_obj.serviceTemplate
-    if not service:
-        if oldschool_service:
-            LOGGER.debug("service template name is {}".format(service_api_obj.serviceTemplate.name))
-            in_docker = service_api_obj.serviceTemplate.name.endswith("@docker")
-            type_name = service_api_obj.serviceTemplate.serviceType.name
-        else:
-            LOGGER.debug("service template name is {}".format(service_api_obj.template.name))
-            in_docker = service_api_obj.template.supervisionType == "docker"
-            type_name = "{}_{}".format(service_api_obj.template.resourceType,
-                                     service_api_obj.template.name.replace("-", "_").replace(".", "").upper())
-            if hasattr(service_api_obj, "instanceProps") and \
-                    hasattr(service_api_obj.instanceProps, "security_level") and \
-                    service_api_obj.instanceProps.security_level:
-                type_name += "_{}".format(service_api_obj.instanceProps.security_level.upper())
-        OpService = taskexecutor.opservice.Builder(type_name, docker=in_docker,
-                                                   personal=bool(hasattr(service_api_obj, "accountId") and
-                                                            service_api_obj.accountId))
-        service_name = service_api_obj.name.lower().replace("_", "-").split("@")[0]
-        if hasattr(service_api_obj, "accountId") and service_api_obj.accountId:
-            service_name += "-" + service_api_obj.id
-        service = OpService(service_name, service_api_obj)
-        if isinstance(service, taskexecutor.opservice.DockerService):
-            LOGGER.debug("{} is dockerized service".format(service_name))
-        if isinstance(service, taskexecutor.opservice.PersonalAppServer):
-            LOGGER.debug("{} is personal application server".format(service_name))
-        if isinstance(service, taskexecutor.baseservice.NetworkingService):
-            LOGGER.debug("{} is networking service".format(service_name))
-            if hasattr(service_api_obj, "serviceSockets"):
-                for socket in service_api_obj.serviceSockets:
-                    service.set_socket(socket.name.split("@")[0].split("-")[-1], socket)
-            if hasattr(service_api_obj, "sockets"):
-                for socket in service_api_obj.sockets:
-                    service.set_socket(socket.protocol or "default", socket)
-        if isinstance(service, taskexecutor.baseservice.ConfigurableService) and service.config_base_path:
-            LOGGER.debug("{} is configurable service".format(service_name))
-            templates = service_api_obj.serviceTemplate.configTemplates if oldschool_service \
-                else service_api_obj.template.configTemplates
-            for template in templates:
-                service.set_config(template.name, template.fileLink)
-        SERVICE_ID_TO_OPSERVICE_MAPPING[service_api_obj.id] = service
-    return service
+    opservice = SERVICE_ID_TO_OPSERVICE_MAPPING.get(service.id)
+    if not opservice:
+        LOGGER.debug(f"service template name is '{service.template.name}'")
+        t_name = service.template.__class__.__name__
+        superv = service.template.supervisionType
+        private = service.template.availableToAccounts
+        t_mod = getattr(service.template, 'type', None)
+        OpService = {
+            superv == 'docker': SomethingInDocker,
+            t_name == 'CronD': Cron,
+            t_name == 'Postfix': Postfix,
+            t_name == 'HttpServer': HttpServer,
+            t_name == 'ApplicationServer': Apache,
+            t_name == 'ApplicationServer' and superv == 'docker': SharedAppServer,
+            t_name == 'ApplicationServer' and superv == 'docker' and private: PersonalAppServer,
+            t_name == 'DatabaseServer' and t_mod == 'MYSQL': MySQL,
+            t_name == 'DatabaseServer' and t_mod == 'POSTGRESQL': PostgreSQL
+        }.get(True)
+        if not OpService: raise ClassSelectionError(f"Unknown OpService type: {t_name} "
+                                                    f"and catch-all 'SomethingInDocker' did not match "
+                                                    f"due to '{superv}' supervision")
+        service_name = service.name.lower().split('@')[0]
+        if hasattr(service, 'accountId') and service.accountId:
+            service_name += '-' + service.id
+        LOGGER.debug(f"service name will be '{service_name}'")
+        opservice = OpService(service_name, service)
+        if isinstance(opservice, DockerService):
+            LOGGER.debug(f'{service_name} is dockerized service')
+        if isinstance(opservice, PersonalAppServer):
+            LOGGER.debug(f'{service_name} is personal application server')
+        if isinstance(opservice, NetworkingService):
+            LOGGER.debug(f'{service_name} is networking service')
+            for socket in service.sockets:
+                opservice.set_socket(socket.protocol or 'default', socket)
+        if isinstance(opservice, ConfigurableService):
+            LOGGER.debug(f'{service_name} is configurable service')
+            for each in service.template.configTemplates:
+                opservice.set_config(each.pathTemplate or each.name, each.fileLink, each.context)
+        SERVICE_ID_TO_OPSERVICE_MAPPING[service.id] = opservice
+    return opservice
 
 
 def get_opservice_by_resource(resource, resource_type):
     global SERVICE_ID_TO_OPSERVICE_MAPPING
-    if hasattr(resource, "serverId") and resource_type != "service":
-        resource_to_service_type_mapping = {"unix-account": "USER_MANAGER",
-                                            "mailbox": "MAILDIR_MANAGER"}
-        service_type = "{0}_{1}".format(sys.platform.upper(), resource_to_service_type_mapping[resource_type])
-        SysService = taskexecutor.sysservice.Builder(service_type)
-        service = SysService()
-    elif hasattr(resource, "serviceId"):
+    if hasattr(resource, 'serverId') and resource_type != 'service':
+        BuiltinService = {'unix-account': LinuxUserManager, 'mailbox': MaildirManager}.get(resource_type)
+        if not BuiltinService: raise ClassSelectionError(f"Resource has 'serverId' property, "
+                                                         f"but no built-in service exist for {resource_type}")
+        service = BuiltinService()
+    elif hasattr(resource, 'serviceId'):
         service = SERVICE_ID_TO_OPSERVICE_MAPPING.get(resource.serviceId)
         if not service:
-            with taskexecutor.httpsclient.ApiClient(**CONFIG.apigw) as api:
+            with ApiClient(**CONFIG.apigw) as api:
                 service = get_opservice(api.Service(resource.serviceId).get())
-    elif hasattr(resource, "serviceTemplate") or hasattr(resource, "template"):
+    elif hasattr(resource, 'template'):
         service = get_opservice(resource)
-    elif resource_type == "ssl-certificate":
+    elif resource_type == 'ssl-certificate':
         service = get_http_proxy_service()
     else:
-        raise OpServiceNotFound("Cannot find operational service for given "
-                                "'{0}' resource: {1}".format(resource_type, resource))
+        raise OpServiceNotFound(f"Cannot find operational service for given '{resource_type}' resource: {resource}")
     return service
 
 
-def get_all_opservices_by_res_type(resource_type):
-    return [get_opservice(s) for s in CONFIG.localserver.services
-            if (hasattr(s, "serviceTemplate") and
-                s.serviceTemplate and
-                s.serviceTemplate.serviceType.name.split("_")[0] == resource_type.upper()) or
-            (hasattr(s, "template") and s.template and s.template.resourceType == resource_type.upper())]
-
-
-def get_extra_services(res_processor):
-    if isinstance(res_processor, taskexecutor.resprocessor.WebSiteProcessor):
-        ServiceContainer = collections.namedtuple("ServiceContainer", "http_proxy old_app_server")
-        return ServiceContainer(http_proxy=get_http_proxy_service(),
-                                old_app_server=get_opservice_by_resource(res_processor.op_resource, "website")
-                                if res_processor.op_resource else None)
-    if isinstance(res_processor, taskexecutor.resprocessor.UnixAccountProcessor):
-        ServiceContainer = collections.namedtuple("ServiceContainer", "mta cron")
-        return ServiceContainer(mta=get_mta_service(), cron=get_cron_service())
-    return list()
+def get_extra_services(worker):
+    if isinstance(worker, WebSiteProcessor):
+        return SimpleNamespace(http_proxy=get_http_proxy_service(),
+                               old_app_server=get_opservice_by_resource(worker.op_resource, 'website')
+                               if worker.op_resource else None)
+    elif isinstance(worker, (UnixAccountProcessor, UnixAccountCollector)):
+        return SimpleNamespace(mta=get_mta_service(), cron=get_cron_service())
 
 
 def get_resprocessor(resource_type, resource, params=None):
-    ResProcessor = taskexecutor.resprocessor.Builder(resource_type)
+    ResProcessor = {'service': ServiceProcessor,
+                    'unix-account': UnixAccountProcessor,
+                    'database-user': DatabaseUserProcessor,
+                    'database': DatabaseProcessor,
+                    'website': WebSiteProcessor,
+                    'ssl-certificate': SslCertificateProcessor,
+                    'mailbox': MailboxProcessor,
+                    'resource-archive': ResourceArchiveProcessor,
+                    'redirect': RedirectProcessor}.get(resource_type)
+    if not ResProcessor: raise ClassSelectionError(f'Unknown resource type: {resource_type}')
     op_service = get_opservice_by_resource(resource, resource_type)
     processor = ResProcessor(resource, op_service, params=params or {})
     collector = get_rescollector(resource_type, resource)
-    collector.ignore_property("quotaUsed")
+    collector.ignore_property('quotaUsed')
     processor.op_resource = collector.get()
     processor.extra_services = get_extra_services(processor)
     return processor
 
 
 def get_rescollector(resource_type, resource):
-    ResCollector = taskexecutor.rescollector.Builder(resource_type)
+    ResCollector = {'unix-account': UnixAccountCollector,
+                    'database-user': DatabaseUserCollector,
+                    'database': DatabaseCollector,
+                    'mailbox': MailboxCollector,
+                    'website': WebsiteCollector,
+                    'ssl-certificate': SslCertificateCollector,
+                    'service': ServiceCollector,
+                    'resource-archive': ResourceArchiveCollector,
+                    'redirect': RedirectCollector}.get(resource_type)
+    if not ResCollector: raise ClassSelectionError(f'Unknown resource type: {resource_type}')
     op_service = get_opservice_by_resource(resource, resource_type)
     collector = ResCollector(resource, op_service)
+    collector.extra_services = get_extra_services(collector)
     return collector
 
 
 def get_datafetcher(src_uri, dst_uri, params=None):
-    DataFetcher = taskexecutor.resdatafetcher.Builder(urllib.parse.urlparse(src_uri).scheme)
-    data_fetcher = DataFetcher(src_uri, dst_uri, params=params or {})
-    return data_fetcher
+    scheme = urllib.parse.urlparse(src_uri).scheme
+    DataFetcher = {'file': FileDataFetcher,
+                   'rsync': RsyncDataFetcher,
+                   'mysql': MysqlDataFetcher,
+                   'http': HttpDataFetcher,
+                   'git+ssh': GitDataFetcher,
+                   'git+http': GitDataFetcher,
+                   'git+https': GitDataFetcher}.get(urllib.parse.urlparse(src_uri).scheme)
+    if not DataFetcher: raise ClassSelectionError(f'Unknown data source URI scheme: {scheme}')
+    return DataFetcher(src_uri, dst_uri, params=params or {})
 
 
 def get_datapostprocessor(postproc_type, args):
-    DataPostprocessor = taskexecutor.resdataprocessor.Builder(postproc_type)
-    postprocessor = DataPostprocessor(**args)
-    return postprocessor
+    DataPostprocessor = {'docker': DockerDataPostprocessor,
+                         'string-replace': StringReplaceDataProcessor,
+                         'eraser': DataEraser}.get(postproc_type)
+    if not DataPostprocessor: raise ClassSelectionError(f'Unknown data postprocessor type: {postproc_type}')
+    return DataPostprocessor(**args)
 
 
 def get_listener(listener_type):
-    Listener = taskexecutor.listener.Builder(listener_type)
-    out_queue = taskexecutor.executor.Executor.get_new_task_queue()
+    Listener = {'amqp': AMQPListener,
+                'time': TimeListener}.get(listener_type)
+    if not Listener: raise ClassSelectionError(f'Unknown Listener type: {listener_type}')
+    out_queue = Executor.get_new_task_queue()
     return Listener(out_queue)
 
 
 def get_reporter(reporter_type):
-    Reporter = taskexecutor.reporter.Builder(reporter_type)
+    Reporter = {'amqp': AMQPReporter,
+                'https': HttpsReporter,
+                'alerta': AlertaReporter,
+                'null': NullReporter}.get(reporter_type)
+    if not Reporter: raise ClassSelectionError(f'Unknown Reporter type: {reporter_type}')
     return Reporter()
 
+
 def get_backuper(res_type, resource):
-    Backuper = taskexecutor.backup.Builder(res_type)
+    Backuper = {'unix-account': ResticBackup,
+                'website': ResticBackup}.get(res_type)
+    if not Backuper: raise ClassSelectionError(f'Unknown resource type: {res_type}')
     return Backuper(resource)

@@ -27,4 +27,3 @@ logging.basicConfig(
 )
 LOGGER = logging.getLogger("taskexecutor")
 LOGGER.setLevel(logging.INFO)
-logging.getLogger("pika").setLevel(logging.WARNING)

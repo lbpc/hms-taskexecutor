@@ -1,44 +1,51 @@
-import re
 import os
+import re
 import shutil
-import jinja2
-from taskexecutor.logger import LOGGER
+import tempfile
 
-__all__ = ["Builder"]
+import jinja2
+
+from taskexecutor.config import CONFIG
+from taskexecutor.logger import LOGGER
+from taskexecutor.utils import rgetattr
+
+__all__ = ['ConfigFile', 'LineBasedConfigFile', 'TemplatedConfigFile']
 
 
 class PropertyValidationError(Exception):
     pass
 
 
-class BuilderTypeError(Exception):
+class NoSuchLine(Exception):
+    pass
+
+
+class TooBroadCondition(Exception):
     pass
 
 
 class ConfigFile:
-    def __init__(self, abs_path, owner_uid, mode):
-        self._file_path = None
-        self._body = None
+    def __init__(self, file_path, owner_uid, mode):
+        self._tmp_dir = rgetattr(CONFIG, 'conffile.tmp_dir', tempfile.gettempdir())
+        self._bad_confs_dir = rgetattr(CONFIG, 'conffile.bad_confs_dir',
+                                       os.path.join(tempfile.gettempdir(), 'te-bad-confs'))
+        self._body = ''
         self._owner_uid = owner_uid
         self._mode = mode
-        self.file_path = abs_path
+        self.file_path = os.path.abspath(file_path)
 
     @property
-    def file_path(self):
-        return self._file_path
+    def tmp_dir(self):
+        return self._tmp_dir
 
-    @file_path.setter
-    def file_path(self, value):
-        self._file_path = value
-
-    @file_path.deleter
-    def file_path(self):
-        del self._file_path
+    @property
+    def bad_confs_dir(self):
+        return self._bad_confs_dir
 
     @property
     def body(self):
         if not self._body and self.exists:
-            self._read_file()
+            with open(self.file_path, 'r') as f: self._body = f.read()
         return self._body
 
     @body.setter
@@ -47,198 +54,134 @@ class ConfigFile:
 
     @body.deleter
     def body(self):
-        del self._body
+        self._body = ''
 
     @property
     def exists(self):
-        return os.path.exists(self._file_path)
+        return os.path.exists(self.file_path)
 
     @property
     def _backup_file_path(self):
-        backup_path = os.path.normpath("{0}/{1}".format("/var/tmp", self._file_path))
+        backup_path = os.path.join(self.tmp_dir, self.file_path.lstrip('/'))
         os.makedirs(os.path.dirname(backup_path), exist_ok=True)
         return backup_path
 
-    def _read_file(self):
-        with open(self._file_path, "r") as f:
-            self._body = f.read()
-
     def write(self):
         dir_path = os.path.dirname(self.file_path)
-        if not os.path.exists(dir_path):
-            LOGGER.warning("There is no {} found, creating".format(dir_path))
+        if dir_path and not os.path.exists(dir_path):
+            LOGGER.warning(f'There is no {dir_path} found, creating')
             os.makedirs(dir_path)
         if os.path.exists(self.file_path):
-            LOGGER.debug("Backing up {0} file as {1}".format(self.file_path, self._backup_file_path))
+            LOGGER.debug(f'Backing up {self.file_path} file as {self._backup_file_path}')
             shutil.move(self.file_path, self._backup_file_path)
-        LOGGER.debug("Saving {} file".format(self.file_path))
-        with open(self.file_path, "w") as f:
+        LOGGER.debug(f'Saving {self.file_path} file')
+        with open(self.file_path, 'w') as f:
             f.write(self.body)
-        if self._mode:
-            os.chmod(self.file_path, self._mode)
-        if self._owner_uid:
-            os.chown(self.file_path, self._owner_uid, self._owner_uid)
+        if self._mode: os.chmod(self.file_path, self._mode)
+        if self._owner_uid is not None: os.chown(self.file_path, self._owner_uid, self._owner_uid)
 
     def revert(self):
+        bad_conf_path = os.path.join(self.bad_confs_dir, self.file_path.replace('/', '_'))
         if os.path.exists(self._backup_file_path):
-            LOGGER.warning(
-                    "Reverting {0} from {1}, {0} will be saved as "
-                    "/var/tmp/te_{2}".format(self.file_path,
-                                             self._backup_file_path,
-                                             self.file_path.replace("/", "_"))
-            )
-            shutil.move(self.file_path,
-                        "/var/tmp/te_{}".format(self.file_path.replace("/", "_")))
+            LOGGER.warning(f'Reverting {self.file_path} from {self._backup_file_path}, '
+                           f'{self.file_path} will be saved as {bad_conf_path}')
+            os.makedirs(self.bad_confs_dir, exist_ok=True)
+            shutil.move(self.file_path, bad_conf_path)
             shutil.move(self._backup_file_path, self.file_path)
+        else:
+            LOGGER.warning(f'No backed up version found, moving {self.file_path} to {bad_conf_path}')
+            shutil.move(self.file_path, bad_conf_path)
 
     def confirm(self):
         if os.path.exists(self._backup_file_path):
-            LOGGER.debug("Removing {}".format(self._backup_file_path))
+            LOGGER.debug(f'Removing {self._backup_file_path}')
             try:
                 os.unlink(self._backup_file_path)
             except FileNotFoundError as e:
-                LOGGER.warning("Could not delete file cuz not exist, ERROR: {}".format(e))
+                LOGGER.warning(f'Could not delete file, ERROR: {e}')
 
     def save(self):
         self.write()
         self.confirm()
 
     def delete(self):
-        LOGGER.debug("Deleting {} file".format(self.file_path))
-        os.unlink(self.file_path)
+        LOGGER.debug(f'Deleting {self.file_path} file')
+        if os.path.exists(self.file_path):
+            os.unlink(self.file_path)
+        else:
+            LOGGER.warning(f"{self.file_path} doesn't exists")
         del self.body
 
 
-class SwitchableConfigFile(ConfigFile):
-    def __init__(self, abs_path, owner_uid, mode):
-        super().__init__(abs_path, owner_uid, mode)
-        self._enabled_path = None
-
-    @property
-    def enabled_path(self):
-        if not self._enabled_path and "sites-available" in self.file_path:
-            return self.file_path.replace("available", "enabled")
-        else:
-            return self._enabled_path
-
-    @enabled_path.setter
-    def enabled_path(self, value):
-        self._enabled_path = value
-
-    @enabled_path.deleter
-    def enabled_path(self):
-        del self._enabled_path
-
-    @property
-    def is_enabled(self):
-        if not self.enabled_path:
-            raise PropertyValidationError("enabled_path property is not set ")
-        return os.path.exists(self.enabled_path) and os.path.islink(
-                self.enabled_path) and os.readlink(
-                self.enabled_path) == self.file_path
-
-    def enable(self):
-        if not self.enabled_path:
-            raise PropertyValidationError("enabled_path property is not set ")
-        LOGGER.debug("Linking {0} to {1}".format(self.file_path,
-                                                 self.enabled_path))
-        if not os.path.exists(os.path.dirname(self.enabled_path)):
-            os.makedirs(os.path.dirname(self.enabled_path), exist_ok=True)
-        os.symlink(self.file_path, self.enabled_path)
-
-    def disable(self):
-        if not self.enabled_path:
-            raise PropertyValidationError("enabled_path property is not set ")
-        if os.path.exists(self.enabled_path):
-            LOGGER.debug("Unlinking {}".format(self.enabled_path))
-            os.unlink(self.enabled_path)
-
-
 class TemplatedConfigFile(ConfigFile):
-    def __init__(self, abs_path, owner_uid, mode):
-        super().__init__(abs_path, owner_uid, mode)
-        self._template = None
-
-    @property
-    def template(self):
-        return self._template
-
-    @template.setter
-    def template(self, value):
-        self._template = value
-
-    @template.deleter
-    def template(self):
-        del self._template
+    def __init__(self, file_path, owner_uid, mode):
+        super().__init__(file_path, owner_uid, mode)
+        self.template = None
 
     @staticmethod
     def _setup_jinja2_env():
         jinja2_env = jinja2.Environment()
-        jinja2_env.filters["path_join"] = lambda paths: os.path.join(*paths)
-        jinja2_env.filters["punycode"] = lambda domain: domain.encode("idna").decode()
-        jinja2_env.filters["normpath"] = lambda path: os.path.normpath(path)
-        jinja2_env.filters["dirname"] = lambda path: os.path.dirname(path)
+        jinja2_env.filters['path_join'] = lambda paths: os.path.join(*paths)
+        jinja2_env.filters['punycode'] = lambda domain: domain.encode('idna').decode()
+        jinja2_env.filters['normpath'] = lambda path: os.path.normpath(path)
+        jinja2_env.filters['dirname'] = lambda path: os.path.dirname(path)
         return jinja2_env
 
     def render_template(self, **kwargs):
         if not self.template:
-            raise PropertyValidationError("Template is not set")
+            raise PropertyValidationError('Template is not set')
         jinja2_env = self._setup_jinja2_env()
         self.body = jinja2_env.from_string(self.template).render(**kwargs)
 
 
 class LineBasedConfigFile(ConfigFile):
-    def __init__(self, abs_path, owner_uid, mode):
-        super().__init__(abs_path, owner_uid, mode)
-
-    def _body_as_list(self):
-        return str(self.body).split("\n") if self.body else []
+    def __init__(self, file_path, owner_uid, mode):
+        super().__init__(file_path, owner_uid, mode)
 
     def has_line(self, line):
-        return line in self._body_as_list()
+        return line in self.body.split('\n')
 
     def get_lines(self, regex, count=-1):
-        lines_list = self._body_as_list()
         ret_list = list()
-        for line in lines_list:
+        for line in self.body.split('\n'):
             if count != 0 and re.match(regex, line):
                 ret_list.append(line)
                 count -= 1
         return ret_list
 
-    def add_line(self, line):
-        LOGGER.debug("Adding '{0}' to {1}".format(line, self.file_path))
-        list = self._body_as_list()
+    def get_line(self, regex, lenient=False, default=None):
+        matched = self.get_lines(regex)
+        if not any((matched, default)):
+            raise NoSuchLine(f'Not a single line matched the regular expression /{regex}/')
+        elif len(matched) > 1 and not lenient:
+            raise TooBroadCondition('More than one line matched the regular expression /{}/:\n'
+                                    '{}'.format(regex, '\n'.join(matched)))
+        else:
+            return next(iter(matched), default)
+
+    def add_line(self, line=''):
+        LOGGER.debug(f"Adding '{line}' to {self.file_path}")
+        if line.endswith('\n'): line = line[::-1].replace('\n', '', 1)[::-1]
+        list = self.body.split('\n')
+        if list and not list[-1] and line: list.pop(-1)
         list.append(line)
-        self.body = "\n".join(list)
+        self.body = '\n'.join(list)
 
     def remove_line(self, line):
-        LOGGER.debug("Removing '{0}' from {1}".format(line, self.file_path))
-        list = self._body_as_list()
-        list.remove(line)
-        self.body = "\n".join(list)
+        LOGGER.debug(f"Removing '{line}' from {self.file_path}")
+        list = self.body.split('\n')
+        try:
+            list.remove(line.rstrip('\n'))
+        except ValueError:
+            raise NoSuchLine(line)
+        self.body = '\n'.join(list)
 
     def replace_line(self, regex, new_line, count=1):
-        list = self._body_as_list()
+        list = self.body.split('\n')
         for idx, line in enumerate(list):
-            if count != 0 and re.match(regex, line):
-                LOGGER.debug("Replacing '{0}' by '{1}' in {2}".format(line, new_line, self.file_path))
+            if count != 0 and (re.match(regex, line) or re.match(regex, line + '\n')):
+                LOGGER.debug(f"Replacing '{line}' by '{new_line}' in {self.file_path}")
                 del list[idx]
                 list.insert(idx, new_line)
                 count -= 1
-        self.body = "\n".join(list)
-
-
-class WebSiteConfigFile(TemplatedConfigFile, SwitchableConfigFile):
-    pass
-
-
-class Builder:
-    def __new__(cls, config_type):
-        ConfigFileClass = {"website": WebSiteConfigFile,
-                           "templated": TemplatedConfigFile,
-                           "lines": LineBasedConfigFile,
-                           "basic": ConfigFile}.get(config_type)
-        if not ConfigFileClass:
-            raise BuilderTypeError("Unknown config type: {}".format(config_type))
-        return ConfigFileClass
+        self.body = '\n'.join(list)
