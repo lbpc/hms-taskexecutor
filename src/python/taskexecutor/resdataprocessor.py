@@ -36,16 +36,16 @@ class DockerDataPostprocessor(DataPostprocessor):
         docker_client.login(**asdict(CONFIG.docker_registry))
         image = docker_client.images.pull(self.args['image'])
         env = self.args.get('env', {})
-        volumes = {self.args.get('cwd'): {'bind': '/workdir', 'mode': 'rw'}}
+        volumes = {self.args.get('cwd'): {'bind': '/workdir', 'mode': 'rw'},
+                   '/etc/nsswitch.conf': {'bind': '/etc/nsswitch.conf', 'mode': 'ro'}}
         hosts = self.args.get('hosts')
         user = '{0}:{0}'.format(self.args.get('uid', 65534))
         command = self.args.get('command')
-        LOGGER.info(f'Runnig Docker container from {image} with dns=127.0.0.1, net=host, volumes={volumes} '
+        LOGGER.info(f'Runnig Docker container from {image} with net=host, volumes={volumes} '
                     f'user={user}, env={env} hosts={hosts}' + f", command={command}" if command else '')
         try:
-            return docker_client.containers.run(image, remove=True, dns=['127.0.0.1'], network_mode='host',
-                                                volumes=volumes, user=user, environment=env, extra_hosts=hosts,
-                                                command=command).decode()
+            return docker_client.containers.run(image, remove=True, network_mode='host', volumes=volumes, user=user,
+                                                environment=env, extra_hosts=hosts, command=command).decode()
         except ContainerError as e:
             raise CommandExecutionError(e.stderr.decode())
 
