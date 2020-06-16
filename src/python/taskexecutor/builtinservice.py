@@ -263,15 +263,17 @@ class LinuxUserManager:
 
     def set_shell(self, user_name, path):
         user = self.get_user(user_name)
-        line = '{0.name}:x:{0.uid}:{0.uid}:{0.gecos}:{0.home}:{1}'.format(user, path)
-        self._etc_passwd.replace_line(f'^{user.name}:.+', line)
-        self._etc_passwd.save()
+        if user.shell != path:
+            line = '{0.name}:x:{0.uid}:{0.uid}:{0.gecos}:{0.home}:{1}'.format(user, path)
+            self._etc_passwd.replace_line(f'^{user.name}:.+', line)
+            self._etc_passwd.save()
 
     def set_comment(self, user_name, comment):
         user = self.get_user(user_name)
-        line = '{0.name}:x:{0.uid}:{0.uid}:{1}:{0.home}:{0.shell}'.format(user, comment)
-        self._etc_passwd.replace_line(f'^{user.name}:.+', line)
-        self._etc_passwd.save()
+        if user.gecos != comment:
+            line = '{0.name}:x:{0.uid}:{0.uid}:{1}:{0.home}:{0.shell}'.format(user, comment)
+            self._etc_passwd.replace_line(f'^{user.name}:.+', line)
+            self._etc_passwd.save()
 
     def change_uid(self, user_name, uid):
         same_uid = self.get_user_by_uid(uid)

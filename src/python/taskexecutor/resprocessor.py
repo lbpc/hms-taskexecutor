@@ -192,8 +192,8 @@ class WebSiteProcessor(ResProcessor):
 
     @synchronized
     def create(self):
-        self.params.update(app_server_name=self.service.name,
-                           subdomains_document_root='/'.join(str(self.resource.documentRoot).split('/')[:-1]))
+        self.params['app_server_name'] = self.service.name if self.extra_services.http_proxy != self.service else None
+        self.params['subdomains_document_root'] = '/'.join(str(self.resource.documentRoot).split('/')[:-1])
         vhosts_list = self._build_vhost_obj_list()
         home_dir = os.path.normpath(str(self.resource.unixAccount.homeDir))
         document_root = os.path.normpath(str(self.resource.documentRoot))

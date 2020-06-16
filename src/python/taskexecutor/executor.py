@@ -231,7 +231,7 @@ class Executor:
         task.params['started'] = datetime.datetime.now().isoformat()
         set_thread_name('OPERATION IDENTITY: {0.opid} ACTION IDENTITY: {0.actid}'.format(task))
         failcount = task.params.get('failcount', 0)
-        if failcount >= CONFIG.task.max_retries:
+        if failcount >= task.params.get('maxRetries', CONFIG.task.max_retries):
             LOGGER.warning(f'Currently processed task had failed {failcount} times before, giving up')
             self.finish_task(task, TaskState.FAILED)
             return

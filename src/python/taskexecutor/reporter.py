@@ -36,6 +36,11 @@ class AMQPReporter(Reporter):
     def _report_to_next_te(self):
         return self.next_te and self._task.res_type == 'website'
 
+    @staticmethod
+    def humanize_error(text, class_name):
+        if class_name == 'CommandExecutionError': return text
+        return 'Внутренняя ошибка сервера'
+
     def create_report(self, task):
         self._task = task
         params = task.params
@@ -46,7 +51,8 @@ class AMQPReporter(Reporter):
         self.next_te = params.pop('oldServerName', None)
         self._report['params'] = {'success': bool(task.state ^ TaskState.FAILED)}
         if 'last_exception' in params:
-            self._report['params']['errorMessage'] = params['last_exception'].get('message')
+            self._report['params']['errorMessage'] = self.humanize_error(params['last_exception'].get('message'),
+                                                                         params['last_exception'].get('class'))
             self._report['params']['exceptionClass'] = params['last_exception'].get('class')
         LOGGER.debug(f'Report to next TE: {self._report_to_next_te}')
         if self._report_to_next_te:
