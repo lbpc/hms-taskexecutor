@@ -2,8 +2,8 @@ import os
 import re
 import shutil
 import tempfile
-
 import jinja2
+from itertools import islice
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
@@ -45,6 +45,7 @@ class ConfigFile:
     @property
     def body(self):
         if not self._body and self.exists:
+            LOGGER.debug(f'Reading {self.file_path} contents')
             with open(self.file_path, 'r') as f: self._body = f.read()
         return self._body
 
@@ -142,12 +143,10 @@ class LineBasedConfigFile(ConfigFile):
         return line in self.body.split('\n')
 
     def get_lines(self, regex, count=-1):
-        ret_list = list()
-        for line in self.body.split('\n'):
-            if count != 0 and re.match(regex, line):
-                ret_list.append(line)
-                count -= 1
-        return ret_list
+        pattern = re.compile(regex)
+        matched = (l for l in self.body.split('\n') if pattern.match(l))
+        if count < 0: return list(matched)
+        return list(islice(matched, count))
 
     def get_line(self, regex, lenient=False, default=None):
         matched = self.get_lines(regex)

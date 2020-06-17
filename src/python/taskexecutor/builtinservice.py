@@ -140,6 +140,7 @@ class LinuxUserManager:
         gshadow_line = f'{name}:!::'
         try:
             if not self.get_group(name):
+                LOGGER.debug(f'Creating group {name}')
                 self._etc_group.add_line(group_line)
                 self._etc_group.add_line()
                 self._etc_gshadow.add_line(gshadow_line)
@@ -158,6 +159,7 @@ class LinuxUserManager:
         if not group: raise InconsistentGroupData(f'No such group: {group_name}')
         if not user: raise InconsistentUserData(f'No such user: {user_name}')
         if user not in group.users:
+            LOGGER.debug(f'Adding user {user_name} to {group_name}')
             group.users.add(user)
             group_line = '{0.name}:x:{0.gid}:{1}'.format(group, ','.join(sorted((u.name for u in group.users))))
             gshadow_line = '{0.name}:!::{1}'.format(group, ','.join(sorted((u.name for u in group.users))))
@@ -184,6 +186,7 @@ class LinuxUserManager:
         try:
             user = self.get_user(name)
             if not user:
+                LOGGER.debug(f'Creating user {name}')
                 days = int(time.time() / 3600 / 24)
                 pass_hash = pass_hash or '*'
                 passwd_line = f'{name}:x:{uid}:{uid}:{gecos}:{home_dir}:{shell}'
@@ -198,11 +201,15 @@ class LinuxUserManager:
                 raise InconsistentUserData(f'User {name} already exists: {user}, requested params: '
                                            f'UID={uid}, home={home_dir}, hash={pass_hash}, shell={shell}, GECOS={gecos}')
             self.create_group(name, uid)
+            LOGGER.debug(f'Extra groups are: {extra_groups}')
             for each in extra_groups or []:
                 self.create_group(each)
                 self.add_user_to_group(name, each)
+            LOGGER.debug(f'Creating {home_dir} if not exists')
             os.makedirs(home_dir, 0o700, exist_ok=True)
+            LOGGER.debug(f'Setting {uid} as owner of {home_dir}')
             os.chown(home_dir, uid, uid)
+            LOGGER.debug(f'Setting mode 700 on {home_dir}')
             os.chmod(home_dir, 0o700)
         except InconsistentUserData as e:
             LOGGER.warning(f'{e}, removing all entries starting with {name}')
