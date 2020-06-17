@@ -74,6 +74,7 @@ class AMQPReporter(Reporter):
                     f'headers: provider={provider}, payload: {self._report}')
         queue = Queue(name=f'te.{CONFIG.hostname}.{exchange}.report',
                       auto_delete=True,
+                      expires=3,
                       exchange=Exchange(exchange, type='topic'),
                       routing_key=routing_key)
         with Connection(url, heartbeat=CONFIG.amqp.heartbeat_interval) as conn:
