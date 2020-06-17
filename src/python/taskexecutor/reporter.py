@@ -38,7 +38,7 @@ class AMQPReporter(Reporter):
 
     @staticmethod
     def humanize_error(text, class_name):
-        if class_name == 'CommandExecutionError': return text
+        if class_name == 'CommandExecutionError' or CONFIG.profile == 'dev': return text
         return 'Внутренняя ошибка сервера'
 
     def create_report(self, task):
