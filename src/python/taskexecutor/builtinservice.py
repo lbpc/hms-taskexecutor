@@ -46,7 +46,7 @@ class User:
 class Group:
     name: str
     gid: int = attr.ib(converter=int)
-    users: Set[User]
+    users: Set[str]
 
 
 class LinuxUserManager:
@@ -111,16 +111,9 @@ class LinuxUserManager:
         if group_matched:
             group = group_matched[0].split(':')
             if len(group) != 4: raise MalformedLine('Bad group line:\n{}'.format(':'.join(group)))
-            users = set()
+            users = set(filter(None, group[3].split(',')))
             same_name_user = self.get_user(name)
-            if same_name_user: users.add(same_name_user)
-            for each in group[3].split(','):
-                if each:
-                    user = self.get_user(each)
-                    if not user:
-                        raise InconsistentUserData(f'User {each} should be member of group {name} '
-                                                   f'but it does not exist')
-                    users.add(user)
+            if same_name_user: users.add(same_name_user.name)
             return Group(name, group[2], users)
 
     def get_group_by_gid(self, gid):
@@ -158,11 +151,11 @@ class LinuxUserManager:
         user = self.get_user(user_name)
         if not group: raise InconsistentGroupData(f'No such group: {group_name}')
         if not user: raise InconsistentUserData(f'No such user: {user_name}')
-        if user not in group.users:
+        if user.name not in group.users:
             LOGGER.debug(f'Adding user {user_name} to {group_name}')
-            group.users.add(user)
-            group_line = '{0.name}:x:{0.gid}:{1}'.format(group, ','.join(sorted((u.name for u in group.users))))
-            gshadow_line = '{0.name}:!::{1}'.format(group, ','.join(sorted((u.name for u in group.users))))
+            group.users.add(user.name)
+            group_line = '{0.name}:x:{0.gid}:{1}'.format(group, ','.join(sorted(group.users)))
+            gshadow_line = '{0.name}:!::{1}'.format(group, ','.join(sorted(group.users)))
             self._etc_group.replace_line(f'^{group.name}:.+', group_line)
             self._etc_gshadow.replace_line(f'^{group.name}:.+', gshadow_line)
             self._etc_group.save()
@@ -171,11 +164,10 @@ class LinuxUserManager:
     def remove_user_from_group(self, user_name, group_name):
         group = self.get_group(group_name)
         if not group: raise InconsistentGroupData(f'No such group: {group_name}')
-        user = next((u for u in group.users if u.name == user_name), None)
-        if user in group.users:
-            group.users.remove(user)
-            group_line = '{0.name}:x:{0.gid}:{1}'.format(group, ','.join(sorted((u.name for u in group.users))))
-            gshadow_line = '{0.name}:!::{1}'.format(group, ','.join(sorted((u.name for u in group.users))))
+        if user_name in group.users:
+            group.users.remove(user_name)
+            group_line = '{0.name}:x:{0.gid}:{1}'.format(group, ','.join(sorted(group.users)))
+            gshadow_line = '{0.name}:!::{1}'.format(group, ','.join(sorted(group.users)))
             self._etc_group.replace_line(f'^{group.name}:.+', group_line)
             self._etc_gshadow.replace_line(f'^{group.name}:.+', gshadow_line)
             self._etc_group.save()

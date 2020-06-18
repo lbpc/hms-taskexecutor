@@ -85,7 +85,6 @@ class TestLinuxUserManager(TestCase):
             group012:x:9000:user1,user0,user2
             group123:x:9000:user1,user2,user3
             group123:x:9000:user0,user3,user4
-            group234:x:9000:user2,user3,user4
         """).lstrip())
         self.fs.create_file('/nowhere/etc/gshadow', contents=dedent(""" 
             user0:!::
@@ -109,14 +108,10 @@ class TestLinuxUserManager(TestCase):
         self.assertIsInstance(g0, bs.Group)
         self.assertEqual(g0.name, 'user0')
         self.assertEqual(g0.gid, 1000)
-        u0 = bs.User('user0', 1000, 1000, '$1$aRDLQJXb$TXKgBfCWPOKjFiMWfBXOW0', 'User,,,', '/home/user0', '/bin/bash')
-        u1 = bs.User('user1', 1001, 1001, '', 'User,,,', '/home/user1', '/bin/false')
-        u2 = bs.User('user2', 1002, 1002, '', 'User,,,', '/home/user2', '/bin/bash')
-        self.assertEqual(g0.users, {u0})
+        self.assertEqual(g0.users, {'user0'})
         g012 = mgr.get_group('group012')
-        self.assertEqual(g012.users, {u0, u1, u2})
+        self.assertEqual(g012.users, {'user0', 'user1', 'user2'})
         self.assertRaises(bs.InconsistentGroupData, mgr.get_group, 'group123')
-        self.assertRaises(bs.InconsistentUserData, mgr.get_group, 'group234')
 
     def test_get_group_by_gid(self):
         self.fs.create_file('/nowhere/etc/group', contents=dedent("""
@@ -187,7 +182,6 @@ class TestLinuxUserManager(TestCase):
     def test_create_group_existing_with_members(self):
         self.fs.create_file('/nowhere/etc/group', contents=dedent("""
             group0:x:1000:user0,user1,user2
-            group1:x:2000:user3
         """).lstrip())
         self.fs.create_file('/nowhere/etc/gshadow', contents='group0:!::user0,user1,user2')
         self.fs.create_file('/nowhere/etc/passwd', contents=dedent("""
@@ -204,10 +198,8 @@ class TestLinuxUserManager(TestCase):
         mgr.create_group('group0', 1000)
         self.assertEqual(self.fs.get_object('/nowhere/etc/group').contents, dedent("""
             group0:x:1000:user0,user1,user2
-            group1:x:2000:user3
         """).lstrip())
         self.assertEqual(self.fs.get_object('/nowhere/etc/gshadow').contents, 'group0:!::user0,user1,user2')
-        self.assertRaises(bs.InconsistentUserData, mgr.create_group, 'group1')
 
     def test_create_group_existing_multiple(self):
         self.fs.create_file('/nowhere/etc/group', contents=dedent("""
