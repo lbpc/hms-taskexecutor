@@ -18,7 +18,7 @@ buildWebService(
                          "sudo -n /sbin/stop taskexecutor", // Always returns true.
                          "sleep 5", // Wait until service stops.
                          "sudo -n /sbin/start taskexecutor"].join("; "))
-                    String "docker-registry.intr/hms/taskexecutor:$TAG deployed to web."
+                    "docker-registry.intr/hms/taskexecutor:$TAG deployed to web."
                 }
             }
         )
