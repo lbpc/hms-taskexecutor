@@ -92,6 +92,7 @@ in buildLayeredImage rec {
     gitMinimal
     gitaskpass
     gnutar
+    gnused
     gzip
     killall
     mariadb.client
