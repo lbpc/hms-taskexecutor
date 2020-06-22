@@ -91,6 +91,7 @@ in buildLayeredImage rec {
     findutils
     gitMinimal
     gitaskpass
+    gnugrep
     gnutar
     gnused
     gzip
