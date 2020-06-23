@@ -274,7 +274,7 @@ class GitDataFetcher(DataFetcher):
             if self.is_git_repo(self.dst_path):
                 url = self.normalize_git_url(self.get_git_url(self.dst_path), self.get_git_user(self.dst_path))
                 if url != self.src_uri:
-                    raise DataFetchingError(f'Git repository URL mismatch. Requested: {self.src_uri} Actual: {url}')
+                    exec_command(f'git -C {self.dst_path} remote set-url origin {self.src_uri}')
                 exec_command(f'git -C {self.dst_path} checkout {self.branch}')
                 exec_command(f'git -C {self.dst_path} pull', env=env)
             else:
