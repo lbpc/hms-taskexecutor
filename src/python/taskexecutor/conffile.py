@@ -7,7 +7,7 @@ from itertools import islice
 
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-from taskexecutor.utils import rgetattr
+from taskexecutor.utils import rgetattr, asdict
 
 __all__ = ['ConfigFile', 'LineBasedConfigFile', 'TemplatedConfigFile']
 
@@ -126,6 +126,7 @@ class TemplatedConfigFile(ConfigFile):
         jinja2_env.filters['punycode'] = lambda domain: domain.encode('idna').decode()
         jinja2_env.filters['normpath'] = lambda path: os.path.normpath(path)
         jinja2_env.filters['dirname'] = lambda path: os.path.dirname(path)
+        jinja2_env.filters['items'] = lambda obj: asdict(obj).items()
         return jinja2_env
 
     def render_template(self, **kwargs):
