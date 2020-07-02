@@ -350,14 +350,3 @@ def asdict(obj):
         return obj
     else:
         return vars(obj)
-
-
-def asdict_rec(obj):
-    res = {}
-    for k, v in asdict(obj).items():
-        try:
-            res[k] = asdict_rec(v)
-        except TypeError:
-            res[k] = v
-        return res
-
