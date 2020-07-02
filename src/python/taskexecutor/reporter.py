@@ -8,7 +8,7 @@ from taskexecutor.config import CONFIG
 from taskexecutor.httpsclient import ApiClient
 from taskexecutor.logger import LOGGER
 from taskexecutor.task import TaskState
-from taskexecutor.utils import asdict, to_camel_case, to_lower_dashed
+from taskexecutor.utils import asdict, asdict_rec, to_camel_case, to_lower_dashed
 
 __all__ = ['AMQPReporter', 'HttpsReporter', 'AlertaReporter', 'NullReporter']
 
@@ -61,6 +61,7 @@ class AMQPReporter(Reporter):
             params['paramsForRequiredResources'] = {'forceSwitchOff': True}
             if 'httpProxyIp' in params: params['newHttpProxyIp'] = params['httpProxyIp']
             self._report['params'] = params
+        self._report = asdict_rec(self._report)
         return self._report
 
     def send_report(self):
@@ -139,7 +140,7 @@ class AlertaReporter(Reporter):
                             text='Done' if success else task.params.get('last_exception', 'Failed'),
                             severity={True: 'Ok', False: 'Minor'}[success],
                             hostname=CONFIG.hostname,
-                            attributes=attributes)
+                            attributes=asdict_rec(attributes))
         return self._report
 
     def send_report(self):
