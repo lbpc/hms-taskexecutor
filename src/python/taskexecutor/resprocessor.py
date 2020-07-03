@@ -534,13 +534,9 @@ class RedirectProcessor(ResProcessor):
 
     @synchronized
     def create(self):
-        res_dict = asdict(self.resource)
-        res_dict['domains'] = [res_dict.get('domain')]
-        del res_dict['domain']
-        vhost = collections.namedtuple('VHost', res_dict.keys())(*res_dict.values())
         configs = self.service.get_website_configs(self.resource)
         for each in configs:
-            each.render_template(service=self.service, vhosts=[vhost], params=self.params)
+            each.render_template(service=self.service, vhosts=build_vhosts(self.resource), params=self.params)
             each.write()
         if not self._without_reload:
             try:
@@ -562,19 +558,23 @@ class RedirectProcessor(ResProcessor):
         self.service.reload()
 
 def build_vhosts(resource):
-    vhosts = list()
-    non_ssl_domains = list()
+    vhosts = []
+    non_ssl_domains = []
     res_dict = asdict(resource)
+    res_dict['domains'] = res_dict['domains'] or []
+    domain = res_dict.get('domain')
+    if domain:
+        res_dict['domains'].append(domain)
+        del res_dict['domain']
     for domain in (d for d in resource.domains if d.switchedOn):
         if domain.sslCertificate and domain.sslCertificate.switchedOn:
             res_dict['domains'] = [domain, ]
-            vhosts.append(collections.namedtuple('VHost', res_dict.keys())(*res_dict.values()))
+            vhosts.append(res_dict)
         else:
             domain_dict = asdict(domain)
-            if 'sslCertificate' in domain_dict.keys():
-                del domain_dict['sslCertificate']
-            non_ssl_domains.append(collections.namedtuple('Domain', domain_dict.keys())(*domain_dict.values()))
+            if 'sslCertificate' in domain_dict: del domain_dict['sslCertificate']
+            non_ssl_domains.append(domain_dict)
     if non_ssl_domains:
         res_dict['domains'] = non_ssl_domains
-        vhosts.append(collections.namedtuple('VHost', res_dict.keys())(*res_dict.values()))
+        vhosts.append(res_dict)
     return vhosts
