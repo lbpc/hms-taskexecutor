@@ -563,5 +563,6 @@ def build_vhosts(resource):
     domains = resource.get('domains', list(filter(None, [resource.get('domain')])))
     i1, i2 = tee((each, each.sslCertificate and each.sslCertificate.switchedOn) for each in domains if each.switchedOn)
     vhosts = [dict(resource, domains=[domain]) for domain, has_ssl in i1 if has_ssl]
-    vhosts.append(dict(resource, domains=[domain for domain, has_ssl in i2 if not has_ssl]))
+    non_ssl_domains = [domain for domain, has_ssl in i2 if not has_ssl]
+    if non_ssl_domains: vhosts.append(dict(resource, domains=non_ssl_domains))
     return vhosts
