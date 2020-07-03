@@ -2,7 +2,7 @@ import abc
 import os
 import shutil
 import urllib.parse
-from itertools import tee, chain
+from itertools import tee
 
 import taskexecutor.constructor as cnstr
 from taskexecutor.config import CONFIG
@@ -562,5 +562,6 @@ def build_vhosts(resource):
     resource = asdict(resource)
     domains = resource.get('domains', filter(None, [resource.get('domain')]))
     i1, i2 = tee((each, each.sslCertificate and each.sslCertificate.switchedOn) for each in domains if each.switchedOn)
-    return chain((dict(resource, domains=[domain]) for domain, has_ssl in i1 if has_ssl),
-                 [dict(resource, domains=(domain for domain, has_ssl in i2 if not has_ssl))])
+    vhosts = [dict(resource, domains=[domain]) for domain, has_ssl in i1 if has_ssl]
+    vhosts.append(dict(resource, domains=[domain for domain, has_ssl in i2 if not has_ssl]))
+    return vhosts
