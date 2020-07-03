@@ -9,7 +9,7 @@ import string
 import time
 from enum import Enum
 from functools import reduce
-from itertools import chain
+from itertools import chain, product
 
 import docker
 import psutil
@@ -17,7 +17,7 @@ import psutil
 import taskexecutor.constructor as cnstr
 import taskexecutor.utils as utils
 from taskexecutor.config import CONFIG
-from taskexecutor.dbclient import MySQLClient, PostgreSQLClient
+from taskexecutor.dbclient import MySQLClient, PostgreSQLClient, DBError
 from taskexecutor.httpsclient import ApiClient, GitLabClient
 from taskexecutor.logger import LOGGER
 
@@ -769,10 +769,11 @@ class MySQL(DatabaseServer, OpService):
                                         (user_name, address))
 
     def deny_database_access(self, database_name, user_name, addrs_list):
-        for address in addrs_list:
-            self.dbclient.execute_query("REVOKE {0} ON `{1}`.* FROM "
-                                        "%s@%s".format(", ".join(self._full_privileges), database_name),
-                                        (user_name, address))
+        for address, priv in product(addrs_list, self._full_privileges):
+            try:
+                self.dbclient.execute_query(f'REVOKE {priv} ON `{database_name}`.* FROM %s@%s', (user_name, address))
+            except DBError as e:
+                if e.args[0] != 1141: raise
 
     def allow_database_writes(self, database_name, user_name, addrs_list):
         for address in addrs_list:
@@ -781,10 +782,11 @@ class MySQL(DatabaseServer, OpService):
                                         (user_name, address))
 
     def deny_database_writes(self, database_name, user_name, addrs_list):
-        for address in addrs_list:
-            self.dbclient.execute_query("REVOKE {0} ON `{1}`.* FROM "
-                                        "%s@%s".format(", ".join(CONFIG.mysql.write_privileges), database_name),
-                                        (user_name, address))
+        for address, priv in product(addrs_list, CONFIG.mysql.write_privileges):
+            try:
+                self.dbclient.execute_query(f'REVOKE {priv} ON `{database_name}`.* FROM %s@%s', (user_name, address))
+            except DBError as e:
+                if e.args[0] != 1141: raise
 
     def allow_database_reads(self, database_name, user_name, addrs_list):
         for address in addrs_list:

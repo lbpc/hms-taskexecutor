@@ -4,7 +4,11 @@ import pg8000
 
 from taskexecutor.logger import LOGGER
 
-__all__ = ["MySQLClient", "PostgreSQLClient"]
+__all__ = ["MySQLClient", "PostgreSQLClient", "DBError"]
+
+
+class DBError(Exception):
+    pass
 
 
 class DBClient(metaclass=abc.ABCMeta):
@@ -48,7 +52,7 @@ class MySQLClient(DBClient):
                 version = self.execute_query('SELECT VERSION()', ())[0][0]
                 LOGGER.warning(f'{message} for version {version}')
             else:
-                raise
+                raise DBError(code, message)
 
 
 class PostgreSQLClient(DBClient):
