@@ -1,8 +1,8 @@
 import abc
-import collections
 import os
 import shutil
 import urllib.parse
+from itertools import tee, chain
 
 import taskexecutor.constructor as cnstr
 from taskexecutor.config import CONFIG
@@ -557,24 +557,10 @@ class RedirectProcessor(ResProcessor):
         for each in self.service.get_website_configs(self.resource): each.delete()
         self.service.reload()
 
+
 def build_vhosts(resource):
-    vhosts = []
-    non_ssl_domains = []
-    res_dict = asdict(resource)
-    res_dict['domains'] = res_dict['domains'] or []
-    domain = res_dict.get('domain')
-    if domain:
-        res_dict['domains'].append(domain)
-        del res_dict['domain']
-    for domain in (d for d in resource.domains if d.switchedOn):
-        if domain.sslCertificate and domain.sslCertificate.switchedOn:
-            res_dict['domains'] = [domain, ]
-            vhosts.append(res_dict)
-        else:
-            domain_dict = asdict(domain)
-            if 'sslCertificate' in domain_dict: del domain_dict['sslCertificate']
-            non_ssl_domains.append(domain_dict)
-    if non_ssl_domains:
-        res_dict['domains'] = non_ssl_domains
-        vhosts.append(res_dict)
-    return vhosts
+    resource = asdict(resource)
+    domains = resource.get('domains', filter(None, [resource.get('domain')]))
+    i1, i2 = tee((each, each.sslCertificate and each.sslCertificate.switchedOn) for each in domains if each.switchedOn)
+    return chain((dict(resource, domains=[domain]) for domain, has_ssl in i1 if has_ssl),
+                 [dict(resource, domains=(domain for domain, has_ssl in i2 if not has_ssl))])
