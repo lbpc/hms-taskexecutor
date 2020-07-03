@@ -18,7 +18,7 @@ class FTPClient:
     def _test_connection(self):
         try:
             self._server.voidcmd("NOOP")
-        except ftplib.error_temp:
+        except (ftplib.error_temp, AttributeError):
             self._connect()
 
 
