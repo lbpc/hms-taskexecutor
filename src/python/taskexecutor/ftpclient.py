@@ -17,11 +17,7 @@ class FTPClient:
         self._server.encoding = 'utf-8'
 
     def _test_connection(self):
-        try:
-            self._server.voidcmd("NOOP")
-        except ftplib.error_temp:
-            self._connect()
-
+        self._connect()
 
     def _check_dir(self, dirname):
         filelist = []
