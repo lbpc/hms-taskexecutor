@@ -9,7 +9,6 @@ class FTPClient:
         self._user = user
         self._password = password
         self._server = None
-        self._connect()
 
     def _connect(self):
         self._server = ftplib.FTP(self.host)
