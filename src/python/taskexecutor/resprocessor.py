@@ -1,8 +1,8 @@
 import abc
-import collections
 import os
 import shutil
 import urllib.parse
+from itertools import tee
 
 import taskexecutor.constructor as cnstr
 from taskexecutor.config import CONFIG
@@ -172,23 +172,6 @@ class WebSiteProcessor(ResProcessor):
         return self.params.get('required_for', [None])[0] == 'service' or \
                'appscat' in self.params.get('provider', [None])
 
-    def _build_vhost_obj_list(self):
-        vhosts = list()
-        non_ssl_domains = list()
-        res_dict = asdict(self.resource)
-        for domain in (d for d in self.resource.domains if d.switchedOn):
-            if domain.sslCertificate and domain.sslCertificate.switchedOn:
-                res_dict['domains'] = [domain, ]
-                vhosts.append(collections.namedtuple('VHost', res_dict.keys())(*res_dict.values()))
-            else:
-                domain_dict = asdict(domain)
-                if 'sslCertificate' in domain_dict.keys():
-                    del domain_dict['sslCertificate']
-                non_ssl_domains.append(collections.namedtuple('Domain', domain_dict.keys())(*domain_dict.values()))
-        if non_ssl_domains:
-            res_dict['domains'] = non_ssl_domains
-            vhosts.append(collections.namedtuple('VHost', res_dict.keys())(*res_dict.values()))
-        return vhosts
 
     @synchronized
     def create(self):
@@ -196,7 +179,6 @@ class WebSiteProcessor(ResProcessor):
         # TODO remove 'app_server_name' when template is ready
         self.params['app_server_name'] = self.params['app_server'].name if self.params['app_server'] else None
         self.params['subdomains_document_root'] = '/'.join(str(self.resource.documentRoot).split('/')[:-1])
-        vhosts_list = self._build_vhost_obj_list()
         home_dir = os.path.normpath(str(self.resource.unixAccount.homeDir))
         document_root = os.path.normpath(str(self.resource.documentRoot))
         document_root_abs = os.path.join(home_dir, document_root)
@@ -224,7 +206,7 @@ class WebSiteProcessor(ResProcessor):
         for service in services:
             configs = service.get_website_configs(self.resource)
             for each in configs:
-                each.render_template(service=service, vhosts=vhosts_list, params=self.params)
+                each.render_template(service=service, vhosts=build_vhosts(self.resource), params=self.params)
                 each.write()
             if not self._without_reload:
                 try:
@@ -552,13 +534,9 @@ class RedirectProcessor(ResProcessor):
 
     @synchronized
     def create(self):
-        res_dict = asdict(self.resource)
-        res_dict['domains'] = [res_dict.get('domain')]
-        del res_dict['domain']
-        vhost = collections.namedtuple('VHost', res_dict.keys())(*res_dict.values())
         configs = self.service.get_website_configs(self.resource)
         for each in configs:
-            each.render_template(service=self.service, vhosts=[vhost], params=self.params)
+            each.render_template(service=self.service, vhosts=build_vhosts(self.resource), params=self.params)
             each.write()
         if not self._without_reload:
             try:
@@ -578,3 +556,13 @@ class RedirectProcessor(ResProcessor):
     def delete(self):
         for each in self.service.get_website_configs(self.resource): each.delete()
         self.service.reload()
+
+
+def build_vhosts(resource):
+    resource = asdict(resource)
+    domains = resource.get('domains', list(filter(None, [resource.get('domain')])))
+    i1, i2 = tee((each, each.sslCertificate and each.sslCertificate.switchedOn) for each in domains if each.switchedOn)
+    vhosts = [dict(resource, domains=[domain]) for domain, has_ssl in i1 if has_ssl]
+    non_ssl_domains = [domain for domain, has_ssl in i2 if not has_ssl]
+    if non_ssl_domains: vhosts.append(dict(resource, domains=non_ssl_domains))
+    return vhosts

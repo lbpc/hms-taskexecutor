@@ -121,7 +121,7 @@ class TemplatedConfigFile(ConfigFile):
 
     @staticmethod
     def _setup_jinja2_env():
-        jinja2_env = jinja2.Environment()
+        jinja2_env = jinja2.Environment(trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.do'])
         jinja2_env.filters['path_join'] = lambda paths: os.path.join(*paths)
         jinja2_env.filters['punycode'] = lambda domain: domain.encode('idna').decode()
         jinja2_env.filters['normpath'] = lambda path: os.path.normpath(path)
