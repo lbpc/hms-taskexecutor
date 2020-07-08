@@ -222,7 +222,9 @@ class WebSiteProcessor(ResProcessor):
                                                                                           self.resource.unixAccount.uid)
         given_postproc_args = self.params.get('dataPostprocessorArgs', {})
         cwd = given_postproc_args.get('cwd', document_root_abs)
-        if self.params.get('extendedAction') in ('SHELL', 'INSTALL'): cwd = self.resource.unixAccount.homeDir   # XXX
+        # XXX
+        if self.params.get('extendedAction') in ('SHELL', 'SHELLUPDATE', 'INSTALL'):
+            cwd = self.resource.unixAccount.homeDir
         env = given_postproc_args.get('env', {})
         command = given_postproc_args.get('command')
         env['DOCUMENT_ROOT'] = document_root_abs
