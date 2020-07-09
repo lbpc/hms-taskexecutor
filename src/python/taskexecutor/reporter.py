@@ -56,7 +56,7 @@ class AMQPReporter(Reporter):
             self._report['params']['exceptionClass'] = params['last_exception'].get('class')
         LOGGER.debug(f'Report to next TE: {self._report_to_next_te}')
         if self._report_to_next_te:
-            for k in ('resource', 'dataPostprocessorType', 'dataPostprocessorArgs'):
+            for k in ('resource', 'dataPostprocessorType', 'dataPostprocessorArgs', 'app_server'):
                 if k in params: del params[k]
             params['paramsForRequiredResources'] = {'forceSwitchOff': True}
             if 'httpProxyIp' in params: params['newHttpProxyIp'] = params['httpProxyIp']
