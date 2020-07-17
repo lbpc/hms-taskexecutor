@@ -1,5 +1,6 @@
 import abc
 import os
+import requests.exceptions
 import shutil
 
 import docker
@@ -8,7 +9,7 @@ from docker.errors import ContainerError
 from taskexecutor.opservice import DatabaseServer
 from taskexecutor.config import CONFIG
 from taskexecutor.logger import LOGGER
-from taskexecutor.utils import exec_command, asdict
+from taskexecutor.utils import exec_command, asdict, rgetattr
 
 __all__ = ["DockerDataPostprocessor", "StringReplaceDataProcessor", "DataEraser"]
 
@@ -18,6 +19,10 @@ class PostprocessorArgumentError(Exception):
 
 
 class CommandExecutionError(Exception):
+    pass
+
+
+class CommandTimedOut(Exception):
     pass
 
 
@@ -32,6 +37,7 @@ class DataPostprocessor(metaclass=abc.ABCMeta):
 
 class DockerDataPostprocessor(DataPostprocessor):
     def process(self):
+        timeout = rgetattr(CONFIG, 'docker.run_timeout', 900)
         docker_client = docker.from_env()
         docker_client.login(**asdict(CONFIG.docker_registry))
         image = docker_client.images.pull(self.args['image'])
@@ -43,11 +49,19 @@ class DockerDataPostprocessor(DataPostprocessor):
         command = self.args.get('command')
         LOGGER.info(f'Runnig Docker container from {image} with net=host, volumes={volumes} '
                     f'user={user}, env={env} hosts={hosts}' + f", command={command}" if command else '')
+        exception = None
         try:
-            return docker_client.containers.run(image, remove=True, network_mode='host', volumes=volumes, user=user,
-                                                environment=env, extra_hosts=hosts, command=command).decode()
-        except ContainerError as e:
-            raise CommandExecutionError(e.stderr.decode())
+            container = docker_client.containers.run(image, network_mode='host', volumes=volumes, user=user,
+                                                     environment=env, extra_hosts=hosts, command=command, detach=True)
+            retcode = container.wait(timeout=timeout).get('StatusCode')
+            if retcode != 0: exception = CommandExecutionError(container.logs(stdout=False).decode())
+        except (requests.exceptions.ReadTimeout, requests.RequestException, requests.ConnectTimeout):
+            container.kill()
+            exception = CommandTimedOut(command)
+        container_logs = container.logs().decode()
+        container.remove()
+        if exception: raise exception
+        return container_logs
 
 
 class StringReplaceDataProcessor(DataPostprocessor):

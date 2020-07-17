@@ -10,17 +10,17 @@ buildWebService(
         // XXX: It's not used by Jenkins but could be useful for manual deploy.
         String SCRIPT_DEPLOY_WEB_RPOD = readFile "deploy/web/prod.sh"
 
-        parallelCall (
-            nodeLabels: ["web"],
-            procedure: { nodeLabels ->
-                if (TAG == "master") {
+        if (TAG == "master") {
+            parallelCall (
+                nodeLabels: ["web"],
+                procedure: { nodeLabels ->
                     sh (["sudo -n /usr/bin/docker pull docker-registry.intr/hms/taskexecutor:$TAG",
                          "sudo -n /sbin/stop taskexecutor", // Always returns true.
                          "sleep 5", // Wait until service stops.
                          "sudo -n /sbin/start taskexecutor"].join("; "))
                     "docker-registry.intr/hms/taskexecutor:$TAG deployed to web."
                 }
-            }
-        )
+            )
+        }
     }
 )
