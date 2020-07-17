@@ -176,7 +176,7 @@ class ConfigurableService(BaseService):
         return (self.get_config(t, context) for t in self._tmpl_srcs[self._context_name_of(context)].keys())
 
 
-class PersonalService:
+class PersonalService(BaseService):
     def __init__(self, name, spec):
         super().__init__(name, spec)
         self._account_id = spec.accountId
