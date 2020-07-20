@@ -111,7 +111,8 @@ def get_opservice(service):
             t_name == 'ApplicationServer' and superv == 'docker': SharedAppServer,
             t_name == 'ApplicationServer' and superv == 'docker' and private: PersonalAppServer,
             t_name == 'DatabaseServer' and t_mod == 'MYSQL': MySQL,
-            t_name == 'DatabaseServer' and t_mod == 'POSTGRESQL': PostgreSQL
+            t_name == 'DatabaseServer' and t_mod == 'POSTGRESQL': PostgreSQL,
+            t_name == 'DatabaseServer' and t_mod in ('MEMCACHED', 'REDIS'): PersonalKVStore
         }.get(True)
         if not OpService: raise ClassSelectionError(f"Unknown OpService type: {t_name} "
                                                     f"and catch-all 'SomethingInDocker' did not match "

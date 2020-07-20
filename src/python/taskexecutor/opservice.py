@@ -22,7 +22,7 @@ from taskexecutor.httpsclient import ApiClient, GitLabClient
 from taskexecutor.logger import LOGGER
 
 __all__ = ["SomethingInDocker", "Cron", "Postfix", "HttpServer", "Apache", "SharedAppServer", "PersonalAppServer",
-           "MySQL", "PostgreSQL"]
+           "MySQL", "PostgreSQL", "PersonalKVStore"]
 
 
 class ServiceStatus(Enum):
@@ -174,6 +174,23 @@ class ConfigurableService(BaseService):
 
     def get_configs_in_context(self, context):
         return (self.get_config(t, context) for t in self._tmpl_srcs[self._context_name_of(context)].keys())
+
+
+class PersonalService(BaseService):
+    def __init__(self, name, spec):
+        super().__init__(name, spec)
+        self._account_id = spec.accountId
+        self._unix_account = None
+
+    @property
+    def unix_account(self):
+        if not self._unix_account:
+            with ApiClient(**CONFIG.apigw) as api:
+                try:
+                    self._unix_account = api.unixAccount().filter(accountId=self._account_id).get()[0]
+                except IndexError:
+                    pass
+        return self._unix_account
 
 
 class WebServer(ConfigurableService, NetworkingService):
@@ -561,6 +578,9 @@ class SharedAppServer(WebServer, ApplicationServer, DockerService):
         self.security_level = getattr(getattr(self.spec, "instanceProps", None), "security_level", "default")
 
 
+class PersonalAppServer(WebServer, ApplicationServer, DockerService, PersonalService): ...
+
+
 class Cron(DockerService):
     def __init__(self, name, spec):
         super().__init__(name, spec)
@@ -612,23 +632,6 @@ class Postfix(DockerService):
             LOGGER.warning(f'{self.name} is down, trying to start it')
             self.start()
         self.exec_defined_cmd("disable-uid-cmd", uid=uid)
-
-
-class PersonalAppServer(WebServer, ApplicationServer, DockerService):
-    def __init__(self, name, spec):
-        super().__init__(name, spec)
-        self._account_id = spec.accountId
-        self._unix_account = None
-
-    @property
-    def unix_account(self):
-        if not self._unix_account:
-            with ApiClient(**CONFIG.apigw) as api:
-                try:
-                    self._unix_account = api.unixAccount().filter(accountId=self._account_id).get()[0]
-                except IndexError:
-                    pass
-        return self._unix_account
 
 
 class Apache(WebServer, ApplicationServer, UpstartService):
@@ -1035,3 +1038,6 @@ class PostgreSQL(DatabaseServer, OpService):
 
     def set_initial_permissions(self, user_name, addrs_list):
         return
+
+
+class PersonalKVStore(DockerService, PersonalService): ...
