@@ -9,7 +9,7 @@ from taskexecutor.config import CONFIG
 from taskexecutor.ftpclient import FTPClient
 from taskexecutor.logger import LOGGER
 from taskexecutor.opservice import ServiceStatus, HttpServer, ConfigurableService, Apache
-from taskexecutor.utils import asdict, synchronized, to_snake_case, rgetattr
+from taskexecutor.utils import asdict, exec_command, synchronized, to_snake_case, rgetattr
 from taskexecutor.watchdog import ProcessWatchdog
 
 __all__ = ['UnixAccountProcessor', 'DatabaseUserProcessor', 'DatabaseProcessor', 'MailboxProcessor', 'WebSiteProcessor',
@@ -153,7 +153,9 @@ class UnixAccountProcessor(ResProcessor):
             if not self.resource.infected:
                 ProcessWatchdog.get_uids_queue().put(-self.resource.uid)
             LOGGER.info("Creating 'logs' directory")
-            os.makedirs(os.path.join(self.resource.homeDir, 'logs'), mode=0o755, exist_ok=True)
+            logs_path = os.path.join(self.resource.homeDir, 'logs')
+            os.makedirs(logs_path, mode=0o755, exist_ok=True)
+            exec_command("chown -R {}:0 {}".format(self.resource.uid, logs_path))
             if not switched_on:
                 self.service.kill_user_processes(self.resource.name)
         else:
