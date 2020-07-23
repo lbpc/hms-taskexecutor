@@ -141,7 +141,7 @@ class RsyncDataFetcher(DataFetcher):
                 exec_command("chown -R {0}:{0} {1}".format(self.owner_uid, self.dst_path))
                 logs_path = self.dst_path + "/logs"
                 if os.path.isdir(logs_path):
-                    exec_command("chown -R 0:0 {0}".format(logs_path))
+                    exec_command("chown -R {}:0 {}".format(self.owner_uid, logs_path))
 
 
 class MysqlDataFetcher(DataFetcher):
