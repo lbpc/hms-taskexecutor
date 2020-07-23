@@ -307,7 +307,8 @@ class DatabaseUserProcessor(ResProcessor):
         if len(set(vars.keys()).intersection({'queryCacheType', 'characterSetClient', 'characterSetConnection',
                                               'characterSetResults', 'collationConnection', 'innodbStrictMode'})) > 0:
             vars = {to_snake_case(k): v for k, v in vars.items()}
-            addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses))
+            always_allowed_addrs = rgetattr(CONFIG, 'database.default_allowed_networks', [])
+            addrs_set = set(self.service.normalize_addrs(self.resource.allowedIPAddresses + always_allowed_addrs))
             LOGGER.info('Presetting session variables for user {0} with addresses {1}: {2}'.format(
                 self.resource.name,
                 addrs_set,
