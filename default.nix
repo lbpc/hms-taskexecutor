@@ -95,7 +95,6 @@ in buildLayeredImage rec {
     gnutar
     gnused
     gzip
-    killall
     mariadb.client
     nss-certs
     openssh
