@@ -1,3 +1,4 @@
+import psutil
 from textwrap import dedent
 from unittest.mock import patch, Mock
 
@@ -723,24 +724,23 @@ class TestLinuxUserManager(TestCase):
             ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDCt2QOfR8hS3/7aH0iWs7YYcdkwpZvUfdr1LpZWTcP9vZ+PCAi3ZWOPYJzUpUF+1yMBGSuB1nnpCD69XFfqGOpX3odIFcxvCien3EHZPGYS3jDqmRXLMI/uhJQVjlWoILeTFWJMtENsYxGoUr2V6+k0cyzPbt1fDpTrx+GbCUAjD+dBEfTBeMTnxaS9GKl7ZucbcoSYJDoKP3ladOH7giXZzZFpgLfUGfNwpjBfz/PFumx9r1IUnGXEQGYIswLr8sB/cEm1uJnCcPCC1DHPaPoQuXf8YjhpulUYFesBDO+AIFABrdIjV+MZL4zE3HktKahBHSD1EwzXg5/9UYNAY7Z
         """).lstrip())
 
-    @patch('os.environ', autospec=True)
-    @patch('subprocess.Popen')
-    def test_kill_user_processes(self, mock_popen, mock_env):
-        mock_env.get.return_value = None
-        mock_popen.return_value.returncode = 0
-        mock_popen.return_value.communicate.return_value = (b'', b'')
-        mgr = bs.LinuxUserManager()
-        mgr.kill_user_processes('u2000')
-        mock_popen.assert_called_once_with('killall -9 -u u2000',
-                                           executable='/bin/bash',
-                                           shell=True,
-                                           stderr=-1,
-                                           stdin=-1,
-                                           stdout=-1,
-                                           env={'PATH': None, 'SSL_CERT_FILE': None})
-        mock_popen.return_value.returncode = 1
-        mock_popen.return_value.communicate.return_value = (b'', b'Cannot find user fdsfgs')
-        mgr.kill_user_processes('fdsfgs')
+    @patch('psutil.process_iter', autospec=True)
+    def test_kill_user_processes(self, mock_process_iter):
+        process1 = Mock(spec=psutil.Process)
+        process1.uids.return_value = (1000, 1000, 1000)
+        process2 = Mock(spec=psutil.Process)
+        process2.uids.return_value = (1000, 1000, 1000)
+        process3 = Mock(spec=psutil.Process)
+        process3.uids.return_value = (0, 0, 0)
+        mock_process_iter.return_value = (p for p in (process1, process2, process3))
+        self.fs.create_file('/nowhere/etc/passwd', contents='user:x:1000:1000:Test User,,,:/home/user:/bin/bash')
+        self.fs.create_file('/nowhere/etc/shadow', contents='user:$1$aRDLQJXb$TXKgBfCWPOjFiMWfBXOW0:16956:0:99999:7:::')
+        bs.LinuxUserManager().kill_user_processes('user')
+        process1.terminate.assert_called_once()
+        process2.terminate.assert_called_once()
+        process3.terminate.assert_not_called()
+        mock_process_iter.return_value = (p for p in (process1, process2, process3))
+        bs.LinuxUserManager().kill_user_processes('nobody')
 
     def test_set_shell(self):
         self.fs.create_file('/nowhere/etc/passwd', contents=dedent("""

@@ -1,4 +1,5 @@
 import os
+import psutil
 import shutil
 import time
 from typing import Set
@@ -255,10 +256,15 @@ class LinuxUserManager:
         authorized_keys.save()
 
     def kill_user_processes(self, user_name):
-        try:
-            exec_command(f'killall -9 -u {user_name}')
-        except CommandExecutionError as e:
-            LOGGER.warning(f'Failed to kill {user_name} processes with killall: {e}')
+        user = self.get_user(user_name)
+        if not user: return
+        for process in filter(lambda p: user.uid in p.uids(), psutil.process_iter()):
+            try:
+                LOGGER.info(f"Terminating process '{process.name()}', "
+                            f"PID: {process.pid}, cmdline: '{process.cmdline()}'")
+                process.terminate()
+            except psutil.NoSuchProcess:
+                pass
 
     def set_shell(self, user_name, path):
         user = self.get_user(user_name)
