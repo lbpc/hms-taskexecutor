@@ -3,6 +3,7 @@ import re
 import shutil
 import tempfile
 import jinja2
+import urllib.parse
 from itertools import islice
 
 from taskexecutor.config import CONFIG
@@ -127,6 +128,7 @@ class TemplatedConfigFile(ConfigFile):
         jinja2_env.filters['normpath'] = lambda path: os.path.normpath(path)
         jinja2_env.filters['dirname'] = lambda path: os.path.dirname(path)
         jinja2_env.filters['items'] = lambda obj: asdict(obj).items()
+        jinja2_env.filters['urlencode'] = lambda url: urllib.parse.quote_plus(url)
         return jinja2_env
 
     def render_template(self, **kwargs):
