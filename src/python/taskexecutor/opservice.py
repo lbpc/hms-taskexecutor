@@ -14,6 +14,7 @@ from itertools import chain, product
 import docker
 import psutil
 
+import taskexecutor.builtinservice as bs
 import taskexecutor.constructor as cnstr
 import taskexecutor.utils as utils
 from taskexecutor.config import CONFIG
@@ -621,6 +622,21 @@ class Cron(DockerService):
 
 
 class Postfix(DockerService):
+    def start(self):
+        uid = utils.rgetattr(CONFIG, 'posfix.uid', 13)
+        home = utils.rgetattr(CONFIG, 'postfix.home', '/opt/postfix')
+        mgr = bs.LinuxUserManager()
+        postfix_user = mgr.get_user('postfix')
+        if not postfix_user:
+            mgr.create_user('postfix',
+                            uid=uid, home_dir=home, pass_hash=None, shell=mgr.disabled_shell, extra_groups='postdrop')
+        elif postfix_user.uid != uid:
+            mgr.change_uid('postfix', uid)
+        nobody = mgr.get_user('nobody')
+        if not nobody:
+            mgr.create_user('nobody', uid=65534, home_dir='/nowhere', pass_hash=None, shell=mgr.disabled_shell)
+        super().start()
+
     def enable_sendmail(self, uid):
         if self.status() is not ServiceStatus.UP:
             LOGGER.warning(f'{self.name} is down, trying to start it')
