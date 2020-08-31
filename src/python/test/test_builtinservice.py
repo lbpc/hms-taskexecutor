@@ -15,7 +15,28 @@ class TestLinuxUserManager(TestCase):
         CONFIG.builtinservice.linux_user_manager = Mock()
         CONFIG.builtinservice.sysconf_dir = '/nowhere/etc'
         CONFIG.conffile.tmp_dir = '/nowhere/conf'
+        CONFIG.builtinservice.linux_user_manager.min_uid = 5
         self.setUpPyfakefs()
+
+    def test_id_from_config(self):
+        self.fs.create_file('/nowhere/etc/passwd', contents=dedent("""
+            user0:x:0:0:Test User,,,:/home/user0:/bin/bash
+            user1:x:1:1:Test User,,,:/home/user1:/bin/bash
+            user2:x:3:3:Test User,,,:/home/user2:/bin/bash
+            user3:x:5:5:Test User,,,:/home/user3:/bin/bash
+            user4:x:999:999:Test User,,,:/home/user4:/bin/bash
+        """).lstrip())
+        self.fs.create_file('/nowhere/etc/group', contents=dedent("""
+            group0:x:0:
+            group1:x:1:
+            group2:x:2:
+        """).lstrip())
+        mgr = bs.LinuxUserManager()
+        self.assertEqual(mgr._id_from_config(mgr._etc_passwd, 'user1'), 1)
+        self.assertEqual(mgr._id_from_config(mgr._etc_passwd, 'user5'), 2)
+        self.assertEqual(mgr._id_from_config(mgr._etc_group, 'group3'), 3)
+        CONFIG.builtinservice.linux_user_manager.min_uid = 2
+        self.assertRaises(bs.IdConflict, mgr._id_from_config, mgr._etc_group, 'group3')
 
     def test_default_shell(self):
         CONFIG.builtinservice.linux_user_manager.default_shell = '/bin/zsh'
@@ -556,7 +577,7 @@ class TestLinuxUserManager(TestCase):
             u223135:x:80742:
             group0:x:1000:u2000,u223135
             u2000:x:2000:
-            group1:x:1001:u2000
+            group1:x:1:u2000
         """).lstrip())
         self.assertEqual(self.fs.get_object('/nowhere/etc/gshadow').contents, dedent("""
             u223135:!::
