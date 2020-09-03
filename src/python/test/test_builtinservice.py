@@ -30,11 +30,17 @@ class TestLinuxUserManager(TestCase):
             group0:x:0:
             group1:x:1:
             group2:x:2:
+            group6626:x:6626:
+            gid_forgotten:x::
+            trash
         """).lstrip())
         mgr = bs.LinuxUserManager()
         self.assertEqual(mgr._id_from_config(mgr._etc_passwd, 'user1'), 1)
         self.assertEqual(mgr._id_from_config(mgr._etc_passwd, 'user5'), 2)
+        self.assertEqual(mgr._id_from_config(mgr._etc_group, 'group6626'), 6626)
         self.assertEqual(mgr._id_from_config(mgr._etc_group, 'group3'), 3)
+        self.assertEqual(mgr._id_from_config(mgr._etc_group, 'gid_forgotten'), 3)
+        self.assertEqual(mgr._id_from_config(mgr._etc_group, 'trash'), 3)
         CONFIG.builtinservice.linux_user_manager.min_uid = 2
         self.assertRaises(bs.IdConflict, mgr._id_from_config, mgr._etc_group, 'group3')
 
@@ -107,6 +113,7 @@ class TestLinuxUserManager(TestCase):
             group012:x:9000:user1,user0,user2
             group123:x:9000:user1,user2,user3
             group123:x:9000:user0,user3,user4
+            badgroup:xxx:
         """).lstrip())
         self.fs.create_file('/nowhere/etc/gshadow', contents=dedent(""" 
             user0:!::
@@ -134,6 +141,7 @@ class TestLinuxUserManager(TestCase):
         g012 = mgr.get_group('group012')
         self.assertEqual(g012.users, {'user0', 'user1', 'user2'})
         self.assertRaises(bs.InconsistentGroupData, mgr.get_group, 'group123')
+        self.assertRaises(bs.MalformedLine, mgr.get_group, 'badgroup')
 
     def test_get_group_by_gid(self):
         self.fs.create_file('/nowhere/etc/group', contents=dedent("""
@@ -248,6 +256,35 @@ class TestLinuxUserManager(TestCase):
                 u185130:!::
                 u185131:!::
             """).lstrip())
+
+    def test_create_group_existing_malformed(self):
+        self.fs.create_file('/nowhere/etc/group', contents=dedent("""
+            hosting_accounts:x::
+            u185131:
+        """).lstrip())
+        self.fs.create_file('/nowhere/etc/gshadow', contents=dedent(""" 
+            hosting_accounts:!::
+            u185131:!::
+        """).lstrip())
+        mgr = bs.LinuxUserManager()
+        mgr.create_group('u185131', gid=50700)
+        self.assertEqual(self.fs.get_object('/nowhere/etc/group').contents, dedent("""
+            hosting_accounts:x::
+            u185131:x:50700:
+        """).lstrip())
+        self.assertEqual(self.fs.get_object('/nowhere/etc/gshadow').contents, dedent(""" 
+            hosting_accounts:!::
+            u185131:!::
+        """).lstrip())
+        mgr.create_group('hosting_accounts')
+        self.assertEqual(self.fs.get_object('/nowhere/etc/group').contents, dedent("""
+            u185131:x:50700:
+            hosting_accounts:x:1:
+        """).lstrip())
+        self.assertEqual(self.fs.get_object('/nowhere/etc/gshadow').contents, dedent(""" 
+            u185131:!::
+            hosting_accounts:!::
+        """).lstrip())
 
     def test_create_group_first_time(self):
         bs.LinuxUserManager().create_group('testgroup', gid=1000)
@@ -509,6 +546,45 @@ class TestLinuxUserManager(TestCase):
         self.assertEqual(self.fs.get_object('/nowhere/etc/shadow').contents, dedent("""
             u223136:$1$50i6mh7B$d7XLzlLdt0eAXaDPFtHwH/:18224:0:99999:7:::
             u223135:$1$aRDLQJXb$TXKgBfCWPOKjFiMWfBXOW0:18355:0:99999:7:::
+        """).lstrip())
+        self.assertEqual(self.fs.get_object('/nowhere/etc/group').contents, dedent("""
+            u223135:x:80742:
+            u223136:x:80743:
+        """).lstrip())
+        self.assertEqual(self.fs.get_object('/nowhere/etc/gshadow').contents, dedent("""
+            u223135:!::
+            u223136:!::
+        """).lstrip())
+
+    @patch('time.time')
+    def test_create_user_existing_malformed(self, mock_time):
+        self.fs.create_file('/nowhere/etc/passwd', contents=dedent("""
+            u223135:x:80742:account:/home/u223135:/bin/bash
+            u223136:x:80743:80743:account:/home/u223136:/usr/sbin/nologin
+        """).lstrip())
+        self.fs.create_file('/nowhere/etc/shadow', contents=dedent("""
+            u223135:$1$aRDLQJXb$TXKgBfCWPOKjFiMWfBXOW0:18224:0:99999:7:::
+            u223136:24:0:99999:7:::
+        """).lstrip())
+        self.fs.create_file('/nowhere/etc/group', contents=dedent(f"""
+            u223135:x:80742:
+            u223136:x:80743:
+        """).lstrip())
+        self.fs.create_file('/nowhere/etc/gshadow', contents=dedent(f"""
+            u223135:!::
+            u223136:!::
+        """).lstrip())
+        mock_time.return_value = 1585905284.8418486
+        mgr = bs.LinuxUserManager()
+        mgr.create_user('u223135', 80742, '/home/u223135', '$1$aRDLQJXb$TXKgBfCWPOKjFiMWfBXOW0', '/bin/bash', 'account')
+        mgr.create_user('u223136', 80743, '/home/u223136', '$1$50i6mh7B$d7XLzlLdt0eAXaDPFtHwH/', '/nologin', 'account')
+        self.assertEqual(self.fs.get_object('/nowhere/etc/passwd').contents, dedent("""
+            u223135:x:80742:80742:account:/home/u223135:/bin/bash
+            u223136:x:80743:80743:account:/home/u223136:/nologin
+        """).lstrip())
+        self.assertEqual(self.fs.get_object('/nowhere/etc/shadow').contents, dedent("""
+            u223135:$1$aRDLQJXb$TXKgBfCWPOKjFiMWfBXOW0:18355:0:99999:7:::
+            u223136:$1$50i6mh7B$d7XLzlLdt0eAXaDPFtHwH/:18355:0:99999:7:::
         """).lstrip())
         self.assertEqual(self.fs.get_object('/nowhere/etc/group').contents, dedent("""
             u223135:x:80742:

@@ -2,6 +2,7 @@ import os
 import psutil
 import shutil
 import time
+from itertools import islice
 from typing import Set
 
 import attr
@@ -69,33 +70,32 @@ class LinuxUserManager:
     @staticmethod
     def _id_from_config(config, name):
         min_user_uid = rgetattr(CONFIG, 'builtinservice.linux_user_manager.min_uid', 2000)
+        get_ids = lambda lines: map(int, filter(None, (next(islice(l.split(':'), 2, None), None) for l in lines)))
         try:
-            return next(
-                (next(
-                    (int(i) for i in l.split(':')[2]), None)
-                    for l in config.get_lines(f'^{name}:x:.+')),
-                set(range(1, min_user_uid)).difference(
-                    set(int(l.split(':')[2]) for l in config.get_lines('.*') if l)
-                ).pop()
-            )
+            return next(get_ids(config.get_lines(f'^{name}:x:.+')),
+                        set(range(1, min_user_uid)).difference(
+                            set(get_ids(config.get_lines('.*')))
+                        ).pop())
         except KeyError:
             raise IdConflict(f'Cannot pick free ID from 1 to {min_user_uid} in {config.file_path}')
 
     def get_user(self, name):
-        passwd_matched = self._etc_passwd.get_lines(f'^{name}:.+')
+        passwd_matched = self._etc_passwd.get_lines(f'^{name}:.*')
         if len(passwd_matched) > 1:
             raise InconsistentUserData('More than one user has name {}:\n{}'.format(name, '\n'.join(passwd_matched)))
         if passwd_matched:
             passwd = passwd_matched[0].split(':')
-            if len(passwd) != 7: raise MalformedLine('Bad passwd line:\n{}'.format(':'.join(passwd)))
+            if len(passwd) != 7 or not all(passwd):
+                raise MalformedLine('Bad passwd line:\n{}'.format(':'.join(passwd)))
             _, _, uid, gid, gecos, home, shell = passwd
-            shadow_matched = self._etc_shadow.get_lines(f'^{name}:.+')
+            shadow_matched = self._etc_shadow.get_lines(f'^{name}:.*')
             if not shadow_matched: raise InconsistentUserData(f'User {name} has no shadow information')
             if len(shadow_matched) > 1:
                 raise InconsistentUserData('User {} has more than one shadow entry:\n'
                                            '{}'.format(name, '\n'.join(passwd_matched)))
             shadow = shadow_matched[0].split(':')
-            if len(shadow) != 9: raise MalformedLine('Bad shadow line:\n{}'.format(':'.join(shadow)))
+            if len(shadow) != 9 or not all(shadow[:6]):
+                raise MalformedLine('Bad shadow line:\n{}'.format(':'.join(shadow)))
             hash = shadow[1] if shadow[1] not in ('!', '*') else ''
             return User(name, uid, gid, hash, gecos, home, shell)
 
@@ -105,12 +105,13 @@ class LinuxUserManager:
         if matched: return self.get_user(matched[0].split(':')[0])
 
     def get_group(self, name):
-        group_matched = self._etc_group.get_lines(f'^{name}:.+')
+        group_matched = self._etc_group.get_lines(f'^{name}:.*')
         if len(group_matched) > 1:
             raise InconsistentGroupData('More than one group has name {}:\n{}'.format(name, '\n'.join(group_matched)))
         if group_matched:
             group = group_matched[0].split(':')
-            if len(group) != 4: raise MalformedLine('Bad group line:\n{}'.format(':'.join(group)))
+            if len(group) != 4 or not all(group[:3]):
+                raise MalformedLine('Bad group line:\n{}'.format(':'.join(group)))
             users = set(filter(None, group[3].split(',')))
             same_name_user = self.get_user(name)
             if same_name_user: users.add(same_name_user.name)
@@ -203,7 +204,7 @@ class LinuxUserManager:
             os.chown(home_dir, uid, uid)
             LOGGER.debug(f'Setting mode 700 on {home_dir}')
             os.chmod(home_dir, 0o700)
-        except InconsistentUserData as e:
+        except (InconsistentUserData, MalformedLine) as e:
             LOGGER.warning(f'{e}, removing all entries starting with {name}')
             for each in self._etc_passwd.get_lines(f'^{name}:.+'): self._etc_passwd.remove_line(each)
             for each in self._etc_shadow.get_lines(f'^{name}:.+'): self._etc_shadow.remove_line(each)
