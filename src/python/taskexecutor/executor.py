@@ -103,7 +103,7 @@ class ResourceBuilder:
                 elif self._res_type == 'service' and resource.template.resourceType == 'WEBSITE':
                     http_proxy = cnstr.get_http_proxy_service()
                     if http_proxy:
-                        affected_resources.append(('service', http_proxy))
+                        affected_resources.append(('service', http_proxy.spec))
         return [r for r in affected_resources if r[1].switchedOn]
 
 
