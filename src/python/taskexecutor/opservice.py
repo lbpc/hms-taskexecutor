@@ -629,7 +629,7 @@ class Postfix(DockerService):
         postfix_user = mgr.get_user('postfix')
         if not postfix_user:
             mgr.create_user('postfix',
-                            uid=uid, home_dir=home, pass_hash=None, shell=mgr.disabled_shell, extra_groups='postdrop')
+                            uid=uid, home_dir=home, pass_hash=None, shell=mgr.disabled_shell, extra_groups=['postdrop'])
         elif postfix_user.uid != uid:
             mgr.change_uid('postfix', uid)
         nobody = mgr.get_user('nobody')

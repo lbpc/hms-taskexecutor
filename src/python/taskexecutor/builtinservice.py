@@ -68,19 +68,18 @@ class LinuxUserManager:
 
     @staticmethod
     def _id_from_config(config, name):
-        id = next(
-            (next(
-                (int(i) for i in l.split(':')[-2:-1]),
-                None) for l in config.get_lines(f'^{name}:x:.+')),
-            None)
-        if not id:
-            try:
-                id = max(g for g in
-                         (int(l.split(':')[2]) for l in config.get_lines('.*') if l)
-                         if g < rgetattr(CONFIG, 'builtinservice.linux_user_manager.min_uid', 2000)) + 1
-            except ValueError:
-                id = 1000
-        return id
+        min_user_uid = rgetattr(CONFIG, 'builtinservice.linux_user_manager.min_uid', 2000)
+        try:
+            return next(
+                (next(
+                    (int(i) for i in l.split(':')[2]), None)
+                    for l in config.get_lines(f'^{name}:x:.+')),
+                set(range(1, min_user_uid)).difference(
+                    set(int(l.split(':')[2]) for l in config.get_lines('.*') if l)
+                ).pop()
+            )
+        except KeyError:
+            raise IdConflict(f'Cannot pick free ID from 1 to {min_user_uid} in {config.file_path}')
 
     def get_user(self, name):
         passwd_matched = self._etc_passwd.get_lines(f'^{name}:.+')
