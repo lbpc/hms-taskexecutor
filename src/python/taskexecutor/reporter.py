@@ -37,9 +37,11 @@ class AMQPReporter(Reporter):
         return self.next_te and self._task.res_type == 'website'
 
     @staticmethod
-    def humanize_error(text, class_name):
-        if class_name == 'CommandExecutionError' or CONFIG.profile == 'dev': return text
-        if class_name == 'CommandTimedOut': return f'Выполнение команды прервано после истечения тайм-аута: {text}'
+    def humanize_error(text, class_name, user_defined_cmds):
+        if CONFIG.profile == 'dev': return text
+        if class_name == 'ContainerCommandExecutionError' and user_defined_cmds: return text
+        if class_name == 'ConatinerCommandTimedOut':
+            return f'Выполнение команды прервано после истечения тайм-аута: {text}'
         return 'Внутренняя ошибка сервера'
 
     def create_report(self, task):
@@ -52,8 +54,10 @@ class AMQPReporter(Reporter):
         self.next_te = params.pop('oldServerName', None)
         self._report['params'] = {'success': bool(task.state ^ TaskState.FAILED)}
         if 'last_exception' in params:
-            self._report['params']['errorMessage'] = self.humanize_error(params['last_exception'].get('message'),
-                                                                         params['last_exception'].get('class'))
+            err_message = params['last_exception'].get('message')
+            err_class = params['last_exception'].get('class')
+            user_defined_cmds = {k: v for k, v in params.items() if v in ('appUpdateCommands', 'appInstallCommands')}
+            self._report['params']['errorMessage'] = self.humanize_error(err_message, err_class, user_defined_cmds)
             self._report['params']['exceptionClass'] = params['last_exception'].get('class')
         LOGGER.debug(f'Report to next TE: {self._report_to_next_te}')
         if self._report_to_next_te:
