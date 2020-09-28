@@ -85,12 +85,12 @@ def get_cron_service():
     return next(get_opservices_of_type('CronD'), None)
 
 
-def get_ssh_service():
-    return next(get_opservices_of_type('SshD'), None)
-
-
 def get_ftp_service():
     return next(get_opservices_of_type('FtpD'), None)
+
+
+def get_ssh_services():
+    return get_opservices_of_type('SshD')
 
 
 def get_opservice(service):

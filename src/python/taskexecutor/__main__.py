@@ -34,8 +34,8 @@ def update_all_services(new_task_queue, isolated=False):
                 maybe_spec(constructor.get_database_server()),
                 maybe_spec(constructor.get_cron_service()),
                 maybe_spec(constructor.get_mta_service()),
-                maybe_spec(constructor.get_ssh_service()),
                 maybe_spec(constructor.get_ftp_service())]
+    services.extend(map(maybe_spec, constructor.get_ssh_services()))
     if isolated: services.extend(filter(None, (maybe_spec(s) for s in constructor.get_application_servers())))
     LOGGER.info('Performing Service updates: {}'.format(tuple(s.name for s in services if s)))
     for each in filter(None, services):

@@ -18,11 +18,11 @@ class PostprocessorArgumentError(Exception):
     pass
 
 
-class CommandExecutionError(Exception):
+class ContainerCommandExecutionError(Exception):
     pass
 
 
-class CommandTimedOut(Exception):
+class ContainerCommandTimedOut(Exception):
     pass
 
 
@@ -54,10 +54,11 @@ class DockerDataPostprocessor(DataPostprocessor):
             container = docker_client.containers.run(image, network_mode='host', volumes=volumes, user=user,
                                                      environment=env, extra_hosts=hosts, command=command, detach=True)
             retcode = container.wait(timeout=timeout).get('StatusCode')
-            if retcode != 0: exception = CommandExecutionError(container.logs(stdout=False).decode())
+            if retcode != 0:
+                exception = ContainerCommandExecutionError(container.logs(stdout=False).decode())
         except (requests.exceptions.ReadTimeout, requests.RequestException, requests.ConnectTimeout):
             container.kill()
-            exception = CommandTimedOut(command)
+            exception = ContainerCommandTimedOut(command)
         container_logs = container.logs().decode()
         container.remove()
         if exception: raise exception
