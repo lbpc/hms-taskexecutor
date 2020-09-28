@@ -178,8 +178,6 @@ class WebSiteProcessor(ResProcessor):
     @synchronized
     def create(self):
         self.params['app_server'] = self.service if self.extra_services.http_proxy is not self.service else None
-        # TODO remove 'app_server_name' when template is ready
-        self.params['app_server_name'] = self.params['app_server'].name if self.params['app_server'] else None
         self.params['subdomains_document_root'] = '/'.join(str(self.resource.documentRoot).split('/')[:-1])
         home_dir = os.path.normpath(str(self.resource.unixAccount.homeDir))
         document_root = os.path.normpath(str(self.resource.documentRoot))
