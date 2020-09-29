@@ -444,7 +444,11 @@ class DockerService(OpService):
     @utils.synchronized
     def _pull_image(self):
         LOGGER.info("Pulling {} docker image".format(self.image))
-        self._docker_client.images.pull(self.image)
+        try:
+            self._docker_client.images.pull(self.image)
+        except docker.errors.APIError as e:
+            LOGGER.warning("Failed to pull docker image {}: {}".format(self.image, e))
+
         return self._docker_client.images.get(self.image)
 
     def _setup_env(self):
