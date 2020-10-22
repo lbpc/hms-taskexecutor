@@ -1,9 +1,11 @@
 import os
 import psutil
+import re
 import shutil
 import time
 from itertools import islice
-from typing import Set
+from pathlib import Path
+from typing import Set, Optional
 
 import attr
 
@@ -30,7 +32,12 @@ class InconsistentGroupData(InconsistentData): ...
 class IdConflict(Exception): ...
 
 
-class MalformedLine(Exception): ...
+class InvalidData(Exception): ...
+
+
+def path_is_absolute(_, attribute, value):
+    if not Path(value).is_absolute():
+        raise InvalidData(f"{attribute.name} must be an absolute path, got '{value}'")
 
 
 @attr.s(slots=True, auto_attribs=True, eq=True, frozen=True)
@@ -38,10 +45,10 @@ class User:
     name: str
     uid: int = attr.ib(converter=int)
     gid: int = attr.ib(converter=int)
-    password_hash: str
+    password_hash: Optional[str]
     gecos: str
-    home: str
-    shell: str
+    home: str = attr.ib(validator=path_is_absolute)
+    shell: str = attr.ib(validator=path_is_absolute)
 
 
 @attr.s(slots=True, auto_attribs=True, eq=True, frozen=True)
@@ -81,26 +88,33 @@ class LinuxUserManager:
 
     def get_user(self, name):
         passwd_matched = self._etc_passwd.get_lines(f'^{name}:.*')
+        shadow_matched = None
         if len(passwd_matched) > 1:
             raise InconsistentUserData('More than one user has name {}:\n{}'.format(name, '\n'.join(passwd_matched)))
         if passwd_matched:
             passwd = passwd_matched[0].split(':')
-            if len(passwd) != 7 or not all(passwd):
-                raise MalformedLine('Bad passwd line:\n{}'.format(':'.join(passwd)))
-            _, _, uid, gid, gecos, home, shell = passwd
-            shadow_matched = self._etc_shadow.get_lines(f'^{name}:.*')
-            if not shadow_matched: raise InconsistentUserData(f'User {name} has no shadow information')
-            if len(shadow_matched) > 1:
-                raise InconsistentUserData('User {} has more than one shadow entry:\n'
-                                           '{}'.format(name, '\n'.join(passwd_matched)))
-            shadow = shadow_matched[0].split(':')
-            if len(shadow) != 9 or not all(shadow[:6]):
-                raise MalformedLine('Bad shadow line:\n{}'.format(':'.join(shadow)))
-            hash = shadow[1] if shadow[1] not in ('!', '*') else ''
-            return User(name, uid, gid, hash, gecos, home, shell)
+            if len(passwd) != 7:
+                raise InvalidData(f'Bad passwd line:\n{passwd_matched[0]}\nthere must be exactly 7 fields')
+            _, pass_hash, uid, gid, gecos, home, shell = passwd
+            if pass_hash == 'x':
+                shadow_matched = self._etc_shadow.get_lines(f'^{name}:.*')
+                if not shadow_matched: raise InconsistentUserData(f'User {name} has no shadow information')
+                if len(shadow_matched) > 1:
+                    raise InconsistentUserData('User {} has more than one shadow entry:\n'
+                                               '{}'.format(name, '\n'.join(passwd_matched)))
+                shadow = shadow_matched[0].split(':')
+                if len(shadow) != 9:
+                    raise InvalidData(f'Bad shadow line:\n{shadow_matched[0]}\nthere must be exactly 9 fields')
+                pass_hash = shadow[1]
+            if not (re.match(r'\$(1|2a|5|6)\$.{1,16}\$.{22,86}', pass_hash) or pass_hash == ''): pass_hash = None
+            try:
+                return User(name, uid, gid, pass_hash, gecos, home, shell)
+            except Exception as e:
+                raise InvalidData(f'Could not build a User instance from passwd line:\n{passwd_matched[0]}' +
+                                  f'\n+ shadow line:\n{shadow_matched[0]}' if shadow_matched else '') from e
 
     def get_user_by_uid(self, uid):
-        matched = self._etc_passwd.get_lines(f'^.+:x:{uid}:')
+        matched = self._etc_passwd.get_lines(f'^.+:[^:]*:{uid}:')
         if len(matched) > 1: raise IdConflict(f'Users with conflicting UID found: {matched}')
         if matched: return self.get_user(matched[0].split(':')[0])
 
@@ -110,15 +124,18 @@ class LinuxUserManager:
             raise InconsistentGroupData('More than one group has name {}:\n{}'.format(name, '\n'.join(group_matched)))
         if group_matched:
             group = group_matched[0].split(':')
-            if len(group) != 4 or not all(group[:3]):
-                raise MalformedLine('Bad group line:\n{}'.format(':'.join(group)))
+            if len(group) != 4:
+                raise InvalidData('Bad group line:\n{}\nthere must be exactly 4 fields'.format(':'.join(group)))
             users = set(filter(None, group[3].split(',')))
             same_name_user = self.get_user(name)
             if same_name_user: users.add(same_name_user.name)
-            return Group(name, group[2], users)
+            try:
+                return Group(name, group[2], users)
+            except Exception as e:
+                raise InvalidData('Could not build a Group instance from line:\n{}'.format(':'.join(group)))
 
     def get_group_by_gid(self, gid):
-        matched = self._etc_group.get_lines(f'^.+:x:{gid}:')
+        matched = self._etc_group.get_lines(f'^.+:[^:]*:{gid}:')
         if len(matched) > 1: raise IdConflict(f'Groups with conflicting GID found: {matched}')
         if matched: return self.get_group(matched[0].split(':')[0])
 
@@ -128,7 +145,7 @@ class LinuxUserManager:
         try:
             same_gid = self.get_group_by_gid(gid)
             if same_gid and same_gid.name != name: raise IdConflict(f'{same_gid} group has conflicting GID {gid}')
-        except (InconsistentGroupData, MalformedLine):
+        except (InconsistentGroupData, InvalidData):
             pass
         group_line = f'{name}:x:{gid}:'
         gshadow_line = f'{name}:!::'
@@ -141,7 +158,7 @@ class LinuxUserManager:
                 self._etc_gshadow.add_line()
                 self._etc_group.save()
                 self._etc_gshadow.save()
-        except (InconsistentGroupData, MalformedLine) as e:
+        except (InconsistentGroupData, InvalidData) as e:
             LOGGER.warning(f'{e}, removing all entries starting from {name}')
             for each in self._etc_group.get_lines(f'^{name}:'): self._etc_group.remove_line(each)
             for each in self._etc_gshadow.get_lines(f'^{name}:'): self._etc_gshadow.remove_line(each)
@@ -204,7 +221,7 @@ class LinuxUserManager:
             os.chown(home_dir, uid, uid)
             LOGGER.debug(f'Setting mode 700 on {home_dir}')
             os.chmod(home_dir, 0o700)
-        except (InconsistentUserData, MalformedLine) as e:
+        except (InconsistentUserData, InvalidData) as e:
             LOGGER.warning(f'{e}, removing all entries starting with {name}')
             for each in self._etc_passwd.get_lines(f'^{name}:.+'): self._etc_passwd.remove_line(each)
             for each in self._etc_shadow.get_lines(f'^{name}:.+'): self._etc_shadow.remove_line(each)
@@ -220,7 +237,7 @@ class LinuxUserManager:
             LOGGER.warning(e)
         try:
             home = self.get_user(name).home
-        except (InconsistentUserData, MalformedLine) as e:
+        except (InconsistentUserData, InvalidData) as e:
             LOGGER.warning(f'{e}, home directory would be {home}')
         for each in self._etc_group.get_lines(f'^{name}:.+'): self._etc_group.remove_line(each)
         for each in self._etc_gshadow.get_lines(f'^{name}:.+'): self._etc_gshadow.remove_line(each)
