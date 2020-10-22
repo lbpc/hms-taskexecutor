@@ -65,12 +65,28 @@ class TestLinuxUserManager(TestCase):
             user3:x:1003:1003:Test User,,,:/home/user3:/bin/bash
             user4:x:1004:1004:Test User,,,:/home/user4:/bin/bash
             user5:m:e:s:s:e:d:u:p
+            user6:x:onethousandandsix:1006:Test User,,,:/home/user6:/bin/bash
+            user7:x:1007:1007.5:Test User,,,:/home/user7:/bin/bash
+            user8:x:1008:1008:Test User,,,:not/an/absolute/path:/bin/bash
+            user9:x:1009:1009:Test User,,,:/home/user9:not/an/absolute/path
+            user10::1010:1010:Test User,,,:/home/user10:/bin/bash
+            user11:!:1011:1011:Test User,,,:/home/user11:/bin/bash
+            user12:*:1012:1012:Test User,,,:/home/user12:/bin/bash
+            user13:x:1013:1013::/home/user13:/bin/bash
+            user14:x:1014:1014:Test User,,,:/home/user14:/bin/bash
+            user15:$1$aRDLQJXb$TXKgBfCWPOKjFiMWfBXOW0:1015:1015:Test User,,,:/home/user15:/bin/bash
         """).lstrip())
         self.fs.create_file('/nowhere/etc/shadow', contents=dedent("""
             user0:$1$aRDLQJXb$TXKgBfCWPOKjFiMWfBXOW0:16956:0:99999:7:::
             user1:!:18354:0:99999:7:::
             user3:!:18354:0:99999:7:::
             user4:w:t:f:
+            user6:!:16956:0:99999:7:::
+            user7:!:16956:0:99999:7:::
+            user8:!:16956:0:99999:7:::
+            user9:!:16956:0:99999:7:::
+            user13:!:16956:0:99999:7:::
+            user14:!$1$aRDLQJXb$TXKgBfCWPOKjFiMWfBXOW0:16956:0:99999:7:::
         """).lstrip())
         mgr = bs.LinuxUserManager()
         u0 = mgr.get_user('user0')
@@ -85,9 +101,26 @@ class TestLinuxUserManager(TestCase):
         self.assertRaises(bs.InconsistentUserData, mgr.get_user, 'user1')
         self.assertRaises(bs.InconsistentUserData, mgr.get_user, 'user2')
         u3 = mgr.get_user('user3')
-        self.assertEqual(u3.password_hash, '')
-        self.assertRaises(bs.MalformedLine, mgr.get_user, 'user4')
-        self.assertRaises(bs.MalformedLine, mgr.get_user, 'user5')
+        self.assertIsNone(u3.password_hash)
+        self.assertRaises(bs.InvalidData, mgr.get_user, 'user4')
+        self.assertRaises(bs.InvalidData, mgr.get_user, 'user5')
+        self.assertRaises(bs.InvalidData, mgr.get_user, 'user5')
+        self.assertRaises(bs.InvalidData, mgr.get_user, 'user6')
+        self.assertRaises(bs.InvalidData, mgr.get_user, 'user7')
+        self.assertRaises(bs.InvalidData, mgr.get_user, 'user8')
+        self.assertRaises(bs.InvalidData, mgr.get_user, 'user9')
+        u10 = mgr.get_user('user10')
+        self.assertEqual(u10.password_hash, '')
+        u11 = mgr.get_user('user11')
+        self.assertIsNone(u11.password_hash)
+        u12 = mgr.get_user('user12')
+        self.assertIsNone(u12.password_hash)
+        u13 = mgr.get_user('user13')
+        self.assertEqual(u13.gecos, '')
+        u14 = mgr.get_user('user14')
+        self.assertIsNone(u14.password_hash)
+        u15 = mgr.get_user('user15')
+        self.assertEqual(u15.password_hash, '$1$aRDLQJXb$TXKgBfCWPOKjFiMWfBXOW0')
         self.assertEqual(mgr.get_user('nosuchuser'), None)
 
     def test_get_user_by_uid(self):
@@ -95,6 +128,9 @@ class TestLinuxUserManager(TestCase):
             user0:x:1000:1000:Test User,,,:/home/user0:/bin/bash
             user1:x:1001:1001:Test User,,,:/home/user1:/bin/false
             user2:x:1001:1002:Test User,,,:/home/user2:/bin/bash
+            user3:!:1003:1003:Test User,,,:/home/user3:/bin/bash
+            user4:*:1004:1004:Test User,,,:/home/user4:/bin/bash
+            user5::1005:1005:Test User,,,:/home/user5:/bin/bash
         """).lstrip())
         self.fs.create_file('/nowhere/etc/shadow', contents=dedent("""
             user0:$1$aRDLQJXb$TXKgBfCWPOKjFiMWfBXOW0:16956:0:99999:7:::
@@ -106,6 +142,13 @@ class TestLinuxUserManager(TestCase):
         self.assertEqual(u0.uid, 1000)
         self.assertEqual(u0.name, 'user0')
         self.assertRaises(bs.IdConflict, mgr.get_user_by_uid, 1001)
+        u3 = mgr.get_user_by_uid(1003)
+        self.assertIsInstance(u3, bs.User)
+        u4 = mgr.get_user_by_uid(1004)
+        self.assertIsInstance(u4, bs.User)
+        u5 = mgr.get_user_by_uid(1005)
+        self.assertIsInstance(u5, bs.User)
+
 
     def test_get_group(self):
         self.fs.create_file('/nowhere/etc/group', contents=dedent("""
@@ -114,6 +157,7 @@ class TestLinuxUserManager(TestCase):
             group123:x:9000:user1,user2,user3
             group123:x:9000:user0,user3,user4
             badgroup:xxx:
+            badgid:x:gid:
         """).lstrip())
         self.fs.create_file('/nowhere/etc/gshadow', contents=dedent(""" 
             user0:!::
@@ -141,13 +185,17 @@ class TestLinuxUserManager(TestCase):
         g012 = mgr.get_group('group012')
         self.assertEqual(g012.users, {'user0', 'user1', 'user2'})
         self.assertRaises(bs.InconsistentGroupData, mgr.get_group, 'group123')
-        self.assertRaises(bs.MalformedLine, mgr.get_group, 'badgroup')
+        self.assertRaises(bs.InvalidData, mgr.get_group, 'badgroup')
+        self.assertRaises(bs.InvalidData, mgr.get_group, 'badgid')
 
     def test_get_group_by_gid(self):
         self.fs.create_file('/nowhere/etc/group', contents=dedent("""
                 group0:x:1000:
                 group1:x:1001:
                 group2:x:1001:
+                group3:!:1003:
+                group4:*:1004:
+                group5::1005:
             """).lstrip())
         self.fs.create_file('/nowhere/etc/gshadow', contents=dedent(""" 
                 group0:!::
@@ -160,6 +208,12 @@ class TestLinuxUserManager(TestCase):
         self.assertEqual(g0.gid, 1000)
         self.assertEqual(g0.name, 'group0')
         self.assertRaises(bs.IdConflict, mgr.get_group_by_gid, 1001)
+        g3 = mgr.get_group_by_gid(1003)
+        self.assertIsInstance(g3, bs.Group)
+        g4 = mgr.get_group_by_gid(1004)
+        self.assertIsInstance(g4, bs.Group)
+        g5 = mgr.get_group_by_gid(1005)
+        self.assertIsInstance(g5, bs.Group)
 
     def test_create_group(self):
         self.fs.create_file('/nowhere/etc/group', contents=dedent("""
