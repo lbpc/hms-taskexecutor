@@ -114,7 +114,7 @@ class UnixAccountProcessor(ResProcessor):
                                'to: {2}'.format(self.resource.name, self.op_resource.uid, self.resource.uid))
                 self.service.change_uid(self.resource.name, self.resource.uid)
             self.service.set_shell(self.resource.name,
-                                   {True: self.service.default_shell, False: None}[switched_on])
+                                   {True: self.service.default_shell, False: self.service.disabled_shell}[switched_on])
             if not self.extra_services.mta:
                 raise ResourceProcessingError(f'Cannot update sendmail for user {self.resource.name}, no MTA service')
             if self.resource.sendmailAllowed:
