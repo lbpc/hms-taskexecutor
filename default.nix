@@ -101,6 +101,7 @@ in buildLayeredImage rec {
     quota
     restic
     rsync
+    shadow
     te
   ];
   topLayer = te;
