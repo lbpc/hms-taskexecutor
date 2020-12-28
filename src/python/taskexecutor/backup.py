@@ -79,7 +79,7 @@ class ResticBackup(Backuper):
         restic = CONFIG.restic.binary_path if os.path.exists(rgetattr(CONFIG, 'restic.binary_path', '')) else shutil.which('restic')
         base_cmd = ("RESTIC_PASSWORD={0.password} "
                     "{1} -r rest:http://restic:{0.password}@{0.host}:{0.port}/{2} ".format(CONFIG.restic, restic, repo))
-        backup_cmd = "backup {0} {1}".format("".join((" -e {}".format(shlex.quote(e)) for e in exclude)), dir)
+        backup_cmd = "backup --cache-dir=/root/.cache/restic --cleanup-cache {0} {1}".format("".join((" -e {}".format(shlex.quote(e)) for e in exclude)), dir)
         code, stdout, stderr = exec_command(base_cmd + "init", raise_exc=False)
         if code > 0 and not stderr.rstrip().endswith("already exists"):
             raise BackupError("Restic error: {}".format(stderr.strip()))

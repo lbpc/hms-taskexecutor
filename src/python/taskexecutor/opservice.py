@@ -578,7 +578,7 @@ class HttpServer(WebServer, DockerService):
 class SharedAppServer(WebServer, ApplicationServer, DockerService):
     def __init__(self, name, spec):
         super().__init__(name, spec)
-        self._config_base_path = os.path.join("/etc", self.name)
+        self._config_base_path = os.path.join("/opt", self.name)
         self._sites_conf_path = os.path.join(self._config_base_path, "sites-available")
         self.security_level = getattr(getattr(self.spec, "instanceProps", None), "security_level", "default")
 
@@ -657,7 +657,7 @@ class Postfix(DockerService):
 class Apache(WebServer, ApplicationServer, UpstartService):
     def __init__(self, name, spec):
         super().__init__(name, spec)
-        self._config_base_path = os.path.join("/etc", self.name)
+        self._config_base_path = os.path.join("/opt", self.name)
         self.static_base_path = CONFIG.nginx.static_base_path
         self.log_base_path = os.path.join("/var/log", self.name)
         self.run_base_path = os.path.join("/var/run", self.name)
@@ -675,7 +675,7 @@ class Apache(WebServer, ApplicationServer, UpstartService):
 class MySQL(DatabaseServer, OpService):
     def __init__(self, name, spec):
         super().__init__(name, spec)
-        self._config_base_path = "/etc/mysql"
+        self._config_base_path = "/opt/mysql"
         self._dbclient = None
         self._full_privileges = CONFIG.mysql.common_privileges + CONFIG.mysql.write_privileges
         self._ignored_config_variables = CONFIG.mysql.ignored_config_variables
