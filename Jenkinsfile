@@ -12,7 +12,7 @@ buildWebService(
 
         if (TAG == "master") {
             parallelCall (
-                nodeLabels: ["web"],
+                nodeLabels: ["web19"],
                 procedure: { nodeLabels ->
                     sh (["sudo -n /usr/bin/docker pull docker-registry.intr/hms/taskexecutor:$TAG",
                          "sudo -n /sbin/stop taskexecutor", // Always returns true.
