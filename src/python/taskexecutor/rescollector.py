@@ -260,8 +260,8 @@ class WebsiteCollector(ResCollector):
     def get_property(self, property_name, cache_ttl=0):
         if property_name == 'serviceId':
             for service in cnstr.get_application_servers():
-                if len(service.get_website_configs(self.resource)) > 0:
-                    return service.spec.id
+                for config in service.get_website_configs(self.resource):
+                    if config.exists: return service.spec.id
 
 
 class RedirectCollector(ResCollector):
