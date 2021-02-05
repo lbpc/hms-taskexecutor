@@ -5,22 +5,4 @@ buildWebService(
     testHook: { args ->
         sh "nix-shell -p python37Packages.pylint --run 'pylint -E --disable=C0111,E1101 src/python/taskexecutor/__main__.py'"
     },
-
-    postPush: {
-        // XXX: It's not used by Jenkins but could be useful for manual deploy.
-        String SCRIPT_DEPLOY_WEB_RPOD = readFile "deploy/web/prod.sh"
-
-        if (TAG == "master") {
-            parallelCall (
-                nodeLabels: ["web19"],
-                procedure: { nodeLabels ->
-                    sh (["sudo -n /usr/bin/docker pull docker-registry.intr/hms/taskexecutor:$TAG",
-                         "sudo -n /sbin/stop taskexecutor", // Always returns true.
-                         "sleep 5", // Wait until service stops.
-                         "sudo -n /sbin/start taskexecutor"].join("; "))
-                    "docker-registry.intr/hms/taskexecutor:$TAG deployed to web."
-                }
-            )
-        }
-    }
 )
