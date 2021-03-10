@@ -80,6 +80,9 @@ class ResourceBuilder:
                         LOGGER.debug(f'{resource.name} service depends on {req_r_type}')
                         required_resources.extend([(req_r_type, r) for r in
                                                    api.resource(req_r_type).filter(serviceId=resource.id).get() or []])
+            elif self._res_type == 'database':
+                LOGGER.debug('database depends on database-user')
+                required_resources.extend([('database-user', u) for u in resource.databaseUsers])
         return [r for r in required_resources if r[1].switchedOn]
 
     def get_affected_resources(self, resource=None):
