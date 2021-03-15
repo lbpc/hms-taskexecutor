@@ -1,6 +1,4 @@
-{ ref ? "master" }:
-
-with import (builtins.fetchGit {
+{ pkgs ? import (builtins.fetchGit {
   name = "nixpkgs-19.09-2020-02-27";
   url = "https://github.com/nixos/nixpkgs.git";
   rev = "ce9f1aaa39ee2a5b76a9c9580c859a74de65ead5";
@@ -9,16 +7,18 @@ with import (builtins.fetchGit {
   overlays = [
     (import (builtins.fetchGit {
       url = "git@gitlab.intr:_ci/nixpkgs.git";
-      inherit ref;
+      ref = "master";
     }))
   ];
-};
+} }:
+
+with pkgs;
 
 let
   inherit (dockerTools) buildLayeredImage;
   inherit (lib) firstNChars mkPythonPath dockerRunCmd;
   inherit (builtins) getEnv;
-  te = callPackage ./te.nix { inherit ref; };
+  te = callPackage ./te.nix { inherit pkgs; };
   gitaskpass = stdenv.mkDerivation {
     name = "gitaskpass";
     src = ./src/c/gitaskpass;
