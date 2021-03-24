@@ -150,8 +150,7 @@ class UnixAccountProcessor(ResProcessor):
                                                          'UnixAccount(id={0.id}, '
                                                          'accountId={0.accountId}, '
                                                          'writable={0.writable})'.format(self.resource))
-            if not self.resource.infected:
-                ProcessWatchdog.get_uids_queue().put(-self.resource.uid)
+            ProcessWatchdog.get_uids_queue().put(self.resource.uid * (int(self.resource.infected) * 2 - 1))
             LOGGER.info("Creating 'logs' directory")
             logs_path = os.path.join(self.resource.homeDir, 'logs')
             os.makedirs(logs_path, mode=0o755, exist_ok=True)
