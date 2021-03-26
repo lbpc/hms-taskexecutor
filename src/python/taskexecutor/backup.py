@@ -92,7 +92,8 @@ class ResticBackup(Backuper):
         except IndexError:
             LOGGER.warn("{} snapshotted successfully, but no snapshot ID found in stdout, "
                         "STDOUT: {} STDERR: {}".format(repo, stdout.strip(), stderr.strip()))
-        code, stdout, stderr = self._run_expecting_restic_lock(base_cmd, "forget --keep-within 31d -g paths")
+        keep_days = rgetattr(CONFIG, 'restic.keep_days')
+        code, stdout, stderr = self._run_expecting_restic_lock(base_cmd, f'forget --keep-within {keep_days}d -g paths')
         if code > 0:
             LOGGER.warn("Failed to forget old snapshots for repo {}, "
                         "STDOUT: {} STDERR: {}".format(repo, stdout, stderr))
