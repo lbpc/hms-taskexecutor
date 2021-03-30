@@ -10,7 +10,12 @@
       ref = "master";
     }))
   ];
-} }:
+}
+, certificates ? builtins.fetchGit {
+  url = "git@gitlab.intr:office/ssl-certificates.git";
+  ref = "master";
+}
+}:
 
 with pkgs;
 
@@ -33,11 +38,6 @@ let
     hostname = "$(hostname -s)";
     devices = [ "$(grep '/home ' /proc/mounts | cut -d' ' -f1)" ];
     volumes = [
-      ({
-        type = "bind";
-        source = "/run/docker.sock";
-        target = "/var/run/docker.sock";
-      })
       ({
         type = "bind";
         source = "/home";
@@ -118,7 +118,14 @@ in buildLayeredImage rec {
       "TZDIR=${tzdata}/share/zoneinfo"
       "LOCALE_ARCHIVE_2_27=${locale}/lib/locale/locale-archive"
       "LOCALE_ARCHIVE=${locale}/lib/locale/locale-archive"
+      "DOCKER_CERT_PATH=/root/.docker"
     ];
     Labels = { "ru.majordomo.docker.cmd" = dockerRunCmd dockerArgHints "${name}:${tag}"; };
   };
+  extraCommands = ''
+    mkdir -p root/.docker
+    install -m400 ${certificates}/Majordomo_LLC_Root_CA.crt root/.docker/ca.pem
+    install -m400 ${certificates}/ssl/web.intr.pem root/.docker/cert.pem
+    install -m400 ${certificates}/ssl/web.intr.key root/.docker/key.pem
+  '';
 }

@@ -12,9 +12,10 @@
       flake = false;
     };
     majordomo.url = "git+https://gitlab.intr/_ci/nixpkgs";
+    ssl-certificates.url = "git+ssh://git@gitlab.intr/office/ssl-certificates";
   };
 
-  outputs = { self, majordomo, nixpkgs-19-09, nixpkgs-unstable, ... }:
+  outputs = { self, majordomo, nixpkgs-19-09, nixpkgs-unstable, ssl-certificates, ... }:
     let
       pkgs-unstable = import nixpkgs-unstable { inherit system; };
       system = "x86_64-linux";
@@ -41,11 +42,17 @@
       };
       packages.${system} =
         let
-          pkgs = import nixpkgs-19-09 { inherit system; };
+          pkgs = import nixpkgs-19-09 {
+            inherit system;
+            overlays = [ majordomo.overlay ];
+          };
         in {
           te = pkgs.callPackage ./te.nix { inherit pkgs; };
         } // {
-          container = pkgs.callPackage ./default.nix { inherit pkgs; };
+          container = pkgs.callPackage ./default.nix {
+            inherit pkgs;
+            inherit (ssl-certificates.packages.${system}) certificates;
+          };
           deploy = majordomo.outputs.deploy { tag = "hms/taskexecutor"; };
         };
       defaultPackage.${system} = self.packages.${system}.container;
