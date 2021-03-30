@@ -23,7 +23,21 @@
       inherit (pkgs) lib;
     in {
       devShell.${system} = pkgs-unstable.mkShell {
-        buildInputs = [ pkgs-unstable.nixUnstable ];
+        buildInputs = [ pkgs-unstable.nixUnstable ] ++ (with pkgs; with pkgs.python37mj.pkgs; with callPackage ./pypkgs.nix { inherit pkgs; }; [
+          kombu
+          clamd
+          PyMySQL
+          jinja2
+          schedule
+          psutil
+          pyaml
+          docker
+          pg8000
+          requests
+          alerta
+          attrs
+          giturlparse
+        ]);
       };
       packages.${system} =
         let
