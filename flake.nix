@@ -46,8 +46,9 @@
             inherit system;
             overlays = [ majordomo.overlay ];
           };
-        in {
+        in rec {
           te = pkgs.callPackage ./te.nix { inherit pkgs; };
+          pythonWithTaskexecutor = pkgs.python37mj.withPackages (ps: (with ps; [ te ]));
         } // {
           container = pkgs.callPackage ./default.nix {
             inherit pkgs;
