@@ -90,11 +90,11 @@ def exec_command(command, shell='/bin/bash', pass_to_stdin=None, return_raw_stre
     if ret_code != 0 and raise_exc:
         raise CommandExecutionError(f"Failed to execute command '{command}'\n"
                                     f"CODE: {ret_code}\n"
-                                    f"STDOUT: {stdout.decode()}\n"
-                                    f"STDERR: {stderr.decode()}")
+                                    f"STDOUT: {stdout.decode(errors='replace')}\n"
+                                    f"STDERR: {stderr.decode(errors='replace')}")
     if not raise_exc:
-        return ret_code, stdout.decode(), stderr.decode()
-    return stdout.decode()
+        return ret_code, stdout.decode(errors='replace'), stderr.decode(errors='replace')
+    return stdout.decode(errors='replace')
 
 
 def set_apparmor_mode(mode, binary):
