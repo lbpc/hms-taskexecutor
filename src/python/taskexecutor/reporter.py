@@ -47,6 +47,7 @@ class AMQPReporter(Reporter):
     def create_report(self, task):
         self._task = task
         params = task.params
+        if 'ovsId' not in params: LOGGER.error('No ovsId in params')
         if 'success' in params: del params['success']
         self._report['operationIdentity'] = task.opid
         self._report['actionIdentity'] = task.actid
