@@ -13,7 +13,7 @@ from taskexecutor.httpsclient import ApiClient
 from taskexecutor.listener import AMQPListener
 from taskexecutor.logger import LOGGER
 from taskexecutor.task import Task, TaskState
-from taskexecutor.utils import set_thread_name, to_camel_case, ThreadPoolExecutorStackTraced
+from taskexecutor.utils import set_thread_name, to_camel_case, ThreadPoolExecutorStackTraced, to_namedtuple
 from taskexecutor.watchdog import ProcessWatchdog
 
 __all__ = ['Executor']
@@ -32,22 +32,20 @@ class UnknownTaskAction(Exception):
 
 
 class ResourceBuilder:
-    def __init__(self, res_type, obj_ref=''):
+    def __init__(self, res_type, resource=None, obj_ref=None):
         self._res_type = res_type
+        self._resource = resource
         self._obj_ref = obj_ref
-        self._resources = list()
+        self._resources = []
 
     @property
     def resources(self):
         if not self._resources:
-            obj_ref = urllib.parse.urlparse(self._obj_ref).path
             with ApiClient(**CONFIG.apigw) as api:
-                if obj_ref:
-                    LOGGER.debug(f'Fetching {self._res_type} resource by {obj_ref}')
-                    resource = api.get(obj_ref)
-                    if not resource:
-                        raise ResourceBuildingError(f'Failed to fetch resource by directly provided objRef: {obj_ref}')
-                    self._resources.append(resource)
+                if self._resource:
+                    self._resources.append(to_namedtuple(self._resource))
+                elif self._obj_ref:
+                    self._resources.append(api.get(urllib.parse.urlparse(self._obj_ref).path))
                 elif self._res_type in ('unix-account', 'mailbox'):
                     self._resources.extend(api.resource(self._res_type).filter(serverId=CONFIG.localserver.id).get())
                 elif self._res_type == 'service':
@@ -243,7 +241,9 @@ class Executor:
             LOGGER.warning(f'Currently processed task had failed {failcount} times before, sleeping for {delay}s')
             time.sleep(delay)
         if not task.params.get('resource'):
-            res_builder = ResourceBuilder(task.res_type, task.params.get('objRef'))
+            res_builder = ResourceBuilder(task.res_type,
+                                          task.params.get('ovs', {}).get('resource'),
+                                          task.params.get('objRef'))
             if len(res_builder.resources) == 0:
                 LOGGER.info(f'There is no {task.res_type} resources here')
                 return

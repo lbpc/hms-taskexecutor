@@ -233,12 +233,14 @@ def dict_merge(target, *args, overwrite=False):
     return target
 
 
-def to_namedtuple(maybe_mapping):
-    if isinstance(maybe_mapping, Mapping):
-        for k, v in maybe_mapping.items():
-            maybe_mapping[k] = to_namedtuple(v)
-        return namedtuple_from_mapping(maybe_mapping)
-    return maybe_mapping
+def to_namedtuple(obj):
+    if isinstance(obj, Mapping):
+        for k, v in obj.items():
+            obj[k] = to_namedtuple(v)
+        return namedtuple_from_mapping(obj)
+    elif isinstance(obj, list):
+        return [to_namedtuple(e) for e in obj]
+    return obj
 
 
 def cast_to_numeric_recursively(dct):
