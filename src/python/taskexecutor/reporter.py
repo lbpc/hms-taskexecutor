@@ -53,7 +53,10 @@ class AMQPReporter(Reporter):
         self._report['actionIdentity'] = task.actid
         self._report['objRef'] = params['objRef']
         self.next_te = params.pop('oldServerName', None)
-        self._report['params'] = {'success': bool(task.state ^ TaskState.FAILED)}
+        self._report['params'] = {
+            'success': bool(task.state ^ TaskState.FAILED),
+            'ovsId': params.get('ovsId')
+        }
         if 'last_exception' in params:
             err_message = params['last_exception'].get('message')
             err_class = params['last_exception'].get('class')
