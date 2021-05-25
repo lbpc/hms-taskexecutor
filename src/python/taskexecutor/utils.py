@@ -355,6 +355,8 @@ def asdict(obj):
 
 
 def asdict_rec(obj):
+    if isinstance(obj, list):
+        return [asdict_rec(e) for e in obj]
     res = {}
     for k, v in asdict(obj).items():
         try:
