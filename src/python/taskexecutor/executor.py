@@ -13,7 +13,7 @@ from taskexecutor.httpsclient import ApiClient
 from taskexecutor.listener import AMQPListener
 from taskexecutor.logger import LOGGER
 from taskexecutor.task import Task, TaskState
-from taskexecutor.utils import set_thread_name, to_camel_case, ThreadPoolExecutorStackTraced, to_namedtuple
+from taskexecutor.utils import set_thread_name, to_camel_case, to_lower_dashed, ThreadPoolExecutorStackTraced, to_namedtuple
 from taskexecutor.watchdog import ProcessWatchdog
 
 __all__ = ['Executor']
@@ -207,16 +207,21 @@ class Executor:
         sequence = []
         processor = cnstr.get_resprocessor(res_type, resource, params)
         res_builder = ResourceBuilder(res_type)
+        required_resources = res_builder.get_required_resources(resource) + [
+            (to_lower_dashed(e.pop('@type')), e) for e in params.get('ovs', {}).get('requiredResources', [])
+        ]
         if not params.get('isolated'):
-            for req_r_type, req_resource in res_builder.get_required_resources(resource):
+            for req_r_type, req_resource in required_resources:
                 req_r_params = {'required_for': (res_type, resource)}
                 req_r_params.update(params.get('paramsForRequiredResources', {}))
                 sequence.extend(self.build_processing_sequence(req_r_type, req_resource, 'update', req_r_params))
         sequence.append((processor, getattr(processor, action)))
         if not params.get('isolated'):
             causer_resource = resource if 'required_for' not in params.keys() else params['required_for'][1]
-            for aff_r_type, aff_resource in [(t, r) for t, r in res_builder.get_affected_resources(resource)
-                                             if r.id != causer_resource.id]:
+            affected_resources = res_builder.get_affected_resources(resource) + [
+                (to_lower_dashed(e.pop('@type')), e) for e in params.get('ovs', {}).get('affectedResources', [])
+            ]
+            for aff_r_type, aff_resource in [(t, r) for t, r in affected_resources if r.id != causer_resource.id]:
                 aff_r_params = {'caused_by': (res_type, resource)}
                 aff_r_params.update(params.get('paramsForAffectedResources', {}))
                 processor = cnstr.get_resprocessor(aff_r_type, aff_resource, params=aff_r_params)
