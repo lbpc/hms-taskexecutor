@@ -103,7 +103,7 @@ class RsyncDataFetcher(DataFetcher):
     def _mount_restic_repo(self):
         url = "http://{}/_mount/{}".format(self.src_host, self.restic_repo)
         LOGGER.info("Requesting restic repo mount: {}".format(url))
-        res = requests.post(url, params={"wait": True, "timeout": CONFIG.backup.server.mount_timeout})
+        res = requests.post(url, timeout=CONFIG.backup.server.mount_timeout + 3, params={"wait": True, "timeout": CONFIG.backup.server.mount_timeout})
         if not res.ok:
             raise DataFetchingError("Failed to mount Restic repo: {}".format(json.loads(res.text).get("error")))
 
