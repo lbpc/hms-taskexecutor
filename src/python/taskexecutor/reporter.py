@@ -1,5 +1,6 @@
 import abc
 import json
+import re
 
 import alertaclient.api as alerta
 from kombu import Connection, Exchange, Queue
@@ -42,6 +43,12 @@ class AMQPReporter(Reporter):
         if class_name == 'ContainerCommandExecutionError' and user_defined_cmds: return text
         if class_name == 'ConatinerCommandTimedOut':
             return f'Выполнение команды прервано после истечения тайм-аута: {text}'
+        if class_name == 'CommandExecutionError':
+            rsync_notfound = re.findall(r'^STDERR: rsync: change_dir '
+                                        r'"/slice/.+/.+/ids/[a-z0-9]+(/.+)"'
+                                        r'.+failed: No such file or directory', text, flags=re.MULTILINE)
+            if rsync_notfound:
+                return f'Путь {rsync_notfound[0]} не найден в архиве'
         return 'Внутренняя ошибка сервера'
 
     def create_report(self, task):
