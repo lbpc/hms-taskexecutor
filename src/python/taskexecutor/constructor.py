@@ -177,7 +177,8 @@ def get_resprocessor(resource_type, resource, params=None):
                     'ssl-certificate': SslCertificateProcessor,
                     'mailbox': MailboxProcessor,
                     'resource-archive': ResourceArchiveProcessor,
-                    'redirect': RedirectProcessor}.get(resource_type)
+                    'redirect': RedirectProcessor,
+                    'domain': DomainProcessor}.get(resource_type)
     if not ResProcessor: raise ClassSelectionError(f'Unknown resource type: {resource_type}')
     op_service = get_opservice_by_resource(resource, resource_type)
     processor = ResProcessor(resource, op_service, params=params or {})
@@ -197,7 +198,8 @@ def get_rescollector(resource_type, resource):
                     'ssl-certificate': SslCertificateCollector,
                     'service': ServiceCollector,
                     'resource-archive': ResourceArchiveCollector,
-                    'redirect': RedirectCollector}.get(resource_type)
+                    'redirect': RedirectCollector,
+                    'domain': DomainCollector}.get(resource_type)
     if not ResCollector: raise ClassSelectionError(f'Unknown resource type: {resource_type}')
     op_service = get_opservice_by_resource(resource, resource_type)
     collector = ResCollector(resource, op_service)

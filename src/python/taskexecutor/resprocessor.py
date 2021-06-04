@@ -560,6 +560,17 @@ class RedirectProcessor(ResProcessor):
         self.service.reload()
 
 
+class DomainProcessor(ResProcessor):
+    def create(self):
+        pass
+
+    def update(self):
+        pass
+
+    def delete(self):
+        pass
+
+
 def build_vhosts(resource):
     resource = asdict(resource)
     domains = resource.get('domains', list(filter(None, [resource.get('domain')])))
