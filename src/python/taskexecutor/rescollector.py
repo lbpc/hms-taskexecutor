@@ -302,3 +302,12 @@ class ResourceArchiveCollector(ResCollector):
 
     def get_property(self, property_name, cache_ttl=0):
         return
+
+
+class DomainCollector(ResCollector):
+    @property
+    def necessary_properties(self):
+        return ()
+
+    def get_property(self, property_name, cache_ttl=0):
+        return
