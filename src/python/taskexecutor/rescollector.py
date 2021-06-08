@@ -14,7 +14,7 @@ from taskexecutor.utils import synchronized, asdict
 from taskexecutor.watchdog import ProcessWatchdog
 
 __all__ = ['UnixAccountCollector', 'DatabaseUserCollector', 'DatabaseCollector', 'MailboxCollector', 'WebsiteCollector',
-           'SslCertificateCollector', 'ServiceCollector', 'ResourceArchiveCollector', 'RedirectCollector']
+           'SslCertificateCollector', 'ServiceCollector', 'ResourceArchiveCollector', 'RedirectCollector', 'DomainCollector']
 
 
 class ResCollector(metaclass=abc.ABCMeta):
