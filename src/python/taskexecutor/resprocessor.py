@@ -13,7 +13,7 @@ from taskexecutor.utils import asdict, exec_command, synchronized, to_snake_case
 from taskexecutor.watchdog import ProcessWatchdog
 
 __all__ = ['UnixAccountProcessor', 'DatabaseUserProcessor', 'DatabaseProcessor', 'MailboxProcessor', 'WebSiteProcessor',
-           'SslCertificateProcessor', 'ServiceProcessor', 'ResourceArchiveProcessor', 'RedirectProcessor']
+           'SslCertificateProcessor', 'ServiceProcessor', 'ResourceArchiveProcessor', 'RedirectProcessor', 'DomainProcessor']
 
 
 class ResourceValidationError(Exception):
