@@ -154,6 +154,8 @@ def get_opservice_by_resource(resource, resource_type):
         service = get_opservice(resource)
     elif resource_type == 'ssl-certificate':
         service = get_http_proxy_service()
+    elif resource_type == 'domain':
+        service = None
     else:
         raise OpServiceNotFound(f"Cannot find operational service for given '{resource_type}' resource: {resource}")
     return service
