@@ -208,7 +208,7 @@ class Executor:
         processor = cnstr.get_resprocessor(res_type, resource, params)
         res_builder = ResourceBuilder(res_type)
         required_resources = res_builder.get_required_resources(resource) + [
-            (to_lower_dashed(e.get('@type')), to_namedtuple(e))
+            (to_lower_dashed(e.get('@type', 'Unknown').replace('WebSite', 'Website')), to_namedtuple(e))
              for e in params.get('ovs', {}).get('requiredResources', [])
         ]
         if not params.get('isolated'):
@@ -220,7 +220,7 @@ class Executor:
         if not params.get('isolated'):
             causer_resource = resource if 'required_for' not in params.keys() else params['required_for'][1]
             affected_resources = res_builder.get_affected_resources(resource) + [
-                (to_lower_dashed(e.get('@type')), to_namedtuple(e))
+                (to_lower_dashed(e.get('@type', 'Unknown').replace('WebSite', 'Website')), to_namedtuple(e))
                  for e in params.get('ovs', {}).get('affectedResources', [])
             ]
             for aff_r_type, aff_resource in [(t, r) for t, r in affected_resources if r.id != causer_resource.id]:
