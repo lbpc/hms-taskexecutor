@@ -156,6 +156,12 @@ class Executor:
     def _forget_failed_task(cls, task):
         del cls.__failed_tasks[task.actid]
 
+    @staticmethod
+    def related_resources(params, relation):
+        return [(to_lower_dashed(e.get('@type', 'Unknown').replace('WebSite', 'Website')),
+                 to_namedtuple(copy.deepcopy(e)))
+                for e in params.get('ovs', {}).get(f'{relation}Resources', [])]
+
     def select_pool(self, task):
         return {True: self._query_task_pool,
                 task.action in ('create', 'update', 'delete'): self._command_task_pool,
@@ -207,10 +213,7 @@ class Executor:
         sequence = []
         processor = cnstr.get_resprocessor(res_type, resource, params)
         res_builder = ResourceBuilder(res_type)
-        required_resources = res_builder.get_required_resources(resource) + [
-            (to_lower_dashed(e.get('@type', 'Unknown').replace('WebSite', 'Website')), to_namedtuple(e))
-             for e in params.get('ovs', {}).get('requiredResources', [])
-        ]
+        required_resources = res_builder.get_required_resources(resource) + self.related_resources(params, 'required')
         if not params.get('isolated'):
             for req_r_type, req_resource in required_resources:
                 req_r_params = {'required_for': (res_type, resource)}
@@ -219,10 +222,7 @@ class Executor:
         sequence.append((processor, getattr(processor, action)))
         if not params.get('isolated'):
             causer_resource = resource if 'required_for' not in params.keys() else params['required_for'][1]
-            affected_resources = res_builder.get_affected_resources(resource) + [
-                (to_lower_dashed(e.get('@type', 'Unknown').replace('WebSite', 'Website')), to_namedtuple(e))
-                 for e in params.get('ovs', {}).get('affectedResources', [])
-            ]
+            affected_resources = res_builder.get_affected_resources(resource) + self.related_resources(params, 'affected')
             for aff_r_type, aff_resource in [(t, r) for t, r in affected_resources if r.id != causer_resource.id]:
                 aff_r_params = {'caused_by': (res_type, resource)}
                 aff_r_params.update(params.get('paramsForAffectedResources', {}))
