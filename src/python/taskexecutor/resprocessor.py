@@ -107,7 +107,8 @@ class UnixAccountProcessor(ResProcessor):
     @synchronized
     def update(self):
         if self.op_resource:
-            switched_on = self.resource.switchedOn and not self.params.get('forceSwitchOff')
+            switched_on = self.params.get('forceSwitchOn',
+                                          self.resource.switchedOn and not self.params.get('forceSwitchOff'))
             LOGGER.info('Modifying user {0.name}'.format(self.resource))
             if self.resource.uid != self.op_resource.uid:
                 LOGGER.warning('UnixAccount {0} UID changed from {1} '
@@ -240,7 +241,9 @@ class WebSiteProcessor(ResProcessor):
 
     @synchronized
     def update(self):
-        if not self.resource.switchedOn:
+        switched_on = self.params.get('forceSwitchOn',
+                                      self.resource.switchedOn and not self.params.get('forceSwitchOff'))
+        if not switched_on:
             for service in (self.service, self.extra_services.http_proxy):
                 for each in service.get_website_configs(self.resource): each.delete()
                 if not self._without_reload:
@@ -331,7 +334,9 @@ class DatabaseUserProcessor(ResProcessor):
 
     def update(self):
         db_type = self.service.__class__.__name__
-        if not self.resource.switchedOn or self.params.get('forceSwitchOff'):
+        switched_on = self.params.get('forceSwitchOn',
+                                      self.resource.switchedOn and not self.params.get('forceSwitchOff'))
+        if not switched_on:
             LOGGER.info(f'User {self.resource.name} is switched off, deleting')
             self.delete()
             return
@@ -549,7 +554,9 @@ class RedirectProcessor(ResProcessor):
         for each in configs: each.confirm()
 
     def update(self):
-        if self.resource.switchedOn:
+        switched_on = self.params.get('forceSwitchOn',
+                                      self.resource.switchedOn and not self.params.get('forceSwitchOff'))
+        if switched_on:
             self.create()
         else:
             self.delete()
@@ -574,7 +581,8 @@ class DomainProcessor(ResProcessor):
 def build_vhosts(resource):
     resource = asdict(resource)
     domains = resource.get('domains', list(filter(None, [resource.get('domain')])))
-    i1, i2 = tee((each, each.sslCertificate and each.sslCertificate.switchedOn) for each in domains if each.switchedOn)
+    i1, i2 = tee((each, each.sslCertificate and each.sslCertificate.switchedOn)
+                 for each in domains if each.switchedOn and not each.infested)
     vhosts = [dict(resource, domains=[domain]) for domain, has_ssl in i1 if has_ssl]
     non_ssl_domains = [domain for domain, has_ssl in i2 if not has_ssl]
     if non_ssl_domains: vhosts.append(dict(resource, domains=non_ssl_domains))
