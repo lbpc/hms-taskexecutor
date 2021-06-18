@@ -216,7 +216,7 @@ class Executor:
         required_resources = res_builder.get_required_resources(resource) + self.related_resources(params, 'required')
         if not params.get('isolated'):
             for req_r_type, req_resource in required_resources:
-                req_r_params = {'required_for': (res_type, resource)}
+                req_r_params = {'required_for': (res_type, resource), 'forceSwitchOn': True}
                 req_r_params.update(params.get('paramsForRequiredResources', {}))
                 sequence.extend(self.build_processing_sequence(req_r_type, req_resource, 'update', req_r_params))
         sequence.append((processor, getattr(processor, action)))
@@ -224,7 +224,7 @@ class Executor:
             causer_resource = resource if 'required_for' not in params.keys() else params['required_for'][1]
             affected_resources = res_builder.get_affected_resources(resource) + self.related_resources(params, 'affected')
             for aff_r_type, aff_resource in [(t, r) for t, r in affected_resources if r.id != causer_resource.id]:
-                aff_r_params = {'caused_by': (res_type, resource)}
+                aff_r_params = {'caused_by': (res_type, resource), 'forceSwitchOn': True}
                 aff_r_params.update(params.get('paramsForAffectedResources', {}))
                 processor = cnstr.get_resprocessor(aff_r_type, aff_resource, params=aff_r_params)
                 sequence.append((processor, getattr(processor, 'update')))
