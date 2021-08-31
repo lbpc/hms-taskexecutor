@@ -22,7 +22,7 @@ from taskexecutor.dbclient import MySQLClient, PostgreSQLClient, DBError
 from taskexecutor.httpsclient import ApiClient, GitLabClient
 from taskexecutor.logger import LOGGER
 
-__all__ = ["SomethingInDocker", "Cron", "Postfix", "HttpServer", "Apache", "SharedAppServer", "PersonalAppServer",
+__all__ = ["SomethingInDocker", "Cron", "Postfix", "SshD", "HttpServer", "Apache", "SharedAppServer", "PersonalAppServer",
            "MySQL", "PostgreSQL", "PersonalKVStore"]
 
 
@@ -652,6 +652,19 @@ class Postfix(DockerService):
             LOGGER.warning(f'{self.name} is down, trying to start it')
             self.start()
         self.exec_defined_cmd("disable-uid-cmd", uid=uid)
+
+
+class SshD(DockerService):
+    def start(self):
+        uid = utils.rgetattr(CONFIG, 'sshd.uid', 103)
+        home = utils.rgetattr(CONFIG, 'sshd.home', '/var/run/sshd')
+        mgr = bs.LinuxUserManager()
+        sshd_user = mgr.get_user('sshd')
+        if not sshd_user:
+            mgr.create_user('sshd',
+                            uid=uid, home_dir=home, pass_hash=None, shell=mgr.disabled_shell)
+        elif sshd_user.uid != uid:
+            mgr.change_uid('sshd', uid)
 
 
 class Apache(WebServer, ApplicationServer, UpstartService):

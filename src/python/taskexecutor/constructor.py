@@ -106,6 +106,7 @@ def get_opservice(service):
             superv == 'docker': SomethingInDocker,
             t_name == 'CronD': Cron,
             t_name == 'Postfix': Postfix,
+            t_name == 'SshD': SshD,
             t_name == 'HttpServer': HttpServer,
             t_name == 'ApplicationServer': Apache,
             t_name == 'ApplicationServer' and superv == 'docker': SharedAppServer,
